@@ -1,23 +1,34 @@
-# Background Desktop Saver Game
+# Background Desktop Saver + Desktop Buddy
 
-A tiny **Windows desktop background game** that runs behind your desktop icons (WorkerW layer) like a live screen saver.
+This repository now includes two Windows desktop experiments:
 
-## What it does
-- Creates a window parented to the desktop background layer.
-- Renders a simple paddle-and-ball mini-game.
-- Lets you interact with mouse movement and clicks.
+- `desktop_saver_game.py`: a simple game attached to desktop background layering.
+- `desktop_buddy.py`: a staged virtual desktop buddy prototype with transparent overlay rendering, state machine behavior, and local SQLite memory.
 
-## Controls
-- **Move mouse**: move paddle
-- **Left click**: nudge ball upward
-- **Esc**: quit
+## Desktop Buddy stages implemented
+
+1. **Stage 1: Transparent overlay foundation**
+   - Borderless layered window.
+   - Click-through passive mode vs interactive mode.
+2. **Stage 2: Animation + finite state machine**
+   - States: `IDLE`, `WALKING`, `INTERACTING`, `WORKING`, `SLEEPING`.
+   - Animated sprite-like circle and simple motion loop.
+3. **Stage 3: Local memory and adaptation**
+   - SQLite database `buddy_memory.sqlite3`.
+   - Logs interaction events and adapts walking probability.
+4. **Stage 4: Polish hooks**
+   - CPU-throttled render loop.
+   - Status text and state-aware rendering.
 
 ## Run
+
 ```bash
-python desktop_saver_game.py
+python desktop_buddy.py
 ```
 
+Press `Esc` to quit.
+
 ## Notes
-- Target platform: **Windows 10/11**.
-- This uses Win32 APIs via Python `ctypes`.
-- On some desktop configurations, click behavior can vary due to how Explorer layers windows/icons.
+
+- Target platform: **Windows 10/11** (uses Win32 via `ctypes`).
+- Current environment here may not display GUI unless running on a Windows desktop session.
