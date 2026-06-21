@@ -1,39 +1,35 @@
-ref,qty,part,value,package,function,mfr_pn,est_unit_usd_qty25,notes
-U1,1,nRF52840 module,-,Raytac MDBT50Q-1MV2,Radio+MCU (pre-certified),MDBT50Q-1MV2,8.50,Pre-cert FCC/IC/CE; integrates RF+DCDC+antenna
-U2,1,6-axis IMU w/ ML core,-,LGA-14 2.5x3.0,Always-on gesture watch,LSM6DSV16X,2.20,On-sensor MLC/FSM; the power+accuracy keystone
-U3,1,Haptic driver,-,VSSOP-10,LRA/ERM haptic,DRV2605LDGSR,1.30,Auto-resonance LRA; omit in ERM cost-down alt
-LRA1,1,Linear resonant actuator,-,coin,Nudge haptic,VLV101040A,1.60,~10mm coin LRA; or ERM alt motor
-U4,1,LiPo charger,-,SOT-23-5,Charge LiPo single cell,MCP73831T-2ACI/OT,0.45,Set Iset via R6
-BT1,1,LiPo cell + PCM,110mAh,pouch,Power,602030-class,3.00,Buy UN38.3-tested cell w/ protection
-J1,1,USB-C recept (proto) / pogo target,-,SMD,Charge/data,TYPE-C-31-M-12 / pogo 2pin,0.40,USB-C for proto; 2-pin pogo for sealed production
-J2,1,SWD header,1.27mm,5-pin,Program/debug,-,0.20,Tag-Connect alt to save space
-SW1,1,Tact button,-,SMD side,User input,-,0.10,Side-actuated for band
-LED1,1,LED charge,-,0402,Charge status,-,0.03,Optional
-LED2,1,LED status (or NeoPixel),-,0402 / 2020,Status,WS2812B-2020 (alt),0.15,Mono LED cheapest; RGB nicer
-Q1,1,N-MOSFET (ERM alt only),-,SOT-23,Motor drive,DMN2075U,0.10,Only in ERM cost-down variant
-Q2,1,P-FET load switch (opt),-,SOT-23,Batt-sense gating,-,0.10,Saves divider quiescent current
-D1,1,Schottky flyback (ERM alt),-,SOD-323,Motor flyback,-,0.05,ERM variant only
-D2,1,TVS/ESD,-,SOD-323,Charge input ESD,-,0.08,On VBUS/pogo input
-R1,1,Resistor,4.7k,0402,I2C pull-up SDA,-,0.01,
-R2,1,Resistor,4.7k,0402,I2C pull-up SCL,-,0.01,
-R6,1,Resistor,5k-10k,0402,Charge Iset,-,0.01,5k~200mA / 10k~100mA
-R7,1,Resistor,1k,0402,Charge LED,-,0.01,
-R8,1,Resistor,1M,0402,Batt sense top,-,0.01,
-R9,1,Resistor,1M,0402,Batt sense bottom,-,0.01,
-R10,1,Resistor,330,0402,Status LED,-,0.01,
-C1,1,Cap,100nF,0402,Module decouple,-,0.01,
-C2,1,Cap,1uF,0402,Module decouple,-,0.01,
-C3,1,Cap,4.7uF,0603,Module bulk,-,0.02,
-C4,1,Cap,1uF,0402,Charger in,-,0.01,
-C5,1,Cap,4.7uF,0603,Charger out/VBAT,-,0.02,
-C6,2,Cap,100nF,0402,IMU decouple,-,0.02,
-C7,1,Cap,1uF,0402,DRV decouple,-,0.01,
-C8,1,Cap,100nF,0402,Batt sense filter,-,0.01,
-C9,1,Cap,10uF,0805,DRV/motor bulk,-,0.03,
-C10,1,Cap,1uF,0402,DRV REG,-,0.01,
-C11,1,Cap,100nF,0402,Button debounce (opt),-,0.01,
-PCB,1,Rigid core PCB (4-layer),-,~20x35mm,Carrier,-,1.80,4-layer for clean RF ground; qty25 price
-BAND,1,TPU/silicone band + overmold,-,-,Enclosure,-,2.50,3D-printed mold proto; overmolded core
-MAGCHG,1,Magnetic pogo charge cable,-,-,Accessory,-,1.20,Ships with unit
-,,,,,,,,
-TOTAL_EST,,,,,,,~21.00,"Drops to ~$13-15 at qty 250+; ERM variant ~$1.5 cheaper"
+ref,qty,part,value,footprint,height_mm,function,mfr_pn,est_unit_usd_qty25,notes
+U1,1,nRF52840 module,-,Nudge:MDBT50Q-1MV2,1.0,Radio+MCU (pre-certified),MDBT50Q-1MV2,8.50,Slim castellated module; integrates RF+DCDC+antenna
+U2,1,6-axis IMU w/ ML core,-,Package_LGA:LGA-14_2.5x3mm_P0.5mm,0.75,Always-on gesture watch,LSM6DSV16X,2.20,On-sensor MLC/FSM; keystone for power+accuracy
+U3,1,Haptic driver,-,Package_SO:VSSOP-10_3x3mm_P0.5mm,1.0,LRA haptic,DRV2605LDGSR,1.30,Omit in ERM cost-down alt
+LRA1,1,LRA (slim Z-axis),-,Nudge:LRA_Z_8x3p2,3.2,Nudge actuator,G0832022 / VLV081040,1.60,Thin Z-LRA dominates stack; pick low-profile cell+LRA pair
+U4,1,LiPo charger,-,Package_TO_SOT_SMD:SOT-23-5,0.6,Charge LiPo,MCP73831T-2ACI/OT,0.45,Iset via R6
+BT1,1,LiPo cell + PCM,150mAh,Nudge:LiPo_503040,4.0,Power,503040-class,3.00,~4mm thin pouch; UN38.3-tested; thickness-driver
+J1,1,Pogo charge target (2-pin) / USB-C proto,-,Nudge:Pogo_2P,1.2,Charge,-,0.40,2-pin pogo for sealed slim build; USB-C only on proto
+J2,1,SWD (Tag-Connect),TC2030,Nudge:TagConnect_TC2030,0.0,Program/debug,TC2030-IDC,0.20,No connector body = slim; pads only
+SW1,1,Tact button (side),-,Nudge:SW_Side_2x4,1.0,User input,-,0.10,Low-profile side actuator
+LED1,1,LED charge (under-mold),-,LED_SMD:LED_0402_1005Metric,0.35,Charge status,-,0.03,Optional
+LED2,1,LED status,-,LED_SMD:LED_0402_1005Metric,0.35,Status,-,0.04,Mono; RGB optional
+R1,1,Res,4.7k,Resistor_SMD:R_0402_1005Metric,0.35,I2C pull-up SDA,-,0.01,
+R2,1,Res,4.7k,Resistor_SMD:R_0402_1005Metric,0.35,I2C pull-up SCL,-,0.01,
+R6,1,Res,5k,Resistor_SMD:R_0402_1005Metric,0.35,Charge Iset,-,0.01,5k~200mA
+R7,1,Res,1k,Resistor_SMD:R_0402_1005Metric,0.35,Charge LED,-,0.01,
+R8,1,Res,1M,Resistor_SMD:R_0402_1005Metric,0.35,Batt sense top,-,0.01,
+R9,1,Res,1M,Resistor_SMD:R_0402_1005Metric,0.35,Batt sense bottom,-,0.01,
+R10,1,Res,330,Resistor_SMD:R_0402_1005Metric,0.35,Status LED,-,0.01,
+C1,1,Cap,100nF,Capacitor_SMD:C_0402_1005Metric,0.5,Module decouple,-,0.01,
+C2,1,Cap,1uF,Capacitor_SMD:C_0402_1005Metric,0.5,Module decouple,-,0.01,
+C3,1,Cap,4.7uF,Capacitor_SMD:C_0603_1608Metric,0.8,Module bulk,-,0.02,
+C4,1,Cap,1uF,Capacitor_SMD:C_0402_1005Metric,0.5,Charger in,-,0.01,
+C5,1,Cap,4.7uF,Capacitor_SMD:C_0603_1608Metric,0.8,VBAT bulk,-,0.02,
+C6,2,Cap,100nF,Capacitor_SMD:C_0402_1005Metric,0.5,IMU decouple,-,0.02,
+C7,1,Cap,1uF,Capacitor_SMD:C_0402_1005Metric,0.5,DRV decouple,-,0.01,
+C8,1,Cap,100nF,Capacitor_SMD:C_0402_1005Metric,0.5,Batt sense filter,-,0.01,
+C9,1,Cap,10uF,Capacitor_SMD:C_0805_2012Metric,0.9,DRV/motor bulk,-,0.03,
+C10,1,Cap,1uF,Capacitor_SMD:C_0402_1005Metric,0.5,DRV REG,-,0.01,
+D2,1,TVS/ESD,-,Diode_SMD:D_SOD-323,0.95,Charge input ESD,-,0.08,On VBUS/pogo input
+BAIL1,1,Charm bail / lug (12 o'clock),-,molded-in / M2.5 boss,-,Charm attach point,-,0.30,"Slim loop molded into overmold; accepts clip + screw-on jiblets"
+PCB,1,Rigid core PCB (4-layer),-,~16x30mm,-,Carrier,-,1.80,Slim core; qty25 price
+BAND,1,TPU band + charm loops,-,-,-,Enclosure,-,2.50,3D-printed proto; loops around band for extra jiblets
+,,,,,,,,,
+TOTAL_EST,,,,,,~21,,~21.00,"Charm packs sold separately = recurring margin"

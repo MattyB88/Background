@@ -37,13 +37,16 @@ overmolding can actually build and ship a proof batch of 10–25 units.
 | Price | $129–149 | $79–99 target |
 | Data | Cloud-tied app | On-device first; sensitive data stays local |
 | Sealing | Standard | Overmolded core, sweat/splash sealed |
+| Look/feel | Clinical gadget | Slim (~6–7 mm) + charm bail → reads as jewelry |
+| Upsell | None | Charm "jiblet" packs = recurring high-margin revenue |
 
 ## The /goal — definition of "done = sellable"
 A linear, checkable path. Detail for each phase lives in the numbered docs.
 
 - [ ] **P0 Concept locked** — PRD, claims/regulatory stance, BOM target → `01_PRD.md`
 - [ ] **P1 Architecture** — block diagram, power budget, BLE spec → `02_ARCHITECTURE.md`
-- [ ] **P2 Electronics** — schematic netlist + BOM → `03_SCHEMATIC.md`, `04_BOM.csv`
+- [ ] **P2 Electronics** — schematic netlist + BOM → `03_SCHEMATIC.md`, `04_BOM.csv`, `nudge.net`, `diagrams/nudge_schematic.png`
+- [ ] **P2b Mechanical** — slim stack-up + charm/jiblet bail → `09_MECHANICAL.md`
 - [ ] **P3 Firmware** — BLE + IMU + haptic + power skeleton runs → `firmware/`
 - [ ] **P4 Gesture model** — Edge Impulse data → model ≥ target precision → `06_TEST_PLAN.md`
 - [ ] **P5 First boards** — panelized, PnP + reflow, hand-rework protos → `05_PROCESS_FLOW.md`
