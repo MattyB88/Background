@@ -1,157 +1,191 @@
-# AOI (Automated Optical Inspection) Program — Implementation Plan
+# AOI Program — Implementation Plan (v2)
 
-Goal: a robust, user-friendly desktop program that inspects **saved images** (from a
-Subascope / USB digital microscope, phone, flatbed scanner, or any camera) of PCBs or
-other parts, compares them to a known-good reference, and flags defects clearly.
+A self-improving, low-setup AOI (Automated Optical Inspection) program for **saved images**
+of PCBs from a **Suba Engineering Subascope 2K camera** (and any other camera).
+It covers three process stages and gets its setup directly from **Mycronic MY9 pick-and-place data**.
 
-Works offline, on Windows first (matches this repo), cross-platform where cheap.
+| Stage | What it checks | Priority |
+|---|---|---|
+| **Post-reflow** (main use) | Missing part, polarity/orientation, OCV/OCR, shift, bridges, tombstones | P1 |
+| **Pre-reflow (placed)** | Missing part, polarity, OCV/OCR, placement offset into the paste | P2 |
+| **Stencil print (SPI-lite)** | Paste present, paste area and offset, bridging, smear (2D only, no height) | P3 |
+
+All three share one board project (the same CAD/PnP data and fiducials); each stage adds its own inspection rules.
 
 ---
 
-## 1. Guiding principles
+## 1. Design goals
 
-1. **Image-source agnostic** – never assume a resolution, lighting, orientation or
-   file format. Normalise everything on import.
-2. **Golden-board first, AI second** – classic reference comparison works with a
-   single good image and zero training; ML is an optional upgrade once the user has data.
-3. **Never silently fail** – every image gets a verdict: PASS / FAIL / NEEDS REVIEW
-   (e.g. "couldn't align", "image too blurry"), with a reason.
-4. **Operator-friendly** – drag-and-drop, wizard-driven setup, big clear overlays,
-   one-click accept/reject that teaches the system.
-5. **Reproducible** – every inspection stores the settings, reference version and
-   results so any decision can be audited later.
+1. **Setup in minutes, not hours.** Import the MY9 program, then click 2–3 fiducials/parts
+   on one image. Everything else (inspection areas, body sizes, polarity marks, text) is proposed automatically.
+2. **Gets smarter with every board.** Each operator decision (real defect or false call)
+   feeds back into the per-part and per-package models, and thresholds tune themselves.
+3. **Package-level knowledge, not board-level.** What the program learns about an `0603`,
+   a `SOT-23` or an `SOIC-8 / part no. XYZ` is reused on every future board that uses it.
+4. **Never silently wrong.** Every result is PASS, FAIL or REVIEW, with a reason and a confidence score.
+5. **Everything auto-proposed can be fine-tuned by hand.** Nothing is locked.
 
-## 2. Tech stack
+## 2. Image source: Subascope 2K
 
-| Concern | Choice | Why |
-|---|---|---|
-| Language | Python 3.11+ | Consistent with repo, huge CV ecosystem |
-| Vision | OpenCV (`opencv-contrib-python`), NumPy, scikit-image | Alignment, SSIM, morphology |
-| GUI | PySide6 (Qt) | Native look, fast image canvas (QGraphicsView), zoom/pan |
-| Storage | SQLite + folder of images | Zero-install, portable, like `desktop_buddy.py` |
-| Optional ML | ONNX Runtime (anomaly model e.g. PatchCore / small YOLO) | CPU-friendly, no CUDA needed |
-| Reports | HTML + PDF (Qt print), CSV export | Shareable |
-| Packaging | PyInstaller single-folder `.exe` + installer | Non-technical users |
+- Load the files it saves (JPG/PNG/BMP, ~2K frames) from a **watched folder**, so a new
+  image is inspected as soon as it is saved. Drag-and-drop and batch folders also work.
+- A 2K frame won't cover a whole board at useful detail, so there are two modes:
+  - **Whole-board mode**: one frame, lower zoom. Good for missing/polarity on bigger parts.
+  - **Tile mode**: several zoomed frames that are stitched automatically or aligned
+    tile by tile to board coordinates using features/fiducials. Needed for 0402/0201 parts and OCR.
+- One-time **calibration wizard** per zoom setting: a checkerboard or ruler sets pixels per mm
+  and corrects lens distortion. It is saved as a named profile ("Subascope 2K @ zoom 3").
+- Image quality check before inspection (blur, glare, exposure, ring-light hot spots). A bad
+  image gets REVIEW with the message "retake image", never a false FAIL.
+- *To confirm:* exact resolution, output format, and whether the lens is fixed-zoom or variable.
 
-## 3. Architecture
+## 3. MY9 pick-and-place import (the core of the auto-setup)
+
+- **Importer with column mapping**: reads the MY9 / MYCenter placement export or the source
+  CAD centroid (CSV/TXT). Fields: RefDes, X, Y, rotation, side, part number/component name,
+  package/footprint, and fiducials. It recognises columns automatically; the user confirms
+  the mapping once and it is saved as a template.
+- *To confirm:* a sample export file from your MY9 setup (MYPro/MYCenter format differs between versions).
+- Also accepted: Gerber paste layer (for stencil stage), IPC-2581/ODB++ later, BOM for part numbers.
+- **Board-to-image registration**: board coordinates (mm) are mapped to image pixels with 2 or
+  3 fiducials, or by clicking 3 known part centres. After that, a feature-based alignment
+  refines it automatically on every image. Rotated/mirrored boards and panel arrays
+  (step-and-repeat) are handled.
+- **Rotation conventions**: MY9 rotation, CAD rotation and the package's pin-1 origin
+  are reconciled per package by a **rotation offset table**. It is learned once per package:
+  if the first board shows every SOT-23 at 90°, one click fixes all of them.
+
+## 4. Automatic inspection areas (ROIs)
+
+For each placement the program generates:
+- **Body window**, sized from the package library (built in: common chips, SOT, SOIC, QFN,
+  QFP, electrolytics, diodes, LEDs; editable). It is then **snapped to the part edges** found in the image.
+- **Pad/fillet windows** (reflow stage) and **paste windows** (stencil stage), taken from
+  package pad geometry or the paste Gerber.
+- **Polarity window**: where the pin-1 dot, band, bevel or "+" marking should be.
+- **Text window** for OCV/OCR on marked parts.
+
+Fine-tuning: drag or resize any window, or edit its numbers. A change can apply to
+**this part / all parts with this part number / all parts with this package**. Handles show
+auto-proposed vs manually edited values, and one click resets to auto.
+
+## 5. Inspection methods (per stage)
+
+**Missing part**
+- Stage-aware comparison of the body window against learned "part present" and "bare pads
+  / paste only" appearance (colour, texture, edge density). Doesn't need a golden board.
+- A small CNN classifier (present / missing / wrong part / damaged) per package family
+  takes over once enough labelled examples exist.
+
+**Polarity / orientation**
+- Match the learned polarity mark against the part at 0/90/180/270°; the best-scoring
+  angle is compared with the expected MY9 rotation.
+- Rules by package type: diode band side, electrolytic "−" stripe, pin-1 dot/bevel on ICs,
+  tantalum band, LED marks. For symmetric passives, polarity is switched off automatically.
+
+**OCV (verification) and OCR (reading)**
+- OCR engine (PaddleOCR or Tesseract, run locally) reads marking text after the part image is
+  rotated to upright using the known placement angle.
+- OCV compares the text with the expected marking for each part number (learned from the first
+  good boards or entered by hand), with tolerant matching of look-alike characters (0/O, 1/I, 8/B)
+  and date codes/lot fields masked by user-set regex.
+- If the text reads correctly upside-down, it's also a polarity failure; this check
+  cross-validates the polarity result.
+
+**Extras (cheap once the above exists)**
+- Reflow: part shift/skew vs pads, tombstone, solder bridge between leads, missing fillet.
+- Pre-reflow: placement offset relative to the paste deposits, which gives feedback for
+  MY9 placement tuning.
+- Stencil: paste coverage % per pad, offset, bridging, missing or smeared prints.
+
+## 6. "Gets smarter" — learning and logic
+
+1. **Label every decision.** In review, the operator presses **Real defect** / **False call**
+   (with defect type). Each label is saved with the image crop.
+2. **Statistical thresholds** per part number and per package: mean and spread of every score
+   over accepted boards. Thresholds tighten on stable parts and loosen on noisy ones,
+   inside user-set limits.
+3. **Few-shot models**: after ~20 labelled crops per package, train a small ONNX classifier
+   on the CPU in the background. The new model is only switched in if it beats the current
+   one on held-out data (no regressions). Results are versioned, with rollback.
+4. **Anomaly model** trained only on good images, for defects nobody has seen yet.
+5. **Logic rules (the "AI handles states" part):**
+   - Stage rules: a part missing pre-reflow and present post-reflow means the images are
+     mixed up, so it asks.
+   - Cross-check rules: an OCR upside-down result combined with polarity OK becomes REVIEW, not PASS.
+   - Board-level rules: if every part is shifted the same way, it's an alignment/fiducial
+     problem, not 200 defects. The program re-aligns and warns once.
+   - Traceability: the same defect on the same RefDes over N boards gets flagged as a process
+     issue (feeder, nozzle, stencil aperture) and suggests the likely cause.
+   - Rules are stored as readable, editable entries, not hidden code.
+6. **Optional AI assistant** (off by default, needs internet/API key): explain a failure,
+   suggest the likely cause, summarise a shift's results in plain language. Inspection
+   itself always runs locally.
+
+## 7. User experience
+
+- **New board wizard** (target: under 5 min):
+  1. Drop in the MY9 file, then confirm the column mapping (remembered next time).
+  2. Drop in one image, then click the fiducials (or the program finds them).
+  3. Choose stages: Stencil ☐ Placed ☐ Reflow ☑.
+  4. Auto inspection areas appear on the image; fix anything obvious and save.
+  5. Inspect 3–5 good boards; thresholds and OCV text are learned automatically.
+- **Run screen**: large PASS/FAIL banner, board image with coloured parts, list of
+  failures sorted by confidence. Keyboard review: `Y` real defect, `N` false call, arrow keys for next.
+- **Part view**: reference crop vs current crop, flicker, zoom, OCR text overlay, rotation shown.
+- **Library view**: every learned package and part number, their models, thresholds and
+  history, which can be shared between boards and PCs.
+- **Reports**: per board (PDF/HTML), per lot (CSV), defect Pareto by RefDes, part number and
+  cause, and a serial/barcode field for traceability.
+- Simple/Advanced mode, plain-language tooltips, autosave, undo/redo.
+
+## 8. Architecture and tech
+
+Python 3.11, OpenCV, NumPy, PySide6 GUI, SQLite, ONNX Runtime (CPU), PaddleOCR/Tesseract,
+PyInstaller Windows installer.
 
 ```
 aoi/
-  app.py               # entry point, launches GUI or CLI
-  core/
-    io.py              # load any format, EXIF orientation, 16-bit, HEIC, video frames
-    quality.py         # blur / exposure / glare checks -> NEEDS REVIEW
-    preprocess.py      # colour normalisation, lens-distortion, denoise, CLAHE
-    align.py           # fiducial + feature-based registration (ORB/AKAZE + RANSAC, ECC refine)
-    compare.py         # per-ROI diff: SSIM, colour delta-E, edge diff, template match
-    inspectors/        # plug-ins: presence, polarity, bridge, solder, OCR, colour, custom
-    anomaly.py         # optional ONNX anomaly model
-    verdict.py         # combine scores -> PASS/FAIL/REVIEW with reasons
-  project/
-    model.py           # Project -> Reference(s) -> ROIs -> Inspector configs
-    db.py              # SQLite schema + migrations
-  gui/
-    main_window.py, import_view.py, teach_view.py, results_view.py, review_view.py
-  cli.py               # batch/headless: `aoi inspect project.aoi images/`
+  io/          image loading, watch folder, calibration profiles, stitching
+  cad/         MY9/CSV importer + column mapping, Gerber paste, package library, rotation table
+  register/    fiducial + feature alignment, panel arrays
+  roi/         auto ROI generation + snapping + override hierarchy
+  inspect/     missing, polarity, ocv_ocr, shift, bridge, paste  (plug-ins, per stage)
+  learn/       labels store, stats thresholds, trainer, model registry, anomaly
+  rules/       logic/state engine (editable rules)
+  gui/         wizard, run, review, library, settings
   report/
-tests/  (pytest, synthetic defect fixtures)
+  cli.py       headless batch for automation
 ```
 
-Pipeline per image:
-`load → quality gate → preprocess → align to reference → run ROI inspectors → (optional anomaly map) → verdict → save + overlay`
+Data: `Board → Stage → Placement(RefDes, part_no, package, x, y, rot)`, `Package/PartNumber
+library (shared)`, `Run → Image → Result → Finding(label)`, `Model(version, metrics)`.
 
-## 4. Robustness details
+## 9. Milestones
 
-- **Import**: PNG/JPG/BMP/TIFF (incl. 16-bit), HEIC via `pillow-heif`, frames from MP4.
-  Apply EXIF rotation. Reject corrupt files with a message, never crash the batch.
-- **Quality gate**: Laplacian-variance blur score, histogram clipping (over/under
-  exposure), specular glare %, scale sanity check vs reference. Out-of-range → REVIEW.
-- **Scale/lighting differences**: histogram matching / LAB normalisation to reference;
-  optional white-balance from a user-picked neutral area.
-- **Alignment**: (a) user-marked fiducials if present, (b) AKAZE features + RANSAC
-  homography, (c) ECC sub-pixel refinement. Report alignment error in px; above
-  threshold → REVIEW with "align failed" instead of false FAILs. Handle 90°/180°
-  rotated and mirrored boards automatically.
-- **Microscope specifics**: lens-distortion calibration wizard (checkerboard),
-  stitching multiple zoomed tiles into one board image (OpenCV Stitcher / feature
-  mosaic) for boards larger than the field of view.
-- **Multiple references**: allow several golden images per project (e.g. different
-  lighting / component vendors) and take the best match.
-- **Tolerance learning**: after 5–20 known-good images, compute per-ROI mean/std of
-  scores and auto-suggest thresholds (reduces false calls dramatically).
-- **Batch safety**: work in a background thread pool, progress bar, cancel, resume;
-  one bad image never stops the run; everything logged to `aoi.log`.
-
-## 5. Inspectors (plug-in interface `inspect(roi_img, ref_img, cfg) -> Result`)
-
-1. **Presence/absence** – SSIM + template correlation.
-2. **Shift/rotation** – local template match offset & angle within tolerance.
-3. **Polarity / orientation** – match against ref and 180°-rotated ref; pick the better.
-4. **Solder bridge / short** – threshold between pads, connected-components across gap.
-5. **Solder quality / insufficient** – brightness/colour profile of fillet region.
-6. **Foreign material / scratches** – whole-board diff outside ROIs, morphology filter
-   on min defect size.
-7. **Colour check** – ΔE for LEDs, cables, wire colours.
-8. **Text / marking (OCR)** – optional, via Tesseract or PaddleOCR.
-9. **Anomaly (ML)** – unsupervised heatmap trained only on good images.
-
-## 6. User experience
-
-- **Home screen**: "New project", "Open project", "Quick compare two images".
-- **Setup wizard**:
-  1. Drop a known-good image (or several).
-  2. Optional: calibrate scale (click two points, enter mm) / lens.
-  3. Auto-detect components (contour + blob detection) and propose ROIs; user
-     adjusts with drag handles, bulk-assign inspector type.
-  4. Test on 3–5 more good images → auto thresholds.
-- **Inspect**: drag a folder or images onto the window, or "watch folder" mode that
-  inspects new files as the Subascope software saves them.
-- **Results**: thumbnail grid coloured green/red/amber; click → side-by-side
-  reference vs test, synchronised zoom, flicker toggle, diff heat-map, defect boxes
-  with labels and scores.
-- **Review loop**: operator clicks *Real defect* / *False call*; false calls
-  adjust thresholds or add image as another reference (with confirmation).
-- **Quality of life**: undo/redo, keyboard shortcuts (N/P next/prev, F flicker,
-  space accept), dark/light theme, tooltips explaining every setting in plain
-  language, "Simple" vs "Advanced" settings, autosave.
-- **Reports**: per-image PNG overlay, batch HTML/PDF summary, CSV for Excel,
-  defect Pareto chart.
-
-## 7. Data model (SQLite)
-
-`project(id, name, created)`, `reference(id, project_id, path, calib_json)`,
-`roi(id, reference_id, name, polygon_json, inspector, params_json)`,
-`run(id, project_id, started, settings_hash)`,
-`result(id, run_id, image_path, verdict, align_err, quality_json)`,
-`finding(id, result_id, roi_id, type, score, bbox_json, operator_label)`.
-Project saved as a folder `MyBoard.aoi/` (db + reference images) so it can be zipped and shared.
-
-## 8. Milestones
-
-| # | Deliverable | Acceptance |
+| # | Deliverable | Done when |
 |---|---|---|
-| M1 | Core pipeline CLI: load, quality gate, align, whole-image diff, overlay PNG | Detects synthetic missing part on shifted/rotated/re-lit test images |
-| M2 | ROI model + presence/shift/polarity inspectors + SQLite | Per-ROI verdicts, <2% false calls on test set |
-| M3 | PySide6 GUI: setup wizard, inspect, results viewer | A non-developer sets up a board in <10 min |
-| M4 | Robustness: auto thresholds, multi-reference, lens calib, stitching, watch folder | Handles images from 3 different sources |
-| M5 | Remaining inspectors (bridge, solder, colour, OCR), reports | HTML/PDF/CSV exports |
-| M6 | Optional ML anomaly module + review-feedback loop | Improves recall on unseen defect types |
-| M7 | Packaging, installer, user guide, sample project | One-click install on clean Windows |
+| M1 | MY9 import + column mapping, calibration, fiducial registration, overlay of all placements on a Subascope image | Boxes land on the correct parts on real images |
+| M2 | Auto ROI + snapping + fine-tune editor, package library | A board is set up in <5 min |
+| M3 | Missing + polarity (rules + learned template), reflow stage, PASS/FAIL/REVIEW | Finds planted missing/rotated parts; <1% false calls after learning |
+| M4 | OCR/OCV with rotation normalisation and look-alike tolerance | Reads the markings on your common ICs |
+| M5 | Review loop, statistical auto-thresholds, library sharing | False-call rate drops measurably over 20 boards |
+| M6 | Pre-reflow stage + placement-offset feedback | Works on placed boards |
+| M7 | Classifier + anomaly training, model versioning, logic rules engine | New model only goes live if it tests better |
+| M8 | Stencil stage (2D paste), reports/Pareto, optional AI assistant, installer | One-click Windows install |
 
-## 9. Testing strategy
+## 10. Testing
 
-- **Synthetic defect generator**: from a good image, programmatically remove, shift,
-  rotate, recolour components, add bridges/scratches; vary blur, noise, exposure,
-  rotation and scale → labelled test set with ground truth.
-- Unit tests per module (pytest), golden-output regression tests on overlays,
-  metrics tracked per release: detection rate, false-call rate, time/image.
-- GUI smoke tests with `pytest-qt`.
-- Performance target: < 1 s per 12 MP image on a mid-range laptop CPU (without ML).
+- A **real sample set is needed early**: your MY9 export, and ~10 Subascope images per stage
+  (good boards + a few with removed/rotated parts).
+- A synthetic defect generator (remove part, rotate 180°, shift, change text, smear paste) gives
+  labelled regression tests; accuracy and false-call rate are tracked per release.
+- pytest for the core, pytest-qt for GUI smoke tests. Target: < 3 s per 2K image, CPU only.
 
-## 10. Open questions for the user
+## 11. Still needed from you
 
-1. What is being inspected — PCBs/SMT assemblies, through-hole, or other parts?
-2. Which "Subascope" model / software, and what resolution/format does it save?
-3. Typical defect types you care most about?
-4. Is Windows-only acceptable, and is an ML option (larger install) wanted?
-5. Is this single-user bench use or will several stations share projects/results?
+1. A sample MY9 placement export (which program: MYCenter, MYPro, or CAD centroid?).
+2. Sample Subascope 2K images: one good board per stage, plus one with known defects.
+3. Is the zoom fixed or variable, and do you shoot the whole board or several zoomed tiles?
+4. Do boards have fiducials? Are they single boards or panels?
+5. Is the optional online AI assistant wanted, or must everything stay offline?
