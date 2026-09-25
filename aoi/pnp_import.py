@@ -86,9 +86,10 @@ def parse(text: str, units: str = "auto", y_up: bool = True) -> dict:
             units = "mil"
         elif "(mm)" in header or "mm" in header:
             units = "mm"
-            if span > 1000:  # "mm" column but decimal point lost - scale to a sane board size
+            big = max(max(abs(c["x"]), abs(c["y"])) for c in comps)
+            if big > 5000:  # "mm" column but decimal point lost (Altium writes 4 decimals)
                 scale = 1.0
-                while span * scale > 1000:
+                while big * scale > 2000:
                     scale /= 10
                 warnings.append(f"Coordinates had no decimal point - scaled x{scale:g} to mm, please check board size")
         else:
