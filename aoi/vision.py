@@ -195,9 +195,9 @@ def _body_slice(shape, pkg, ppm, frac=0.8):
     return (slice(max(0, int(cy - hy)), int(cy + hy) + 1), slice(max(0, int(cx - hx)), int(cx + hx) + 1))
 
 
-def _z(a):
+def _z(a, floor=8.0):
     a = a.astype(np.float32)
-    return (a - a.mean()) / (a.std() + 1e-3)
+    return (a - a.mean()) / max(float(a.std()), floor)
 
 
 def body_similarity(found, tpl, sl):
@@ -214,7 +214,7 @@ def body_similarity(found, tpl, sl):
     return float(max(0.0, 1.0 - 0.9 * level - 0.5 * tex))
 
 
-def inspect_component(golden, test, center, angle, pkg: Package, ppm, refs=(), th=None, checks=None):
+def inspect_component(golden, test, center, angle, pkg: Package, ppm, refs=(), th=None, checks=None, color=None):
     """Inspect one component. golden/test are prepped grayscale images in the same frame.
 
     refs: extra accepted crops (learned from false calls), same size as golden crop.
@@ -259,6 +259,14 @@ def inspect_component(golden, test, center, angle, pkg: Package, ppm, refs=(), t
             found, loc = ff, fl
     presence = min(max(score, max(ncc(t, nominal) for t in templates)),
                    max(body_similarity(found, t, sl) for t in templates))
+    if color is not None and ti == 0:
+        # colour check: a part can have the same grey level as the board (e.g. brown caps on green)
+        gc = crop_rot(color[0], center, angle, size)
+        tw = crop_rot(color[1], center, angle, (size[0] + 2 * s, size[1] + 2 * s))
+        tc = tw[loc[1]:loc[1] + tpl.shape[0], loc[0]:loc[0] + tpl.shape[1]]
+        if tc.shape == gc.shape:
+            for ch in (1, 2):
+                presence = min(presence, body_similarity(tc[..., ch], gc[..., ch], sl))
     dx_mm, dy_mm = (loc[0] - s) / ppm, (loc[1] - s) / ppm
     out.update(presence=round(presence, 3), offset_mm=[round(dx_mm, 3), round(dy_mm, 3)])
     if checks.get("presence") and presence < th["presence"]:

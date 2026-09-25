@@ -21,7 +21,10 @@ def _norm(h):
 
 
 def _num(s):
-    s = str(s).strip().lower().replace(",", ".")
+    s = str(s).strip().lower()
+    if s.count(",") > 1 or (s.count(",") == 1 and s.count(".") == 1):
+        s = s.replace(",", "")  # thousands separators (Excel / Altium exports)
+    s = s.replace(",", ".")
     m = re.match(r"^[-+]?\d*\.?\d+(e[-+]?\d+)?", s.replace("mm", "").replace("mil", "").strip())
     return float(m.group(0)) if m else None
 
@@ -74,12 +77,25 @@ def parse(text: str, units: str = "auto", y_up: bool = True) -> dict:
                       "side": get("side", "top").lower()})
     if not comps:
         raise ValueError("No placements recognised - check the file has Ref/X/Y columns")
+    scale = None
     if units == "auto":
-        span = max(max(abs(c["x"]), abs(c["y"])) for c in comps)
-        units = "um" if span > 2000 else ("mil" if "mil" in text.lower() else "mm")
-        if units != "mm":
+        span = max(max(c["x"] for c in comps) - min(c["x"] for c in comps),
+                   max(c["y"] for c in comps) - min(c["y"] for c in comps))
+        header = lines[header_idx].lower() if header_idx >= 0 else ""
+        if "mil" in header or "mil" in text[:500].lower():
+            units = "mil"
+        elif "(mm)" in header or "mm" in header:
+            units = "mm"
+            if span > 1000:  # "mm" column but decimal point lost - scale to a sane board size
+                scale = 1.0
+                while span * scale > 1000:
+                    scale /= 10
+                warnings.append(f"Coordinates had no decimal point - scaled x{scale:g} to mm, please check board size")
+        else:
+            units = "um" if span > 2000 else "mm"
+        if units not in ("mm",):
             warnings.append(f"Coordinates look like {units} - converted to mm")
-    scale = {"mm": 1.0, "um": 0.001, "mil": 0.0254, "inch": 25.4}[units]
+    scale = scale or {"mm": 1.0, "um": 0.001, "mil": 0.0254, "inch": 25.4}[units]
     for c in comps:
         c["x"] = round(c["x"] * scale, 4)
         c["y"] = round(c["y"] * scale, 4)

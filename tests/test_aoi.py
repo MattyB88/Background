@@ -54,3 +54,14 @@ def test_false_call_learning(prog):
     assert r2["ok"]
     s = prog.stats()
     assert s["boards"] == 2 and s["false_calls"] == 1
+
+
+def test_altium_thousands_separators():
+    txt = ('Designator,Comment,Layer,Footprint,Center-X(mm),Center-Y(mm),Rotation,Description\n'
+           'R34,2.2k,TopLayer,0805B,"12,820,904","4,527,296",180,\n'
+           'FD9,,TopLayer,FIDUCIAL_40,"12,560,300","4,796,790",0,IPC Fiducial Mark\n'
+           'X1,,BottomLayer,0805B,"12,000,000","4,000,000",0,\n')
+    r = pnp_import.parse(txt)
+    assert [c["ref"] for c in r["components"]] == ["R34", "FD9"]
+    assert abs(r["components"][0]["x"] - 1282.0904) < 1e-6
+    assert derive("64PIN_-_TQFP_(PQFP)").kind == "qfp" and derive("SMD_TANT_D").kind == "tant"

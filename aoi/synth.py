@@ -26,22 +26,32 @@ def csv_text():
     return "\n".join(lines)
 
 
-def _M(offset=(40, 30), angle=0.0):
+def _M(offset=(40, 30), angle=0.0, board=BOARD):
     a = math.radians(angle)
     s = PPM
-    return np.float64([[s * math.cos(a), -s * math.sin(a), offset[0]], [s * math.sin(a), s * math.cos(a), offset[1] + BOARD[1] * s]])
+    return np.float64([[s * math.cos(a), -s * math.sin(a), offset[0]], [s * math.sin(a), s * math.cos(a), offset[1] + board[1] * s]])
 
 
-def render(defects=None, light=1.0, angle=0.0, offset=(40, 30), noise=4, seed=0):
+def layout_from(components, margin=3.0):
+    """Turn imported program components into a synth layout (shifted so the board starts at 0,0)."""
+    x0 = min(c["x"] for c in components) - margin
+    y0 = min(c["y"] for c in components) - margin
+    lay = [(c["ref"], c["x"] - x0, c["y"] - y0, c["rot"], c["part"] or c["ref"], c["package"]) for c in components]
+    board = (max(c[1] for c in lay) + margin, max(c[2] for c in lay) + margin)
+    return lay, board
+
+
+def render(defects=None, light=1.0, angle=0.0, offset=(40, 30), noise=4, seed=0, layout=None, board=None):
     """defects: {ref: 'missing'|'polarity'|'offset'|'marking'}"""
+    BOARD = board or globals()["BOARD"]
     defects = defects or {}
     rng = np.random.default_rng(seed)
     W, H = int(BOARD[0] * PPM + 80), int(BOARD[1] * PPM + 60)
     img = np.full((H, W, 3), (30, 30, 30), np.uint8)
-    M = _M(offset, angle)
+    M = _M(offset, angle, BOARD)
     corners = vision.apply(M, [vision.mm_src(x, y) for x, y in [(0, 0), (BOARD[0], 0), BOARD, (0, BOARD[1])]])
     cv2.fillPoly(img, [np.int32(corners)], (40, 110, 40))
-    for ref, x, y, rot, part, pk in DEMO:
+    for ref, x, y, rot, part, pk in (layout or DEMO):
         pkg = derive(pk, part)
         comp = {"x": x, "y": y, "rot": rot}
         d = defects.get(ref)

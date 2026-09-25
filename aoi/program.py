@@ -59,7 +59,10 @@ class Program:
             if pkg_name not in self.data["packages"]:
                 self.data["packages"][pkg_name] = derive(pkg_name, c["part"]).to_dict()
             fid = self.data["packages"][pkg_name]["kind"] == "fiducial" or c["ref"].upper().startswith("FID")
-            comps.append({**c, "package": pkg_name, "fiducial": fid, "enabled": not fid, "dx": 0, "dy": 0,
+            kind = self.data["packages"][pkg_name]["kind"]
+            dnf = bool(re.search(r"\bDNF\b|\bDNP\b|\bNF\b", c["part"].upper()))
+            comps.append({**c, "package": pkg_name, "fiducial": fid, "enabled": not (fid or dnf or kind == "generic"),
+                          "dnf": dnf, "dx": 0, "dy": 0,
                           "checks": None, "th": {}})
         self.data["components"] = comps
         self.data["transform"] = None
@@ -157,6 +160,7 @@ class Program:
             return result
         cv2.imwrite(str(rdir / "board.jpg"), warped, [cv2.IMWRITE_JPEG_QUALITY, 88])
         g, t = vision.prep(gold), vision.prep(warped)
+        lab = (cv2.cvtColor(gold, cv2.COLOR_BGR2LAB), cv2.cvtColor(warped, cv2.COLOR_BGR2LAB))
         M, ppm, yu = self.M, vision.px_per_mm(self.M), self.data["y_up"]
         for c in self.data["components"]:
             if not c["enabled"] or c["fiducial"]:
@@ -164,7 +168,7 @@ class Program:
             ctr, ang = vision.comp_pose(M, c, yu)
             pkg = self.pkg(c["package"])
             th = {**self.data["thresholds"], **c.get("th", {})}
-            r = vision.inspect_component(g, t, ctr, ang, pkg, ppm, self.refs_for(c["ref"]), th, c.get("checks"))
+            r = vision.inspect_component(g, t, ctr, ang, pkg, ppm, self.refs_for(c["ref"]), th, c.get("checks"), lab)
             cv2.imwrite(str(rdir / f"{_safe(c['ref'])}_golden.png"), r.pop("_golden"))
             cv2.imwrite(str(rdir / f"{_safe(c['ref'])}_test.png"), r.pop("_test"))
             result["components"].append({"ref": c["ref"], "package": c["package"], "part": c["part"],

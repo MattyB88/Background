@@ -13,7 +13,7 @@ from dataclasses import dataclass, field, asdict
 CHIP = {
     "01005": (0.4, 0.2), "0201": (0.6, 0.3), "0402": (1.0, 0.5), "0603": (1.6, 0.8),
     "0805": (2.0, 1.25), "1206": (3.2, 1.6), "1210": (3.2, 2.5), "1812": (4.5, 3.2),
-    "2010": (5.0, 2.5), "2512": (6.3, 3.2),
+    "2010": (5.0, 2.5), "2220": (5.7, 5.0), "2512": (6.3, 3.2),
 }
 TANT = {"A": (3.2, 1.6), "B": (3.5, 2.8), "C": (6.0, 3.2), "D": (7.3, 4.3), "E": (7.3, 4.3)}
 
@@ -80,6 +80,7 @@ def derive(package_name: str, part_name: str = "") -> Package:
     raw = f"{package_name} {part_name}".upper()
     name = (package_name or part_name or "UNKNOWN").strip()
 
+    raw = re.sub(r"\bMF05A\b|\bDBV\b", "SOT-23-5", raw)
     m = re.search(r"SOT-?23-?(\d)?", raw)
     if m:
         pins = int(m.group(1) or 3)
@@ -103,12 +104,25 @@ def derive(package_name: str, part_name: str = "") -> Package:
     m = re.search(r"\b(SOIC|SOP|SO)-?(\d+)", raw)
     if m:
         n = int(m.group(2))
-        return _dual_row(name, n, 1.27, n / 2 * 1.27, 3.9, 1.5, 0.6)
+        wide = bool(re.search(r"-300|WIDE|\bW\b", raw)) or n >= 20
+        return _dual_row(name, n, 1.27, n / 2 * 1.27, 7.5 if wide else 3.9, 1.5, 0.6)
     m = re.search(r"\b(TSSOP|MSOP|SSOP)-?(\d+)", raw)
     if m:
         n = int(m.group(2))
         pitch = 0.5 if m.group(1) == "MSOP" else 0.65
         return _dual_row(name, n, pitch, max(3.0, n / 2 * pitch + 0.5), 4.4 if m.group(1) != "MSOP" else 3.0, 1.2, pitch * 0.55)
+    m = re.search(r"\b(\d+)PIN[\W_]*[A-Z]*QFP", raw)
+    if m:
+        raw = f"QFP-{m.group(1)} " + raw
+    m = re.search(r"\bSOJ-?(\d+)", raw)
+    if m:
+        n = int(m.group(1))
+        return _dual_row(name, n, 1.27, n / 2 * 1.27 + 0.5, 7.5, 1.2, 0.6)
+    if re.search(r"\b(SSOT-?6|SC-?70|SOT-?363)", raw):
+        return _dual_row(name, 6, 0.65, 2.0, 1.25, 0.6, 0.4, kind="sot")
+    if re.search(r"\b(6032|7343|3528|3216)\b", raw):
+        l, w = {"6032": TANT["C"], "7343": TANT["D"], "3528": TANT["B"], "3216": TANT["A"]}[re.search(r"(6032|7343|3528|3216)", raw).group(1)]
+        return _two_term(name, l, w, True, "tant")
     m = re.search(r"\b(LQFP|TQFP|QFP)-?(\d+)", raw)
     if m:
         n = int(m.group(2))
@@ -124,11 +138,11 @@ def derive(package_name: str, part_name: str = "") -> Package:
         p.pads = [[x * (body / 2 - 0.3) / abs(x) if abs(x) > body / 2 else x,
                    y * (body / 2 - 0.3) / abs(y) if abs(y) > body / 2 else y, l, w] for x, y, l, w in p.pads]
         return p
-    m = re.search(r"(?:TANT|CASE)[ _-]?([A-E])\b", raw)
+    m = re.search(r"(?:TANT\w*|CASE)[ _-]?(?:\d{4}[ _-]?)?\(?([A-E])\b", raw)
     if m:
         l, w = TANT[m.group(1)]
         return _two_term(name, l, w, True, "tant")
-    m = re.search(r"(?<!\d)(01005|0201|0402|0603|0805|1206|1210|1812|2010|2512)(?!\d)", raw)
+    m = re.search(r"(?<!\d)(01005|0201|0402|0603|0805|1206|1210|1812|2010|2220|2512)(?!\d)", raw)
     if m:
         l, w = CHIP[m.group(1)]
         pol = bool(re.search(r"\bLED\b|\bD\d|DIODE", raw))
