@@ -2,3 +2,5 @@ __pycache__/
 *.pyc
 .pytest_cache/
 dist/
+usb_parts/
+AOI_USB.zip
