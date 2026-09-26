@@ -129,3 +129,13 @@ def test_autofit_all(prog):
     assert {"SOIC-8", "0805", "SOT-23"} <= {f["package"] for f in r["fitted"]}
     res = prog.inspect(synth.render(light=0.9, angle=1, offset=(45, 30), seed=11))
     assert res["ok"], [(c["ref"], c["fails"]) for c in res["components"] if not c["ok"]]
+
+
+def test_export_csv(prog):
+    import csv, io
+    r = prog.inspect(synth.render({"R1": "missing"}, seed=12))
+    prog.feedback(r["run"], "R1", "defect")
+    prog.inspect(synth.render(seed=13))
+    rows = list(csv.DictReader(io.StringIO(prog.export_csv())))
+    assert [x["result"] for x in rows] == ["FAIL", "PASS"]
+    assert rows[0]["ref"] == "R1" and rows[0]["defect"] == "MISSING" and rows[0]["operator_verdict"] == "real defect"

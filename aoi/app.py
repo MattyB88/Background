@@ -252,6 +252,13 @@ def feedback(name):
     return jsonify(ok=True)
 
 
+@app.get("/api/programs/<name>/export.csv")
+def export_csv(name):
+    p = _prog(name)
+    return p.export_csv(), 200, {"Content-Type": "text/csv",
+                                 "Content-Disposition": f'attachment; filename="{p.name}_aoi_results.csv"'}
+
+
 @app.get("/api/programs/<name>/stats")
 def stats(name):
     return jsonify(_prog(name).stats())

@@ -253,7 +253,7 @@ async stats(el,d){
    <div class="tiles"><div class="tile"><b>${s.boards}</b><span>boards</span></div><div class="tile"><b>${s.fpy??"–"}%</b><span>first pass yield</span></div>
    <div class="tile"><b>${s.false_call_rate??"–"}%</b><span>false call rate</span></div><div class="tile"><b>${s.avg_cycle_s??"–"}s</b><span>avg cycle</span></div></div>
    <div style="display:flex;gap:3px;margin:12px 0;height:30px">${s.recent.map(x=>`<div title="${x.run}" style="flex:1;border-radius:3px;background:${x.ok?"var(--ok)":"var(--bad)"}"></div>`).join("")}</div>
-   <h3>Defect type</h3>${bars(s.by_type)}<h3>Worst parts</h3>${bars(s.top_refs)}<h3>By package</h3>${bars(s.by_package)}
+   <a class="big" href="${P()}/export.csv" download style="display:flex;justify-content:center;gap:12px;text-decoration:none;color:var(--txt);background:var(--panel2);border-radius:12px;padding:16px;font-size:20px;font-weight:700">⬇ Export results (Excel CSV)</a><h3>Defect type</h3>${bars(s.by_type)}<h3>Worst parts</h3>${bars(s.top_refs)}<h3>By package</h3>${bars(s.by_package)}
    ${d.ai?`<button class="big pri" id="bSum">🤖 AI summary & next actions</button><div id="aiOut"></div>`:`<div style="color:var(--dim)">🤖 Add an AI key in ⚙ for automatic summaries</div>`}`;
   if($("#bSum"))$("#bSum").onclick=async()=>{$("#aiOut").innerHTML='<div class="hint">Thinking…</div>';const a=await api(P()+"/ai/summary",{method:"POST"});$("#aiOut").innerHTML=`<div class="hint" style="white-space:pre-wrap">${esc(a.text)}</div>`;};
 },

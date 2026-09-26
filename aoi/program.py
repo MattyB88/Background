@@ -248,6 +248,25 @@ class Program:
         p = self.dir / fname
         return [json.loads(l) for l in p.read_text().splitlines() if l.strip()] if p.exists() else []
 
+    def export_csv(self):
+        """One row per board and per failed part - for Excel / management reports."""
+        import csv
+        import io
+        fb = {(f["run"], f["ref"]): f["verdict"] for f in self._read("feedback.jsonl")}
+        out = io.StringIO()
+        w = csv.writer(out)
+        w.writerow(["date", "time", "run", "board", "result", "cycle_s", "ref", "package", "defect", "operator_verdict"])
+        for h in self._read("history.jsonl"):
+            t = time.localtime(h["time"])
+            base = [time.strftime("%Y-%m-%d", t), time.strftime("%H:%M:%S", t), h["run"], h.get("board", ""),
+                    "PASS" if h["ok"] else "FAIL", h.get("cycle_s", "")]
+            if not h["fails"]:
+                w.writerow(base + ["", "", "", ""])
+            for f in h["fails"]:
+                w.writerow(base + [f["ref"], f["package"], "/".join(f["type"]),
+                                   {"false_call": "false call", "defect": "real defect"}.get(fb.get((h["run"], f["ref"])), "")])
+        return out.getvalue()
+
     def stats(self):
         hist, fb = self._read("history.jsonl"), self._read("feedback.jsonl")
         n = len(hist)
