@@ -186,6 +186,13 @@ def edit_package(name, pkg):
     return jsonify(ok=True, overlay=p.overlay())
 
 
+@app.post("/api/programs/<name>/autofit_all")
+def autofit_all(name):
+    p = _prog(name)
+    r = p.autofit_all()
+    return jsonify(**r, overlay=p.overlay())
+
+
 @app.post("/api/programs/<name>/autofit/<path:pkg>")
 def autofit(name, pkg):
     p = _prog(name)

@@ -118,3 +118,14 @@ def test_autofit_keeps_pads_on_leads(prog):
     prog.autofit("SOIC-8")
     for a, b in zip(prog.data["packages"]["SOIC-8"]["pads"], true):
         assert abs(a[0] - b[0]) < 0.25 and abs(a[1] - b[1]) < 0.25, (a, b)
+
+
+def test_autofit_all(prog):
+    from aoi.packages import resize
+    for name in ("SOIC-8", "0805", "SOT-23"):
+        d = prog.data["packages"][name]
+        resize(d, d["body_l"] * 1.3, d["body_w"] * 0.8)
+    r = prog.autofit_all()
+    assert {"SOIC-8", "0805", "SOT-23"} <= {f["package"] for f in r["fitted"]}
+    res = prog.inspect(synth.render(light=0.9, angle=1, offset=(45, 30), seed=11))
+    assert res["ok"], [(c["ref"], c["fails"]) for c in res["components"] if not c["ok"]]

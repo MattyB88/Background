@@ -174,7 +174,14 @@ rois(el,d){
   const c=S.sel&&d.components.find(c=>c.ref==S.sel);
   if(!c){el.innerHTML=`<h2>🔲 ROIs</h2><div class="hint big">👆 Click a part on the image to adjust it</div>
     <div class="tiles"><div class="tile"><b>${d.components.filter(c=>c.enabled).length}</b><span>inspected</span></div><div class="tile"><b>${Object.keys(d.packages).length}</b><span>packages</span></div></div>
-    <button class="big ok" id="bNext">Next ➜ Inspect</button>`;$("#bNext").onclick=()=>go("inspect");return;}
+    <button class="big pri" id="bFitAll"><span class="ico">✨</span>Auto-fit ALL package sizes</button>
+    <div id="fitOut"></div>
+    <button class="big ok" id="bNext">Next ➜ Inspect</button>`;$("#bNext").onclick=()=>go("inspect");
+    $("#bFitAll").onclick=async()=>{$("#fitOut").innerHTML='<div class="hint">Measuring…</div>';
+      const r=await api(P()+"/autofit_all",{method:"POST"});await refresh();draw();
+      $("#fitOut").innerHTML=`<div class="tiles"><div class="tile"><b style="color:var(--ok)">${r.fitted.length}</b><span>fitted ✔</span></div><div class="tile"><b style="color:var(--warn)">${r.failed.length}</b><span>check by hand</span></div></div>`+
+        (r.failed.length?`<div style="color:var(--dim);font-size:13px">Tap a part to set by hand: ${r.failed.map(esc).join(", ")}</div>`:"");};
+    return;}
   const pk=d.packages[c.package];const ch={presence:true,polarity:pk.polarized,ocv:pk.marking,offset:true,bridge:pk.pads.length>=4,...(c.checks||{})};
   el.innerHTML=`<h2>${c.ref} <small style="color:var(--dim);font-size:15px">${c.part}</small></h2>
    <div class="row"><span>Package</span><select id="pk">${Object.keys(d.packages).map(p=>`<option ${p==c.package?"selected":""}>${p}</option>`).join("")}</select></div>

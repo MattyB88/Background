@@ -117,8 +117,11 @@ class Program:
         for c in self.data["components"]:
             if c["package"] == package:
                 ctr, ang = vision.comp_pose(M, c, self.data["y_up"])
-                r = vision.fit_body(img, ctr, ang, ppm, min(25.0, max(6.0, 3 * max(pkg.body_l, pkg.body_w))), len(pkg.pads) == 2)
-                if r:
+                known = pkg.kind != "generic"
+                r = vision.fit_body(img, ctr, ang, ppm, min(25.0, max(6.0, 3 * max(pkg.body_l, pkg.body_w))), len(pkg.pads) == 2,
+                                    0.25 * pkg.body_l * pkg.body_w if known else 0.0)
+                # a known package can be corrected, not reinvented: reject wild measurements
+                if r and (not known or all(0.6 < m / e < 1.6 for m, e in zip(r[:2], (pkg.body_l, pkg.body_w)))):
                     sizes.append(r)
         if not sizes:
             raise ValueError("Could not measure the body - adjust L/W by hand")
@@ -129,6 +132,20 @@ class Program:
         resize(d, round(l, 2), round(w, 2))
         self.save()
         return d["body_l"], d["body_w"], len(sizes)
+
+    def autofit_all(self):
+        """Auto-fit every non-fiducial package. Returns {'fitted': [...], 'failed': [...]}."""
+        used = {c["package"] for c in self.data["components"] if not c["fiducial"]}
+        out = {"fitted": [], "failed": []}
+        for name in sorted(used):
+            if self.data["packages"][name]["kind"] == "fiducial":
+                continue
+            try:
+                l, w, n = self.autofit(name)
+                out["fitted"].append({"package": name, "body_l": l, "body_w": w})
+            except ValueError:
+                out["failed"].append(name)
+        return out
 
     @property
     def M(self):

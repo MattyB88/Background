@@ -386,7 +386,7 @@ def classify_absent(tc, gc, pkg: Package, ppm, match):
     return "WRONG PART"
 
 
-def fit_body(img_bgr, center, angle, ppm, search_mm=20.0, end_caps=False):
+def fit_body(img_bgr, center, angle, ppm, search_mm=20.0, end_caps=False, min_area_mm2=0.0):
     """Measure the body (length along component axis, width) in mm from the golden image.
 
     Grows the region whose colour matches the centre of the part, bounded by the search window.
@@ -422,6 +422,8 @@ def fit_body(img_bgr, center, angle, ppm, search_mm=20.0, end_caps=False):
         x, y, w, h, area = stats[idx]
         if x <= 1 or y <= 1 or x + w >= S - 1 or y + h >= S - 1 or area < 0.6 * w * h:
             continue  # leaked into the board / not a solid body
+        if area < min_area_mm2 * ppm * ppm:
+            continue  # a marking letter or pin-1 dot, not the body
         if best is None or area > best[4]:
             best = (x, y, w, h, area, t)
     if best is None:
@@ -431,9 +433,10 @@ def fit_body(img_bgr, center, angle, ppm, search_mm=20.0, end_caps=False):
         rows = slice(y + h // 4, y + 3 * h // 4 + 1)
         notbg = np.median(np.linalg.norm(lab[rows] - bg, axis=2), 0) > t
         x0, x1 = x, x + w - 1
-        while x0 > 1 and notbg[x0 - 1]:
+        lim = max(2, int(0.45 * w))  # terminations+pads never add more than ~45% per side
+        while x0 > 1 and notbg[x0 - 1] and x - x0 < lim:
             x0 -= 1
-        while x1 < S - 2 and notbg[x1 + 1]:
+        while x1 < S - 2 and notbg[x1 + 1] and x1 - (x + w - 1) < lim:
             x1 += 1
         return round((x1 - x0 + 1) / ppm, 2), round(h / ppm, 2), "extent"
     return round(w / ppm, 2), round(h / ppm, 2)
