@@ -140,10 +140,11 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("photos", nargs="+")
     ap.add_argument("--out", default="trial_out")
+    ap.add_argument("--ppm", type=float, default=20.0, help="pixels per mm of your camera setup")
     a = ap.parse_args()
     rows = []
     for ph in a.photos:
-        r = trial(ph, Path(a.out))
+        r = trial(ph, Path(a.out), a.ppm)
         rows.append(r)
         print(f"{r['photo']:<12} parts {r['parts']:>3} holes {r['holes']:>2} | good boards w/ false call {r['good_boards_with_false_calls']}/10 "
               f"({r['false_call_spots']} spots) | faults found {r['faults_found']}/{r['faults']} "

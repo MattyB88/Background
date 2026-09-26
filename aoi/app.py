@@ -117,7 +117,8 @@ def from_photo(name):
     from . import autodetect
     p = Program(name)
     img = _capture(request.args.get("cam", 0)) if request.args.get("camera") else _img_from_request()
-    info = autodetect.program_from_image(p, img)
+    bm = request.args.get("board_mm")
+    info = autodetect.program_from_image(p, img, board_mm=float(bm) if bm else None)
     return jsonify(**info, overlay=p.overlay())
 
 

@@ -139,8 +139,8 @@ program(el,d){
     const fd=new FormData();fd.append("file",f);fd.append("units",$("#units").value);
     const r=await api(P()+"/import",{method:"POST",body:fd});
     toast(`✔ ${r.count} parts, ${r.packages} packages`+(r.warnings.length?" — "+r.warnings.join("; "):""),5000);await refresh();side();};
-  $("#bPhoto").onclick=async()=>{const f=await pickFile("image/*");if(!f)return;const fd=new FormData();fd.append("image",f);toast("Finding parts…");
-    const r=await api(P()+"/from_photo",{method:"POST",body:fd});toast(`✔ ${r.parts} parts, ${r.holes} holes found — now train with good boards`,5000);
+  $("#bPhoto").onclick=async()=>{const f=await pickFile("image/*");if(!f)return;const bm=prompt("Board length in mm (optional - makes tolerances real mm)","");const fd=new FormData();fd.append("image",f);toast("Finding parts…");
+    const r=await api(P()+"/from_photo"+(bm?`?board_mm=${encodeURIComponent(bm)}`:""),{method:"POST",body:fd});toast(`✔ ${r.parts} parts, ${r.holes} holes · ${r.ppm} px/mm — now train with good boards`,6000);
     await refresh();go("inspect");};
   if($("#bNext"))$("#bNext").onclick=()=>go("board");
 },

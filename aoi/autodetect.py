@@ -91,8 +91,17 @@ def detect(img, min_mm=0.6, ppm=20.0):
     return parts, holes
 
 
-def program_from_image(prog, img, ppm=20.0):
-    """Fill *prog* (aoi.program.Program) from a golden photo. Returns counts."""
+def program_from_image(prog, img, ppm=None, board_mm=None):
+    """Fill *prog* (aoi.program.Program) from a golden photo. Returns counts.
+
+    Scale: board_mm (board length) measured against the board outline, else ppm, else 20 px/mm.
+    """
+    if board_mm:
+        from .vision import board_outline
+        bo = board_outline(img)
+        if bo is not None:
+            ppm = max(bo[0][1]) / float(board_mm)
+    ppm = float(ppm or 20.0)
     parts, holes = detect(img, ppm=ppm)
     comps, pkgs = [], {}
     for i, p in enumerate(sorted(parts, key=lambda p: (round(p["cy"] / (ppm * 3)), p["cx"]))):
@@ -125,7 +134,8 @@ def program_from_image(prog, img, ppm=20.0):
     prog.data["fiducials"] = fids
     prog.data["source"] = "photo"
     prog.data["compare"] = {"enabled": True, "base": 28.0}
+    prog.data["align"] = "features"
     import cv2 as _cv
     _cv.imwrite(str(prog.path("golden.png")), img)
     prog.save()
-    return {"parts": len(parts), "holes": len(holes)}
+    return {"parts": len(parts), "holes": len(holes), "ppm": round(ppm, 2)}

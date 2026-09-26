@@ -192,7 +192,8 @@ class Program:
         gold = self.golden()
         if gold is None or self.M is None:
             raise ValueError("Program not ready: add board image and align fiducials first")
-        warped, reg = vision.register(gold, img, self.anchors(), patch=int(vision.px_per_mm(self.M) * 1.5))
+        warped, reg = vision.register(gold, img, self.anchors(), patch=int(vision.px_per_mm(self.M) * 1.5),
+                                       prefer=self.data.get("align"))
         run_id = time.strftime("%Y%m%d-%H%M%S") + f"-{int(time.time() * 1000) % 1000:03d}"
         rdir = self.path("runs", run_id, "x").parent
         result = {"run": run_id, "time": time.time(), "board": board_id, "registration": reg, "components": []}
@@ -239,10 +240,24 @@ class Program:
         valid = cv2.warpAffine(np.full(reg["src_shape"], 255, np.uint8), np.float64(reg["M"]),
                                (gold.shape[1], gold.shape[0]), flags=cv2.INTER_NEAREST, borderValue=0)
         valid = cv2.erode(valid, np.ones((int(ppm * 0.8) | 1,) * 2, np.uint8))
+        bo = vision.board_outline(gold)  # compare the board only, not the table around it
+        if bo is not None:
+            valid = np.where(cv2.erode(bo[1], np.ones((int(ppm * 0.8) | 1,) * 2, np.uint8)) > 0, valid, 0)
+        # specular glare (flux / solder shine) is not a defect: ignore very bright, colourless spots
+        glare = np.zeros(gold.shape[:2], np.uint8)
+        for im in (gold, warped):
+            lab = cv2.cvtColor(im, cv2.COLOR_BGR2LAB)
+            glare |= ((lab[..., 0] > 225) & (np.abs(lab[..., 1].astype(int) - 128) + np.abs(lab[..., 2].astype(int) - 128) < 20)).astype(np.uint8)
+        # only big shiny patches are glare; a small bright spot may be a solder ball
+        n, lbl, st, _ = cv2.connectedComponentsWithStats(glare)
+        big = np.zeros(n, np.uint8)
+        big[1:] = st[1:, 4] > (1.2 * ppm) ** 2
+        glare = cv2.dilate(big[lbl], np.ones((int(ppm * 0.4) | 1,) * 2, np.uint8))
+        valid = np.where(glare > 0, 0, valid)
         tol = np.full(gold.shape[:2], 0, np.float32) if tol is None else tol
         tol = np.where(valid > 0, tol, 1e6).astype(np.float32)
         blobs, d = vision.diff_defects(gold, warped, tol, cfg.get("base", 28.0),
-                                       int(cfg.get("min_area_mm2", 0.12) * ppm * ppm), max(1, int(ppm * 0.1)), int(ppm * 0.8))
+                                       max(60, int(cfg.get("min_area_mm2", 0.12) * ppm * ppm)), max(1, int(ppm * 0.1)), int(ppm * 0.8))
         cv2.imwrite(str(rdir / "diff.png"), d.clip(0, 255).astype(np.uint8))
         failed = [c for c in result["components"] if not c["ok"]]
         for i, b in enumerate(blobs):
@@ -264,7 +279,8 @@ class Program:
     def train_good(self, img):
         """Learn normal variation from a known-good capture (lighting, focus, placement spread)."""
         gold = self.golden()
-        warped, reg = vision.register(gold, img, self.anchors(), patch=int(vision.px_per_mm(self.M) * 1.5))
+        warped, reg = vision.register(gold, img, self.anchors(), patch=int(vision.px_per_mm(self.M) * 1.5),
+                                       prefer=self.data.get("align"))
         if warped is None:
             raise ValueError("Board not found in image")
         d = vision.diff_map(gold, warped, max(1, int(vision.px_per_mm(self.M) * 0.1)))

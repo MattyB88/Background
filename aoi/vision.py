@@ -146,7 +146,7 @@ def auto_fiducials(img, fids, comps, y_up=True, fid_diam_mm=1.0):
 
 
 # ---------------------------------------------------------------- registration
-def register(golden, test, anchors_px, patch=60):
+def register(golden, test, anchors_px, patch=60, prefer=None):
     """Warp *test* into golden frame. anchors_px: fiducial/feature points in golden.
 
     Returns (warped_test, info). Uses template matching at anchors, falls back to ORB.
@@ -173,9 +173,10 @@ def register(golden, test, anchors_px, patch=60):
             scores.append(float(mv))
     method = "fiducial"
     M = None
-    if len(src) >= 2:
+    if M is None and len(src) >= 2 and prefer != "features":
         M = similarity_from_pairs(dst, src)  # test -> golden
-    else:
+        method = "fiducial"
+    if M is None:
         method = "features"
         orb = cv2.ORB_create(3000)
         k1, d1 = orb.detectAndCompute(t, None)
@@ -186,6 +187,9 @@ def register(golden, test, anchors_px, patch=60):
                 a = np.float32([k1[m.queryIdx].pt for m in matches])
                 b = np.float32([k2[m.trainIdx].pt for m in matches])
                 M, _ = cv2.estimateAffinePartial2D(a, b, method=cv2.RANSAC, ransacReprojThreshold=3)
+    if M is None:  # last resort: the board outline against a plain background (coarse; ECC refines it)
+        M = register_outline(golden, test, g, t)
+        method = "outline"
     if M is None:
         return None, {"ok": False, "method": "none", "msg": "Board not found - check position / lighting"}
     M, refined = refine_ecc(g, t, M)
@@ -195,6 +199,50 @@ def register(golden, test, anchors_px, patch=60):
     ang = math.degrees(math.atan2(M[1, 0], M[0, 0]))
     return warped, {"ok": True, "method": method, "M": M.tolist(), "src_shape": list(test.shape[:2]), "shift_px": [float(M[0, 2]), float(M[1, 2])],
                     "angle": ang, "scale": px_per_mm(M), "scores": scores}
+
+
+def board_outline(img):
+    """Board rectangle ((cx, cy), (w, h), angle) + mask, found against a plain background. None if unclear."""
+    lab = cv2.GaussianBlur(cv2.cvtColor(img, cv2.COLOR_BGR2LAB), (7, 7), 0).astype(np.float32)
+    h, w = lab.shape[:2]
+    border = np.concatenate([lab[:10].reshape(-1, 3), lab[-10:].reshape(-1, 3), lab[:, :10].reshape(-1, 3), lab[:, -10:].reshape(-1, 3)])
+    bg, spread = np.median(border, 0), np.percentile(np.linalg.norm(border - np.median(border, 0), axis=1), 95)
+    m = (np.linalg.norm(lab - bg, axis=2) > max(18.0, 2.5 * spread)).astype(np.uint8)
+    m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, np.ones((15, 15), np.uint8))
+    m = cv2.morphologyEx(m, cv2.MORPH_OPEN, np.ones((9, 9), np.uint8))
+    n, lbl, st, _ = cv2.connectedComponentsWithStats(m)
+    if n < 2:
+        return None
+    i = 1 + int(np.argmax(st[1:, 4]))
+    if st[i, 4] < 0.05 * h * w or st[i, 4] > 0.95 * h * w:
+        return None
+    mask = (lbl == i).astype(np.uint8)
+    cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    hull = cv2.convexHull(max(cnts, key=cv2.contourArea))
+    full = np.zeros_like(mask)
+    cv2.fillConvexPoly(full, hull, 1)
+    return cv2.minAreaRect(hull), full
+
+
+def register_outline(g_img, t_img, g, t):
+    """test->golden transform from the board outlines (tries 0/90/180/270 corner orders, keeps best NCC)."""
+    go, to = board_outline(g_img), board_outline(t_img)
+    if go is None or to is None:
+        return None
+    gb, tb = cv2.boxPoints(go[0]), cv2.boxPoints(to[0])
+    if abs(max(go[0][1]) / min(go[0][1]) - max(to[0][1]) / min(to[0][1])) > 0.15 * max(go[0][1]) / min(go[0][1]):
+        return None  # different shape: not the same board view
+    best = (-2, None)
+    small = lambda a: cv2.resize(a, None, fx=0.25, fy=0.25)
+    for k in range(4):
+        M, _ = cv2.estimateAffinePartial2D(np.roll(tb, k, axis=0), gb)
+        if M is None:
+            continue
+        wt = cv2.warpAffine(t, M, (g.shape[1], g.shape[0]))
+        sc = ncc(small(g), small(wt))
+        if sc > best[0]:
+            best = (sc, M)
+    return best[1] if best[0] > 0.3 else None
 
 
 def refine_ecc(g, t, M, scale=0.5):
