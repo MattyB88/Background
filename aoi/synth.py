@@ -82,6 +82,9 @@ def render(defects=None, light=1.0, angle=0.0, offset=(40, 30), noise=4, seed=0,
         cv2.fillPoly(img, [poly(0, 0, pkg.body_l, pkg.body_w)], body_col, cv2.LINE_AA)
         for px_, py_, l, w in pkg.pads:  # leads / end caps
             cv2.fillPoly(img, [poly(px_, py_, l * 0.7, w * 0.7)], (200, 200, 205), cv2.LINE_AA)
+        if d == "bridge" and len(pkg.pads) >= 2:
+            a, b = pkg.pads[0], pkg.pads[1]
+            cv2.fillPoly(img, [poly((a[0] + b[0]) / 2, a[1], abs(b[0] - a[0]) + 0.2, a[3] * 0.5)], (210, 210, 215), cv2.LINE_AA)
         if pkg.polarized:
             if pkg.kind in ("diode", "led"):
                 cv2.fillPoly(img, [poly(-pkg.body_l * 0.3, 0, pkg.body_l * 0.12, pkg.body_w * 0.9)], (220, 220, 220) if pkg.kind != "led" else (40, 150, 40), cv2.LINE_AA)

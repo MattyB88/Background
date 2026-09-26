@@ -38,6 +38,7 @@ class Program:
         self.data = json.loads(self.file.read_text()) if self.file.exists() else {
             "name": self.name, "components": [], "packages": {}, "y_up": True, "transform": None,
             "fiducials": [], "thresholds": dict(vision.DEFAULTS), "created": time.time()}
+        self.data["thresholds"] = {**vision.DEFAULTS, **self.data["thresholds"]}
 
     # ------------------------------------------------ persistence
     def save(self):

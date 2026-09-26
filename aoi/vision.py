@@ -186,7 +186,7 @@ def grad(g):
     return cv2.magnitude(gx, gy)
 
 
-DEFAULTS = {"presence": 0.6, "polarity_margin": 0.08, "ocv": 0.45, "offset_mm": 0.35, "search_mm": 0.8}
+DEFAULTS = {"bridge": 1.2, "presence": 0.6, "polarity_margin": 0.08, "ocv": 0.45, "offset_mm": 0.35, "search_mm": 0.8}
 
 
 def _body_slice(shape, pkg, ppm, frac=0.8):
@@ -282,10 +282,49 @@ def inspect_component(golden, test, center, angle, pkg: Package, ppm, refs=(), t
             out["ocv"] = round(ocv, 3)
             if ocv < th["ocv"]:
                 fails.append("MARKING")
+    if checks.get("bridge", len(pkg.pads) >= 4) and "MISSING" not in fails:
+        b = bridge_score(found, tpl, pkg, ppm)
+        out["bridge"] = round(b, 2)
+        if b > th["bridge"]:
+            fails.append("BRIDGE")
     out["fails"] = fails
     out["ok"] = not fails
     out["_golden"], out["_test"] = tpl, (found if found.shape == tpl.shape else nominal)
     return out
+
+
+def pad_gaps(pkg: Package):
+    """Gap rectangles (cx, cy, l, w in mm, body frame) between neighbouring pads of a row."""
+    gaps = []
+    rows = {}
+    for cx, cy, l, w in pkg.pads:
+        key = ("y", round(cy, 2)) if l <= w else ("x", round(cx, 2))
+        rows.setdefault(key, []).append((cx, cy, l, w))
+    for (axis, _), pads in rows.items():
+        i = 0 if axis == "y" else 1
+        pads.sort(key=lambda p: p[i])
+        for a, b in zip(pads, pads[1:]):
+            gap = (b[i] - b[2 + i] / 2) - (a[i] + a[2 + i] / 2)
+            if gap <= 0.05:
+                continue
+            c = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]
+            size = [gap * 0.6, a[3] * 0.6] if axis == "y" else [a[2] * 0.6, gap * 0.6]
+            gaps.append((c[0], c[1], size[0], size[1]))
+    return gaps
+
+
+def bridge_score(found, tpl, pkg: Package, ppm):
+    """Max brightness rise (in ROI std units) of any lead gap vs golden. Solder bridge = bright gap."""
+    zf, zt = _z(found), _z(tpl)
+    h, w = tpl.shape
+    worst = 0.0
+    for cx, cy, l, gw in pad_gaps(pkg):
+        x0, x1 = int(w / 2 + (cx - l / 2) * ppm), int(w / 2 + (cx + l / 2) * ppm) + 1
+        y0, y1 = int(h / 2 + (-cy - gw / 2) * ppm), int(h / 2 + (-cy + gw / 2) * ppm) + 1
+        if x0 < 0 or y0 < 0 or x1 > w or y1 > h or (x1 - x0) * (y1 - y0) < 2:
+            continue
+        worst = max(worst, float(zf[y0:y1, x0:x1].mean() - zt[y0:y1, x0:x1].mean()))
+    return worst
 
 
 def ocr_text(crop):

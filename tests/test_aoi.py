@@ -65,3 +65,9 @@ def test_altium_thousands_separators():
     assert [c["ref"] for c in r["components"]] == ["R34", "FD9"]
     assert abs(r["components"][0]["x"] - 1282.0904) < 1e-6
     assert derive("64PIN_-_TQFP_(PQFP)").kind == "qfp" and derive("SMD_TANT_D").kind == "tant"
+
+
+def test_solder_bridge(prog):
+    r = prog.inspect(synth.render({"U1": "bridge", "U2": "bridge"}, light=1.2, angle=1, offset=(45, 30), seed=6))
+    got = {c["ref"]: c["fails"] for c in r["components"] if not c["ok"]}
+    assert got == {"U1": ["BRIDGE"], "U2": ["BRIDGE"]}

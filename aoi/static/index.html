@@ -40,7 +40,7 @@ canvas{width:100%;height:100%;display:block;cursor:crosshair}
 .pad button{height:64px;font-size:28px;padding:0}
 .card{background:var(--panel2);border-radius:14px;padding:10px;margin:10px 0;border:3px solid transparent}
 .card.cur{border-color:var(--sel)}
-.card .imgs{display:flex;gap:6px;align-items:center}.card img{flex:1;min-width:0;image-rendering:pixelated;border-radius:8px;background:#000;max-height:160px;object-fit:contain}
+.card .imgs{display:flex;gap:6px;align-items:center}.card .imgs>div{flex:1;min-width:0}.card .imgs img{width:100%}.card img{flex:1;min-width:0;image-rendering:pixelated;border-radius:8px;background:#000;max-height:160px;object-fit:contain}
 .tag{display:inline-block;padding:3px 10px;border-radius:20px;font-weight:800;background:var(--bad);margin:2px}
 .tag.w{background:var(--warn);color:#000}
 .bar{height:22px;background:var(--bad);border-radius:6px;margin:3px 0;display:flex;align-items:center;padding:0 8px;font-size:13px;white-space:nowrap}
@@ -175,7 +175,7 @@ rois(el,d){
   if(!c){el.innerHTML=`<h2>🔲 ROIs</h2><div class="hint big">👆 Click a part on the image to adjust it</div>
     <div class="tiles"><div class="tile"><b>${d.components.filter(c=>c.enabled).length}</b><span>inspected</span></div><div class="tile"><b>${Object.keys(d.packages).length}</b><span>packages</span></div></div>
     <button class="big ok" id="bNext">Next ➜ Inspect</button>`;$("#bNext").onclick=()=>go("inspect");return;}
-  const pk=d.packages[c.package];const ch=c.checks||{presence:true,polarity:pk.polarized,ocv:pk.marking,offset:true};
+  const pk=d.packages[c.package];const ch={presence:true,polarity:pk.polarized,ocv:pk.marking,offset:true,bridge:pk.pads.length>=4,...(c.checks||{})};
   el.innerHTML=`<h2>${c.ref} <small style="color:var(--dim);font-size:15px">${c.part}</small></h2>
    <div class="row"><span>Package</span><select id="pk">${Object.keys(d.packages).map(p=>`<option ${p==c.package?"selected":""}>${p}</option>`).join("")}</select></div>
    <div style="text-align:center;color:var(--dim)">Move ROI (0.05 mm)</div>
@@ -183,7 +183,7 @@ rois(el,d){
    <div style="text-align:center;color:var(--dim)">Body size — all <b>${c.package}</b> (${pk.body_l.toFixed(2)} × ${pk.body_w.toFixed(2)} mm)</div>
    <div class="row"><button data-b="body_l,-1">L −</button><button data-b="body_l,1">L ＋</button><button data-b="body_w,-1">W −</button><button data-b="body_w,1">W ＋</button></div>
    <div style="color:var(--dim);margin-top:10px">Checks</div>
-   <div class="chk">${[["presence","⬛ Missing"],["polarity","➕ Polarity"],["ocv","🔤 Marking"],["offset","↔ Offset"]].map(([k,t])=>`<button data-c="${k}" class="${ch[k]?"on":""}">${ch[k]?"✔":"✖"} ${t}</button>`).join("")}</div>
+   <div class="chk">${[["presence","⬛ Missing"],["polarity","➕ Polarity"],["ocv","🔤 Marking"],["offset","↔ Offset"],["bridge","🔗 Bridge"]].map(([k,t])=>`<button data-c="${k}" class="${ch[k]?"on":""}">${ch[k]?"✔":"✖"} ${t}</button>`).join("")}</div>
    <button class="big ${c.enabled?"":"pri"}" id="bEn">${c.enabled?"🚫 Skip this part":"✔ Inspect this part"}</button>
    <button class="big" id="bDone">✔ Done</button>`;
   const put=async b=>{const r=await api(P()+"/component/"+encodeURIComponent(c.ref),{method:"PUT",json:b});S.data.overlay=r.overlay;await refresh();side();draw();};
@@ -224,7 +224,7 @@ review(el,d){
    <div class="card cur"><div style="font-size:26px;font-weight:800">${c.ref} ${c.fails.map(t=>`<span class="tag">${t}</span>`).join("")}</div>
    <div style="color:var(--dim)">${c.part} · ${c.package}</div>
    <div class="imgs"><div style="flex:1;text-align:center">GOOD<img src="${img("golden")}"></div><div style="font-size:30px">➜</div><div style="flex:1;text-align:center">THIS BOARD<img src="${img("test")}"></div></div>
-   <div style="color:var(--dim);font-size:13px">present ${c.presence} ${c.polarity!=null?"· polarity "+c.polarity:""} ${c.ocv!=null?"· marking "+c.ocv:""} · offset ${c.offset_mm.join(", ")} mm</div></div>
+   <div style="color:var(--dim);font-size:13px">present ${c.presence} ${c.polarity!=null?"· polarity "+c.polarity:""} ${c.ocv!=null?"· marking "+c.ocv:""} ${c.bridge!=null?"· bridge "+c.bridge:""} · offset ${c.offset_mm.join(", ")} mm</div></div>
    <button class="big bad" id="bDef"><span class="ico">✖</span>Real defect</button>
    <button class="big ok" id="bFc"><span class="ico">✔</span>False call — learn it</button>
    ${d.ai?`<button class="big" id="bAi">🤖 AI second opinion</button><div id="aiOut"></div>`:""}
@@ -252,7 +252,7 @@ async settings(el,d){
   const sl=(k,lbl,min,max,step)=>`<label class="sl">${lbl}: <b id="v_${k}">${t[k]}</b></label><input type="range" data-k="${k}" min="${min}" max="${max}" step="${step}" value="${t[k]}">`;
   el.innerHTML=`<h2>⚙ Settings</h2>${t?`<h3>Sensitivity</h3>
    ${sl("presence","Missing part (higher = stricter)",.3,.9,.01)}${sl("polarity_margin","Polarity margin (lower = stricter)",0,.3,.01)}
-   ${sl("ocv","Marking match",.1,.9,.01)}${sl("offset_mm","Max offset mm",.05,1,.05)}${sl("search_mm","Search range mm",.2,2,.1)}`:""}
+   ${sl("ocv","Marking match",.1,.9,.01)}${sl("offset_mm","Max offset mm",.05,1,.05)}${sl("bridge","Solder bridge (lower = stricter)",.4,3,.1)}${sl("search_mm","Search range mm",.2,2,.1)}`:""}
    <h3>🤖 Advanced — AI assistant (optional)</h3>
    <div class="hint" style="font-size:14px">AOI works fully without this. When on, stats (no images, no customer data) are sent to the Claude API for summaries; single defect crops only when you press “second opinion”.</div>
    <button class="big ${a.enabled?"ok":""}" id="bAiOn">${a.enabled?"✔ AI on":"✖ AI off"}</button>
