@@ -71,3 +71,12 @@ def test_solder_bridge(prog):
     r = prog.inspect(synth.render({"U1": "bridge", "U2": "bridge"}, light=1.2, angle=1, offset=(45, 30), seed=6))
     got = {c["ref"]: c["fails"] for c in r["components"] if not c["ok"]}
     assert got == {"U1": ["BRIDGE"], "U2": ["BRIDGE"]}
+
+
+def test_defect_classification(prog):
+    d = {"R1": "tombstone", "C3": "tombstone", "C1": "billboard", "R3": "billboard", "C2": "wrong_value", "R2": "wrong_value"}
+    name = {"tombstone": "TOMBSTONE", "billboard": "BILLBOARD", "wrong_value": "WRONG PART"}
+    for kw in (dict(light=0.8, angle=1.5, offset=(50, 22), seed=2), dict(light=1.2, angle=-1, offset=(30, 40), seed=4)):
+        r = prog.inspect(synth.render(d, **kw))
+        got = {c["ref"]: c["fails"] for c in r["components"] if not c["ok"]}
+        assert got == {k: [name[v]] for k, v in d.items()}

@@ -79,6 +79,16 @@ def render(defects=None, light=1.0, angle=0.0, offset=(40, 30), noise=4, seed=0,
         body_col = (35, 35, 35) if pkg.kind in ("ic", "sot", "diode", "qfp") else ((60, 100, 150) if pkg.kind == "chip" and part[0].isdigit() and "U" not in part and "N" not in part else (40, 75, 120))
         if pkg.kind == "led":
             body_col = (220, 220, 230)
+        if d == "wrong_value":
+            body_col = tuple(int(v) for v in (np.array(body_col) * 0.4 + np.array((150, 150, 60)) * 0.6))
+        if d in ("tombstone", "billboard") and pkg.kind in ("chip", "led", "tant", "generic"):
+            if d == "tombstone":  # standing on the right pad: small end face, left pad bare
+                cv2.fillPoly(img, [poly(pkg.body_l / 2 - pkg.body_l * 0.15, 0, pkg.body_l * 0.3, pkg.body_w)], (210, 210, 215), cv2.LINE_AA)
+            else:  # on its side: narrow body, end caps
+                cv2.fillPoly(img, [poly(0, 0, pkg.body_l, pkg.body_w * 0.55)], (230, 225, 215), cv2.LINE_AA)
+                for px_, py_, l, w in pkg.pads:
+                    cv2.fillPoly(img, [poly(px_, py_, l * 0.7, w * 0.55)], (200, 200, 205), cv2.LINE_AA)
+            continue
         cv2.fillPoly(img, [poly(0, 0, pkg.body_l, pkg.body_w)], body_col, cv2.LINE_AA)
         for px_, py_, l, w in pkg.pads:  # leads / end caps
             cv2.fillPoly(img, [poly(px_, py_, l * 0.7, w * 0.7)], (200, 200, 205), cv2.LINE_AA)

@@ -259,6 +259,7 @@ def inspect_component(golden, test, center, angle, pkg: Package, ppm, refs=(), t
             found, loc = ff, fl
     presence = min(max(score, max(ncc(t, nominal) for t in templates)),
                    max(body_similarity(found, t, sl) for t in templates))
+    tc = gc = None
     if color is not None and ti == 0:
         # colour check: a part can have the same grey level as the board (e.g. brown caps on green)
         gc = crop_rot(color[0], center, angle, size)
@@ -270,7 +271,8 @@ def inspect_component(golden, test, center, angle, pkg: Package, ppm, refs=(), t
     dx_mm, dy_mm = (loc[0] - s) / ppm, (loc[1] - s) / ppm
     out.update(presence=round(presence, 3), offset_mm=[round(dx_mm, 3), round(dy_mm, 3)])
     if checks.get("presence") and presence < th["presence"]:
-        fails.append("MISSING")
+        fails.append(classify_absent(tc if color is not None and ti == 0 and tc.shape == gc.shape else None,
+                                     gc if color is not None else None, pkg, ppm, score))
     elif pol_fail:
         fails.append("POLARITY")
     else:
@@ -291,6 +293,59 @@ def inspect_component(golden, test, center, angle, pkg: Package, ppm, refs=(), t
     out["ok"] = not fails
     out["_golden"], out["_test"] = tpl, (found if found.shape == tpl.shape else nominal)
     return out
+
+
+def _masks(shape, pkg, ppm):
+    """Body mask and 'bare board' mask (ROI minus body and pads) in crop coordinates."""
+    h, w = shape[:2]
+    body = np.zeros((h, w), np.uint8)
+    cover = np.zeros((h, w), np.uint8)
+
+    def rect(m, cx, cy, l, wd, grow=0.0):
+        x0, x1 = int(w / 2 + (cx - l / 2 - grow) * ppm), int(w / 2 + (cx + l / 2 + grow) * ppm)
+        y0, y1 = int(h / 2 + (-cy - wd / 2 - grow) * ppm), int(h / 2 + (-cy + wd / 2 + grow) * ppm)
+        m[max(0, y0):max(0, y1), max(0, x0):max(0, x1)] = 1
+    rect(body, 0, 0, pkg.body_l * 0.6, pkg.body_w * 0.7)
+    rect(cover, 0, 0, pkg.body_l, pkg.body_w, 0.1)
+    for p in pkg.pads:
+        rect(cover, *p, grow=0.1)
+    return body.astype(bool), ~cover.astype(bool)
+
+
+def classify_absent(tc, gc, pkg: Package, ppm, match):
+    """Name a low-presence result: MISSING / TOMBSTONE / BILLBOARD / WRONG PART (needs Lab crops)."""
+    if tc is None:
+        return "MISSING"
+    body, board = _masks(gc.shape, pkg, ppm)
+    if board.sum() < 10 or body.sum() < 4:
+        return "MISSING"
+    bare = gc[board].reshape(-1, 3).astype(np.float32).mean(0)
+    tb = tc[body].reshape(-1, 3).astype(np.float32)
+    gb = gc[body].reshape(-1, 3).astype(np.float32).mean(0)
+    dist = lambda a, b: float(np.linalg.norm(a - b))
+    scale = max(dist(gb, bare), 10.0)
+    frac_bare = dist(tb.mean(0), tc[board].reshape(-1, 3).astype(np.float32).mean(0)) / scale
+    pad_diff = []
+    if len(pkg.pads) == 2:
+        for cx, cy, l, wd in pkg.pads:
+            m = np.zeros(body.shape, np.uint8)
+            h, w = body.shape
+            x0, x1 = int(w / 2 + (cx - l / 2) * ppm), int(w / 2 + (cx + l / 2) * ppm)
+            y0, y1 = int(h / 2 + (-cy - wd / 2) * ppm), int(h / 2 + (-cy + wd / 2) * ppm)
+            m[max(0, y0):y1, max(0, x0):x1] = 1
+            m = m.astype(bool)
+            pad_diff.append(dist(tc[m].reshape(-1, 3).astype(np.float32).mean(0),
+                                 gc[m].reshape(-1, 3).astype(np.float32).mean(0)) / scale if m.any() else 0)
+    if pkg.kind in ("chip", "led", "tant", "generic") and pad_diff and \
+            max(pad_diff) > 0.35 and max(pad_diff) > 1.7 * max(min(pad_diff), 0.05):
+        return "TOMBSTONE"
+    if frac_bare < 0.45:
+        return "MISSING"
+    if match >= 0.85:
+        return "WRONG PART"
+    if pkg.kind in ("chip", "led", "tant", "generic"):
+        return "BILLBOARD"
+    return "WRONG PART"
 
 
 def pad_gaps(pkg: Package):
