@@ -80,3 +80,24 @@ def test_defect_classification(prog):
         r = prog.inspect(synth.render(d, **kw))
         got = {c["ref"]: c["fails"] for c in r["components"] if not c["ok"]}
         assert got == {k: [name[v]] for k, v in d.items()}
+
+
+def test_auto_fiducials_rotated_with_decoys(tmp_path, monkeypatch):
+    import cv2
+    import numpy as np
+    monkeypatch.setattr("aoi.program.ROOT", tmp_path)
+    from aoi.program import Program
+    img = cv2.copyMakeBorder(synth.render(), 150, 150, 150, 150, cv2.BORDER_CONSTANT, value=(30, 30, 30))
+    img = cv2.warpAffine(img, cv2.getRotationMatrix2D((img.shape[1] / 2, img.shape[0] / 2), 7, 1),
+                         (img.shape[1], img.shape[0]), borderValue=(30, 30, 30))
+    rng = np.random.default_rng(0)
+    for _ in range(40):  # vias / holes that look like fiducials
+        cv2.circle(img, (int(rng.uniform(200, img.shape[1] - 200)), int(rng.uniform(200, img.shape[0] - 200))),
+                   int(rng.uniform(6, 12)), (200, 205, 205), -1, cv2.LINE_AA)
+    p = Program("rot")
+    p.import_placements(pnp_import.parse(synth.csv_text()))
+    p.set_golden(img)
+    p.auto_teach()
+    M = p.M
+    assert abs(np.hypot(M[0, 0], M[1, 0]) - synth.PPM) < 0.2
+    assert abs(np.degrees(np.arctan2(M[1, 0], M[0, 0])) + 7) < 0.3

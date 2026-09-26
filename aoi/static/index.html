@@ -159,7 +159,7 @@ align(el,d){
   el.innerHTML=`<h2>🎯 Align</h2>
    ${d.transform?`<div class="hint" style="border-color:var(--ok)">✔ Aligned. Blue boxes should sit on the parts.</div>`:""}
    <button class="big pri" id="bAuto"><span class="ico">✨</span>Auto-find fiducials</button>
-   <div class="hint big">👆 Click the centre of <span style="color:var(--warn)">${S.teachRef||"—"}</span> on the image</div>
+   ${d.transform&&!S.teach.length?`<div style="color:var(--dim);margin:8px 0">Boxes off? Click <b style="color:var(--warn)">${S.teachRef||"—"}</b> on the image to re-teach</div>`:`<div class="hint big">👆 Click the centre of <span style="color:var(--warn)">${S.teachRef||"—"}</span> on the image</div>`}
    <div class="row"><span>Reference</span><select id="tref">${cand.map(r=>`<option ${r==S.teachRef?"selected":""}>${r}</option>`).join("")}</select></div>
    <div>${S.teach.map(t=>`<span class="tag" style="background:var(--warn);color:#000">✓ ${t.ref}</span>`).join("")}</div>
    <div class="row"><button id="bFlip">↕ Flip Y (${d.y_up?"Y up":"Y down"})</button><button id="bClr">↺ Restart</button></div>

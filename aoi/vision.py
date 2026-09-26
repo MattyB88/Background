@@ -60,51 +60,89 @@ def comp_pose(M, comp, y_up=True):
 
 
 # ---------------------------------------------------------------- fiducials
-def find_round_marks(gray, r_px):
-    """Candidate fiducial centres (bright or dark round blobs) near radius r_px."""
+def find_round_marks(gray, max_r=60):
+    """Candidate fiducial centres + radii (bright or dark round blobs) across scales."""
     g = cv2.GaussianBlur(gray, (5, 5), 0)
-    circles = cv2.HoughCircles(g, cv2.HOUGH_GRADIENT, 1.2, max(8, r_px * 3), param1=100, param2=18,
-                               minRadius=max(2, int(r_px * 0.6)), maxRadius=int(r_px * 1.6) + 2)
-    return [] if circles is None else [(float(x), float(y)) for x, y, _ in circles[0][:25]]
+    out = []
+    r = 3
+    while r <= max_r:
+        c = cv2.HoughCircles(g, cv2.HOUGH_GRADIENT, 1.2, max(8, r * 3), param1=100, param2=max(12, int(r * 1.2)),
+                             minRadius=r, maxRadius=int(r * 1.6) + 1)
+        if c is not None:
+            for x, y, rr in c[0][:40]:
+                if all(math.dist((x, y), (o[0], o[1])) > max(4, rr * 0.5) for o in out):
+                    out.append((float(x), float(y), float(rr)))
+        r = int(r * 1.5) + 1
+    return out
+
+
+def refine_center(gray, p, r):
+    """Sub-pixel centroid of the round blob near p (bright or dark)."""
+    x, y, R = int(round(p[0])), int(round(p[1])), int(max(4, r * 2))
+    y0, x0 = max(0, y - R), max(0, x - R)
+    patch = gray[y0:y + R + 1, x0:x + R + 1]
+    if patch.size < 16:
+        return p
+    _, th = cv2.threshold(patch, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    cy, cx = y - y0, x - x0
+    if th[min(cy, th.shape[0] - 1), min(cx, th.shape[1] - 1)] == 0:
+        th = 255 - th
+    n, lab = cv2.connectedComponents(th)
+    k = lab[min(cy, lab.shape[0] - 1), min(cx, lab.shape[1] - 1)]
+    m = cv2.moments((lab == k).astype(np.uint8))
+    if m["m00"] < 4 or m["m00"] > 0.8 * patch.size:
+        return p
+    return (x0 + m["m10"] / m["m00"], y0 + m["m01"] / m["m00"])
 
 
 def auto_fiducials(img, fids, comps, y_up=True, fid_diam_mm=1.0):
-    """Find fiducials without a known scale: try candidate assignments, keep best fit.
+    """Find fiducials without a known scale: hypothesise from candidate pairs, verify on all fiducials.
 
     Returns (M, matched_px) or (None, []).
     """
     gray = prep(img)
     h, w = gray.shape
     src = [mm_src(f["x"], f["y"], y_up) for f in fids]
-    all_src = [mm_src(c["x"], c["y"], y_up) for c in comps]
-    best = (1e18, None, None)
-    for r_px in (4, 6, 9, 13, 18, 25, 35):
-        cands = find_round_marks(gray, r_px)
-        if len(cands) < 2:
+    all_src = np.float64([mm_src(c["x"], c["y"], y_up) for c in comps])
+    cands = find_round_marks(gray, max_r=int(min(h, w) / 25))
+    if len(cands) < 2:
+        return None, []
+    cxy = np.float64([(c[0], c[1]) for c in cands])
+    # anchor on the two fiducials furthest apart
+    i0, i1 = max(itertools.combinations(range(len(src)), 2), key=lambda ij: math.dist(src[ij[0]], src[ij[1]]))
+    best = (-1, 1e18, None, None)
+    for a, b in itertools.permutations(range(len(cands)), 2):
+        ra, rb = cands[a][2], cands[b][2]
+        if not 0.66 < ra / rb < 1.5:
             continue
-        for combo in itertools.permutations(cands, min(len(fids), 3)):
-            if len(combo) < 2:
-                continue
-            try:
-                M = similarity_from_pairs(src[:len(combo)], combo)
-            except ValueError:
-                continue
-            s = px_per_mm(M)
-            if not (0.5 * r_px < s * fid_diam_mm / 2 < 2.0 * r_px):
-                continue
-            p = apply(M, all_src)
-            inside = np.mean((p[:, 0] > 0) & (p[:, 0] < w) & (p[:, 1] > 0) & (p[:, 1] < h))
-            if inside < 0.98:
-                continue
-            resid = 0.0
-            if len(fids) > len(combo):
-                extra = apply(M, src[len(combo):])
-                resid = sum(min(math.dist(e, c) for c in cands) for e in extra)
-            # prefer consistent fit, then darker-contrast marks (more fiducial-like)
-            score = resid - s * 0.01
-            if score < best[0]:
-                best = (score, M, list(combo))
-    return best[1], best[2] or []
+        try:
+            M = similarity_from_pairs([src[i0], src[i1]], [cxy[a], cxy[b]])
+        except ValueError:
+            continue
+        s = px_per_mm(M)
+        if not 0.4 < s * fid_diam_mm / (ra + rb) < 2.5:
+            continue
+        p = apply(M, all_src)
+        if np.mean((p[:, 0] > 0) & (p[:, 0] < w) & (p[:, 1] > 0) & (p[:, 1] < h)) < 0.98:
+            continue
+        pf = apply(M, src)
+        d = np.linalg.norm(pf[:, None, :] - cxy[None, :, :], axis=2).min(1)
+        tol = max(3.0, 0.4 * (ra + rb) / 2)
+        inl = int((d < tol).sum())
+        res = float(d[d < tol].sum())
+        if (inl, -res) > (best[0], -best[1]):
+            best = (inl, res, M, [tuple(cxy[np.linalg.norm(cxy - q, axis=1).argmin()]) for q in pf])
+    if best[2] is None:
+        return None, []
+    # refine on all inlier fiducials (sub-pixel blob centroids)
+    M = best[2]
+    r_px = 0.5 * fid_diam_mm * px_per_mm(M)
+    pts = [refine_center(gray, p, r_px) for p in best[3]]
+    pf = apply(M, src)
+    keep = [i for i in range(len(src)) if math.dist(pf[i], pts[i]) < max(3.0, 0.2 * px_per_mm(M))]
+    if len(keep) >= 2:
+        M = similarity_from_pairs([src[i] for i in keep], [pts[i] for i in keep])
+    return M, [pts[i] if i in keep else tuple(apply(M, [src[i]])[0]) for i in range(len(src))]
 
 
 # ---------------------------------------------------------------- registration
