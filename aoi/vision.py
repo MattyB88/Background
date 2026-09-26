@@ -603,3 +603,109 @@ def diff_defects(golden, test, tol=None, base=28.0, min_area_px=40, slack_px=2, 
         out.append({"x": int(x), "y": int(y), "w": int(w), "h": int(h), "area": int(a),
                     "cx": float(cen[i][0]), "cy": float(cen[i][1]), "score": round(float(d[lbl == i].max()), 1)})
     return out, d
+
+
+# ---------------------------------------------------------------- teach: snap a box onto a part
+def snap_part(img, x, y, ppm, sizes_mm=(3, 4.5, 7, 10, 15, 22)):
+    """Find the part under (x, y). In growing windows: board colour = window border, part = pixels far from it
+    (Otsu), keep the blob at the click once it sits fully inside the window. Returns dict(cx, cy, l, w, angle) px."""
+    h, w = img.shape[:2]
+    per_win_all = []
+    core = None
+    for s_mm in sizes_mm:
+        r = int(s_mm * ppm / 2)
+        x0, y0, x1, y1 = max(0, int(x) - r), max(0, int(y) - r), min(w, int(x) + r), min(h, int(y) + r)
+        if x1 - x0 < 10 or y1 - y0 < 10:
+            continue
+        lab = cv2.GaussianBlur(cv2.cvtColor(img[y0:y1, x0:x1], cv2.COLOR_BGR2LAB), (3, 3), 0).astype(np.float32)
+        b = 2
+        border = np.concatenate([lab[:b].reshape(-1, 3), lab[-b:].reshape(-1, 3), lab[:, :b].reshape(-1, 3), lab[:, -b:].reshape(-1, 3)])
+        bg = np.median(border, 0)
+        d = np.linalg.norm((lab - bg) * (1.0, 1.4, 1.4), axis=2)
+        d8 = np.clip(d * 2, 0, 255).astype(np.uint8)
+        t, _ = cv2.threshold(d8, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        cx, cy = int(x) - x0, int(y) - y0
+        k = max(3, int(ppm * 0.25)) | 1
+        gL = cv2.GaussianBlur(lab[..., 0], (0, 0), 1.0)
+        gmag = cv2.magnitude(cv2.Sobel(gL, cv2.CV_32F, 1, 0), cv2.Sobel(gL, cv2.CV_32F, 0, 1))
+        gmag = cv2.dilate(gmag, np.ones((3, 3), np.uint8))
+        cands = []
+        for level in (t, t * 0.6, t * 0.4, t * 0.25):  # dark part on dark board: marking text beats the body at Otsu
+            m = (d8 > max(level, 14)).astype(np.uint8)
+            m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, np.ones((k, k), np.uint8))
+            m = cv2.morphologyEx(m, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+            cnts, _ = cv2.findContours(m, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            for cnt in cnts:
+                if cv2.pointPolygonTest(cnt, (cx, cy), True) < -0.6 * ppm:
+                    continue  # must contain (or touch) the click
+                area = cv2.contourArea(cnt)
+                if area < (0.7 * ppm) ** 2:
+                    continue
+                bx, by, bw, bh = cv2.boundingRect(cnt)
+                inside = bx > 1 and by > 1 and bx + bw < (x1 - x0) - 1 and by + bh < (y1 - y0) - 1
+                (mx, my), (a, bb), ang = cv2.minAreaRect(cnt)
+                rot_area, box_area = a * bb, bw * bh
+                if rot_area > 0.85 * box_area:  # a rotated box is not clearly tighter: keep it square to the board
+                    mx, my, a, bb, ang = bx + bw / 2, by + bh / 2, bw, bh, 0.0
+                    rect_fill = area / max(1.0, box_area)
+                else:
+                    rect_fill = area / max(1.0, rot_area)
+                if a < bb:
+                    a, bb, ang = bb, a, ang + 90
+                pts = cnt.reshape(-1, 2)
+                edge = float(gmag[pts[:, 1].clip(0, gmag.shape[0] - 1), pts[:, 0].clip(0, gmag.shape[1] - 1)].mean())
+                cands.append((inside, rect_fill > 0.7, edge * rect_fill, {"cx": float(mx + x0), "cy": float(my + y0), "l": float(a), "w": float(bb), "angle": float(ang)}, 0, area))
+        good = [c for c in cands if c[0] and c[1]]
+        if good:
+            g = max(good, key=lambda c: c[5])
+            if core is None:
+                core = g  # smallest clean, fully-seen blob: at least part of the body
+            elif g[5] <= 8 * core[5] and abs(g[3]["cx"] - core[3]["cx"]) < g[3]["l"] / 2 and abs(g[3]["cy"] - core[3]["cy"]) < g[3]["l"] / 2 \
+                    and g[2] >= 0.8 * core[2]:
+                core = g  # grew to a bigger clean outline around the core with an edge as strong: the full body
+            else:
+                return core[3]
+        elif core is not None:
+            return core[3]
+        per_win_all.append(cands)
+    if core is not None:
+        return core[3]
+    for cands in per_win_all:  # nothing fully inside any window: best guess from the smallest window that saw something
+        if cands:
+            return max(cands, key=lambda c: (c[1], c[5]))[3]
+    return None
+
+
+def presence_onpad(test_bgr, center, angle, pkg, ppm, gold_bgr, min_on=0.5, search_mm=None):
+    """Acceptance-style check: is a part there, and is at least `min_on` of it on its footprint?
+
+    Ignores marking, vendor, colour of the body and 180-degree turns of non-polar parts.
+    The part is 'what is not bare board' in the footprint; bare-board colour is sampled around it.
+    """
+    L, W = pkg.body_l * ppm, pkg.body_w * ppm
+    m = int(max(1.5 * ppm, 0.6 * min(L, W)))
+    size = (L + 2 * m, W + 2 * m)
+
+    def part_mask(img):
+        crop = crop_rot(img, center, angle, size)
+        lab = cv2.GaussianBlur(cv2.cvtColor(crop, cv2.COLOR_BGR2LAB), (3, 3), 0).astype(np.float32)
+        ring = np.ones(lab.shape[:2], bool)
+        ring[m // 2:-m // 2 or None, m // 2:-m // 2 or None] = False
+        bare = np.median(lab[ring].reshape(-1, 3), 0)
+        d = np.linalg.norm((lab - bare) * (1.0, 1.4, 1.4), axis=2)
+        return d, crop.shape[:2]
+    dg, shp = part_mask(gold_bgr)
+    dt, _ = part_mask(test_bgr)
+    thr = max(18.0, 0.35 * float(np.percentile(dg[m:-m or None, m:-m or None], 60)))
+    g = dg > thr
+    t = dt > thr
+    body = np.zeros(shp, bool)
+    body[m:m + int(W), m:m + int(L)] = True
+    golden_cover = g[body].mean()  # how much of the footprint the part covered on the golden
+    test_cover = t[body].mean()
+    present = test_cover >= 0.4 * golden_cover
+    # on-pad: overlap of test part with golden part region (dilated a little for tolerance)
+    gp = cv2.dilate(g.astype(np.uint8), np.ones((3, 3), np.uint8)) > 0
+    overlap = (t & gp & body).sum() / max(1, (g & body).sum())
+    return {"presence": round(float(test_cover / max(golden_cover, 1e-3)), 3), "on_pad": round(float(overlap), 3),
+            "fails": [] if present and overlap >= min_on else (["MISSING"] if not present else ["OFF PAD"])}

@@ -122,6 +122,27 @@ def from_photo(name):
     return jsonify(**info, overlay=p.overlay())
 
 
+@app.post("/api/programs/<name>/parts")
+def add_part(name):
+    p = _prog(name)
+    ref = p.add_part_at(float(request.json["px"]), float(request.json["py"]), request.json.get("ref"))
+    return jsonify(ref=ref, overlay=p.overlay())
+
+
+@app.delete("/api/programs/<name>/parts/<ref>")
+def del_part(name, ref):
+    p = _prog(name)
+    p.remove_part(ref)
+    return jsonify(ok=True, overlay=p.overlay())
+
+
+@app.post("/api/programs/<name>/parts/<ref>/rename")
+def ren_part(name, ref):
+    p = _prog(name)
+    p.rename_part(ref, request.json["ref"].strip())
+    return jsonify(ok=True)
+
+
 @app.post("/api/programs/<name>/train")
 def train(name):
     p = _prog(name)
@@ -261,6 +282,11 @@ def run_file(name, run, fname):
     if not f.exists():
         abort(404)
     return send_file(f)
+
+
+@app.get("/api/programs/<name>/runs/<run>/report.jpg")
+def run_report(name, run):
+    return _prog(name).report_image(run), 200, {"Content-Type": "image/jpeg"}
 
 
 @app.post("/api/programs/<name>/feedback")

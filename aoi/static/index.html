@@ -177,10 +177,12 @@ align(el,d){
 rois(el,d){
   const c=S.sel&&d.components.find(c=>c.ref==S.sel);
   if(!c){el.innerHTML=`<h2>🔲 ROIs</h2><div class="hint big">👆 Click a part on the image to adjust it</div>
+    <button class="big ${S.teachMode?"ok":""}" id="bTeachMode"><span class="ico">➕</span>${S.teachMode?"Teaching: click parts to add":"Teach parts (click to add)"}</button>
     <div class="tiles"><div class="tile"><b>${d.components.filter(c=>c.enabled).length}</b><span>inspected</span></div><div class="tile"><b>${Object.keys(d.packages).length}</b><span>packages</span></div></div>
     <button class="big pri" id="bFitAll"><span class="ico">✨</span>Auto-fit ALL package sizes</button>
     <div id="fitOut"></div>
     <button class="big ok" id="bNext">Next ➜ Inspect</button>`;$("#bNext").onclick=()=>go("inspect");
+    $("#bTeachMode").onclick=()=>{S.teachMode=!S.teachMode;side();};
     $("#bFitAll").onclick=async()=>{$("#fitOut").innerHTML='<div class="hint">Measuring…</div>';
       const r=await api(P()+"/autofit_all",{method:"POST"});await refresh();draw();
       $("#fitOut").innerHTML=`<div class="tiles"><div class="tile"><b style="color:var(--ok)">${r.fitted.length}</b><span>fitted ✔</span></div><div class="tile"><b style="color:var(--warn)">${r.failed.length}</b><span>check by hand</span></div></div>`+
@@ -196,6 +198,7 @@ rois(el,d){
    <div class="row"><button data-b="body_l,-1">L −</button><button data-b="body_l,1">L ＋</button><button data-b="body_w,-1">W −</button><button data-b="body_w,1">W ＋</button></div>
    <div style="color:var(--dim);margin-top:10px">Checks</div>
    <div class="chk">${[["presence","⬛ Missing"],["polarity","➕ Polarity"],["ocv","🔤 Marking"],["offset","↔ Offset"],["bridge","🔗 Bridge"]].map(([k,t])=>`<button data-c="${k}" class="${ch[k]?"on":""}">${ch[k]?"✔":"✖"} ${t}</button>`).join("")}</div>
+   <div class="row"><button id="bRen">✏ Rename</button><button id="bDel" class="bad">🗑 Delete</button></div>
    <button class="big ${c.enabled?"":"pri"}" id="bEn">${c.enabled?"🚫 Skip this part":"✔ Inspect this part"}</button>
    <button class="big" id="bDone">✔ Done</button>`;
   const put=async b=>{const r=await api(P()+"/component/"+encodeURIComponent(c.ref),{method:"PUT",json:b});S.data.overlay=r.overlay;await refresh();side();draw();};
@@ -207,7 +210,9 @@ rois(el,d){
     await api(P()+"/package/"+encodeURIComponent(c.package),{method:"PUT",json:{[k]:v}});await refresh();side();draw();});
   el.querySelectorAll("[data-c]").forEach(b=>b.onclick=()=>put({checks:{...ch,[b.dataset.c]:!ch[b.dataset.c]}}));
   $("#pk").onchange=e=>put({package:e.target.value});
-  $("#bEn").onclick=()=>put({enabled:!c.enabled});$("#bDone").onclick=()=>{S.sel=null;side();draw();};
+  $("#bEn").onclick=()=>put({enabled:!c.enabled});
+  $("#bRen").onclick=async()=>{const n=prompt("New name (e.g. U3, C12)",c.ref);if(!n)return;await api(P()+"/parts/"+encodeURIComponent(c.ref)+"/rename",{json:{ref:n}});S.sel=n;await refresh();side();draw();};
+  $("#bDel").onclick=async()=>{if(!confirm("Delete "+c.ref+"?"))return;await api(P()+"/parts/"+encodeURIComponent(c.ref),{method:"DELETE"});S.sel=null;await refresh();side();draw();};$("#bDone").onclick=()=>{S.sel=null;side();draw();};
 },
 inspect(el,d){
   const r=S.result;
@@ -218,7 +223,8 @@ inspect(el,d){
    <button class="big ok" id="bTrain"><span class="ico">✔</span>Train with GOOD board${d.compare&&d.compare.trained?` (${d.compare.trained})`:""}</button>
    ${r?`<div class="banner ${r.ok?"pass":"fail"}">${r.ok?"PASS ✔":"FAIL ✖ "+(r.n_fail||"")}</div>
    <div class="tiles"><div class="tile"><b>${r.cycle_s}s</b><span>cycle</span></div><div class="tile"><b>${(r.registration.angle||0).toFixed(2)}°</b><span>board angle</span></div></div>
-   ${r.ok?"":`<button class="big bad" id="bRev">Review ${r.n_fail||""} fails ➜</button>`}`:""}
+   ${r.ok?"":`<button class="big bad" id="bRev">Review ${r.n_fail||""} fails ➜</button>`}
+   ${r.run?`<a class="big" href="${P()}/runs/${r.run}/report.jpg" target="_blank" style="display:flex;justify-content:center;gap:12px;text-decoration:none;color:var(--txt);background:var(--panel2);border-radius:12px;padding:16px;font-size:20px;font-weight:700">📋 Report sheet (zoomed golden vs board)</a>`:""}`:""}
    ${S.data.demo_hint?"":`<div style="color:var(--dim);margin-top:14px;font-size:13px">Demo images: <a style="color:var(--acc)" href="/api/demo/image/good_1" download>good</a> · <a style="color:var(--acc)" href="/api/demo/image/defects_1" download>defects</a></div>`}`;
   const show=async res=>{S.result=res;S.revIdx=0;if(res.registration&&res.registration.ok)await setImg(P()+`/runs/${res.run}/board.jpg`);side();draw();renderSteps();
     if(!res.ok)toast("✖ "+(res.fails||res.components.filter(c=>!c.ok).map(c=>c.ref+" "+c.fails.join("/"))).join(", "),4000);};
@@ -324,6 +330,7 @@ window.onmousemove=e=>{if(!drag)return;const dx=e.clientX-drag.x,dy=e.clientY-dr
 window.onmouseup=async e=>{const d=drag;drag=null;if(!d||d.moved||e.target!==cv||!S.data)return;const[x,y]=toImg(e);
   if(S.step=="align"&&S.teachRef){S.teach.push({ref:S.teachRef,px:x,py:y});S.teachRef=null;draw();
     if(S.teach.length>=2){await api(P()+"/teach",{json:{points:S.teach}});toast("✔ Aligned");S.teach=[];await refresh();draw();}side();return;}
+  if(S.step=="rois"&&S.teachMode){const r=await api(P()+"/parts",{json:{px:x,py:y}});S.sel=r.ref;await refresh();side();draw();toast("➕ "+r.ref+" added — adjust size/position if needed");return;}
   let best=null,bd=1e9;(S.data.overlay||[]).forEach(o=>{const dd=Math.hypot(o.cx-x,o.cy-y);if(dd<bd){bd=dd;best=o;}});
   if(best&&bd<Math.max(best.body[0],best.body[1])*best.ppm+20/S.view.s){
     if(S.step=="review"&&S.result){const f=S.result.components.filter(c=>!c.ok);const i=f.findIndex(c=>c.ref==best.ref);if(i>=0){S.revIdx=i;side();draw();return;}}

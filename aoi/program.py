@@ -147,6 +147,43 @@ class Program:
                 out["failed"].append(name)
         return out
 
+    def add_part_at(self, px, py, ref=None):
+        """Teach: snap a new part onto the golden image at pixel (px, py)."""
+        img, M = self.golden(), self.M
+        if img is None or M is None:
+            raise ValueError("Add a board image first")
+        ppm = vision.px_per_mm(M)
+        r = vision.snap_part(img, px, py, ppm) or {"cx": px, "cy": py, "l": 2.0 * ppm, "w": 1.2 * ppm, "angle": 0.0}
+        L, W = r["l"] / ppm, r["w"] / ppm
+        name = f"TAUGHT_{L:.1f}x{W:.1f}"
+        if name not in self.data["packages"]:
+            self.data["packages"][name] = Package(name, round(L, 2), round(W, 2), [], False, False, "generic").to_dict()
+        inv = cv2.invertAffineTransform(M)
+        x, y = vision.apply(inv, [(r["cx"], r["cy"])])[0]
+        yu = self.data["y_up"]
+        n = len(self.data["components"]) + 1
+        ref = ref or f"T{n}"
+        while any(c["ref"] == ref for c in self.data["components"]):
+            n += 1
+            ref = f"T{n}"
+        self.data["components"].append({"ref": ref, "x": float(x), "y": float(-y if yu else y), "rot": (-r["angle"]) % 360,
+                                        "part": name, "package": name, "side": "top", "fiducial": False, "enabled": True,
+                                        "dnf": False, "dx": 0, "dy": 0, "checks": None, "th": {}, "mode": "presence"})
+        self.save()
+        return ref
+
+    def remove_part(self, ref):
+        self.data["components"] = [c for c in self.data["components"] if c["ref"] != ref]
+        self.save()
+
+    def rename_part(self, ref, new):
+        if any(c["ref"] == new for c in self.data["components"]):
+            raise ValueError(f"{new} already exists")
+        for c in self.data["components"]:
+            if c["ref"] == ref:
+                c["ref"] = new
+        self.save()
+
     @property
     def M(self):
         return np.float64(self.data["transform"]) if self.data["transform"] else None
@@ -211,7 +248,13 @@ class Program:
             ctr, ang = vision.comp_pose(M, c, yu)
             pkg = self.pkg(c["package"])
             th = {**self.data["thresholds"], **c.get("th", {})}
-            r = vision.inspect_component(g, t, ctr, ang, pkg, ppm, self.refs_for(c["ref"]), th, c.get("checks"), lab)
+            if c.get("mode") == "presence":
+                pr = vision.presence_onpad(warped, ctr, ang, pkg, ppm, gold, th.get("min_on_pad", 0.5))
+                size = vision.roi_size(pkg, ppm, 1.0)
+                r = {**pr, "ok": not pr["fails"], "offset_mm": [0, 0], "match": None,
+                     "_golden": vision.crop_rot(g, ctr, ang, size), "_test": vision.crop_rot(t, ctr, ang, size)}
+            else:
+                r = vision.inspect_component(g, t, ctr, ang, pkg, ppm, self.refs_for(c["ref"]), th, c.get("checks"), lab)
             cv2.imwrite(str(rdir / f"{_safe(c['ref'])}_golden.png"), r.pop("_golden"))
             cv2.imwrite(str(rdir / f"{_safe(c['ref'])}_test.png"), r.pop("_test"))
             result["components"].append({"ref": c["ref"], "package": c["package"], "part": c["part"],
@@ -281,6 +324,48 @@ class Program:
                                          "angle": 0, "presence": None, "match": None, "offset_mm": [0, 0],
                                          "fails": ["FOREIGN OBJECT"], "ok": False, "diff": b["score"],
                                          "box": [x0, y0, x1 - x0, y1 - y0]})
+
+    def report_image(self, run_id, per_row=4, tile=200):
+        """Review sheet: board overview with numbered calls + golden | this-board zoom pairs."""
+        rdir = self.dir / "runs" / _safe(run_id)
+        res = json.loads((rdir / "result.json").read_text())
+        gold, board = self.golden(), cv2.imread(str(rdir / "board.jpg"))
+        ppm = vision.px_per_mm(self.M)
+        calls = [c for c in res["components"] if not c["ok"]]
+        calls.sort(key=lambda c: -(c.get("diff") or 999))
+        ov = board.copy()
+        tiles = []
+        for k, c in enumerate(calls):
+            if c.get("box"):
+                x, y, w, h = c["box"]
+            else:
+                pkg = self.pkg(c["package"]) if c["package"] in self.data["packages"] else None
+                r = int((max(pkg.extent()) if pkg else 1.5) * ppm) + 6
+                x, y, w, h = int(c["cx"]) - r, int(c["cy"]) - r, 2 * r, 2 * r
+            cv2.rectangle(ov, (x, y), (x + w, y + h), (0, 0, 255), max(2, board.shape[1] // 800))
+            cv2.putText(ov, str(k + 1), (x, max(15, y - 5)), cv2.FONT_HERSHEY_SIMPLEX, board.shape[1] / 1500, (0, 255, 255), 2)
+            R = max(w, h) // 2 + int(ppm * 1.5)
+            cx, cy = x + w // 2, y + h // 2
+            x0, y0 = max(0, cx - R), max(0, cy - R)
+            x1, y1 = min(board.shape[1], cx + R), min(board.shape[0], cy + R)
+            t = np.full((tile + 40, 2 * tile + 10, 3), 30, np.uint8)
+            t[40:, :tile] = cv2.resize(gold[y0:y1, x0:x1], (tile, tile))
+            t[40:, tile + 10:] = cv2.resize(board[y0:y1, x0:x1], (tile, tile))
+            cv2.putText(t, f"#{k + 1} {c['ref'].split()[0]} {c['fails'][0][:14]}", (5, 26), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+            tiles.append(t)
+        W = per_row * (2 * tile + 10)
+        bo = vision.board_outline(board)
+        if bo is not None:
+            bx, by, bw, bh = cv2.boundingRect(cv2.boxPoints(bo[0]).astype(np.int32))
+            ov = ov[max(0, by):by + bh, max(0, bx):bx + bw]
+        ov = cv2.resize(ov, (W, int(ov.shape[0] * W / ov.shape[1])))
+        while len(tiles) % per_row or not tiles:
+            tiles.append(np.full((tile + 40, 2 * tile + 10, 3), 30, np.uint8))
+        grid = np.vstack([np.hstack(tiles[j:j + per_row]) for j in range(0, len(tiles), per_row)])
+        hdr = np.full((50, W, 3), 30, np.uint8)
+        cv2.putText(hdr, f"{self.name}  {res['board'] or run_id}:  {'PASS' if res['ok'] else str(len(calls)) + ' calls'}   (left = golden, right = this board)",
+                    (10, 34), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
+        return cv2.imencode(".jpg", np.vstack([hdr, ov, grid]), [cv2.IMWRITE_JPEG_QUALITY, 88])[1].tobytes()
 
     def train_good(self, img):
         """Learn normal variation from a known-good capture (lighting, focus, placement spread)."""
