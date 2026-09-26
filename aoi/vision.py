@@ -386,6 +386,59 @@ def classify_absent(tc, gc, pkg: Package, ppm, match):
     return "WRONG PART"
 
 
+def fit_body(img_bgr, center, angle, ppm, search_mm=20.0, end_caps=False):
+    """Measure the body (length along component axis, width) in mm from the golden image.
+
+    Grows the region whose colour matches the centre of the part, bounded by the search window.
+    Returns (l_mm, w_mm) or None.
+    """
+    S = int(search_mm * ppm)
+    win = crop_rot(img_bgr, center, angle, (S, S))
+    lab = cv2.GaussianBlur(cv2.cvtColor(win, cv2.COLOR_BGR2LAB), (5, 5), 0).astype(np.float32)
+    c = S // 2
+    k = max(3, int(0.6 * ppm))
+    patch = lab[c - k:c + k + 1, c - k:c + k + 1].reshape(-1, 3)
+    border = np.concatenate([lab[:3].reshape(-1, 3), lab[-3:].reshape(-1, 3), lab[:, :3].reshape(-1, 3), lab[:, -3:].reshape(-1, 3)])
+    bg = np.median(border, 0)
+    _, _, centers = cv2.kmeans(patch.astype(np.float32), 3, None,
+                               (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 20, 0.5), 3, cv2.KMEANS_PP_CENTERS)
+    ker = cv2.getStructuringElement(cv2.MORPH_RECT, (max(3, int(ppm * 0.25)) | 1,) * 2)
+    best = None
+    for body in centers:  # marking text can dominate the centre: try each colour, keep the biggest solid blob
+        if np.linalg.norm(body - bg) < 15:
+            continue
+        t = max(12.0, 0.45 * float(np.linalg.norm(body - bg)))
+        mask = (np.linalg.norm(lab - body, axis=2) < t).astype(np.uint8)
+        mask = cv2.morphologyEx(cv2.morphologyEx(mask, cv2.MORPH_CLOSE, ker), cv2.MORPH_OPEN, ker)
+        cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        mask = np.zeros_like(mask)
+        cv2.drawContours(mask, cnts, -1, 1, -1)  # fill holes (text, pin-1 dot)
+        n, lab_img, stats, _ = cv2.connectedComponentsWithStats(mask)
+        cen = lab_img[c - k // 2:c + k // 2 + 1, c - k // 2:c + k // 2 + 1].ravel()
+        cen = cen[cen > 0]
+        if cen.size == 0:
+            continue
+        idx = np.bincount(cen).argmax()
+        x, y, w, h, area = stats[idx]
+        if x <= 1 or y <= 1 or x + w >= S - 1 or y + h >= S - 1 or area < 0.6 * w * h:
+            continue  # leaked into the board / not a solid body
+        if best is None or area > best[4]:
+            best = (x, y, w, h, area, t)
+    if best is None:
+        return None
+    x, y, w, h, _, t = best
+    if end_caps:  # 2-terminal: overall length incl. terminations + pads (anything not board) along the axis
+        rows = slice(y + h // 4, y + 3 * h // 4 + 1)
+        notbg = np.median(np.linalg.norm(lab[rows] - bg, axis=2), 0) > t
+        x0, x1 = x, x + w - 1
+        while x0 > 1 and notbg[x0 - 1]:
+            x0 -= 1
+        while x1 < S - 2 and notbg[x1 + 1]:
+            x1 += 1
+        return round((x1 - x0 + 1) / ppm, 2), round(h / ppm, 2), "extent"
+    return round(w / ppm, 2), round(h / ppm, 2)
+
+
 def pad_gaps(pkg: Package):
     """Gap rectangles (cx, cy, l, w in mm, body frame) between neighbouring pads of a row."""
     gaps = []

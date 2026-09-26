@@ -176,11 +176,21 @@ def edit_component(name, ref):
 def edit_package(name, pkg):
     p = _prog(name)
     d = p.data["packages"][pkg]
-    for k in ("body_l", "body_w", "polarized", "marking", "pads"):
+    from .packages import resize
+    if "body_l" in request.json or "body_w" in request.json:
+        resize(d, request.json.get("body_l"), request.json.get("body_w"))
+    for k in ("polarized", "marking", "pads"):
         if k in request.json:
             d[k] = request.json[k]
     p.save()
     return jsonify(ok=True, overlay=p.overlay())
+
+
+@app.post("/api/programs/<name>/autofit/<path:pkg>")
+def autofit(name, pkg):
+    p = _prog(name)
+    l, w, n = p.autofit(pkg)
+    return jsonify(body_l=l, body_w=w, measured=n, overlay=p.overlay())
 
 
 @app.post("/api/programs/<name>/inspect")

@@ -101,3 +101,20 @@ def test_auto_fiducials_rotated_with_decoys(tmp_path, monkeypatch):
     M = p.M
     assert abs(np.hypot(M[0, 0], M[1, 0]) - synth.PPM) < 0.2
     assert abs(np.degrees(np.arctan2(M[1, 0], M[0, 0])) + 7) < 0.3
+
+
+def test_autofit_body_size(prog):
+    for pkg, true in (("SOIC-8", (5.08, 3.9)), ("SOIC-14", (8.89, 3.9)), ("SOT-23", (2.9, 1.3)), ("0805", (2.0, 1.25))):
+        d = prog.data["packages"][pkg]
+        d["body_l"], d["body_w"] = true[0] * 1.4, true[1] * 0.7  # wrong on purpose
+        l, w, n = prog.autofit(pkg)
+        assert abs(l - true[0]) < 0.3 and abs(w - true[1]) < 0.2, (pkg, l, w)
+
+
+def test_autofit_keeps_pads_on_leads(prog):
+    from aoi.packages import resize
+    true = [list(p) for p in prog.data["packages"]["SOIC-8"]["pads"]]
+    resize(prog.data["packages"]["SOIC-8"], 7.5, 2.5)  # like pressing L+/W- a lot
+    prog.autofit("SOIC-8")
+    for a, b in zip(prog.data["packages"]["SOIC-8"]["pads"], true):
+        assert abs(a[0] - b[0]) < 0.25 and abs(a[1] - b[1]) < 0.25, (a, b)

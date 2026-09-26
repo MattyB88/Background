@@ -150,3 +150,16 @@ def derive(package_name: str, part_name: str = "") -> Package:
     if re.search(r"\bFID|FIDUCIAL", raw):
         return Package(name, 1.0, 1.0, [], False, False, "fiducial")
     return Package(name, 2.0, 1.25, [[-1.0, 0, 0.6, 1.3], [1.0, 0, 0.6, 1.3]], False, False, "generic")
+
+
+def resize(pkg_dict, body_l=None, body_w=None):
+    """Change body size; pads outside the body stay attached to the body edge (in place)."""
+    def move(v, old, new):
+        h0, h1 = old / 2, new / 2
+        return (h1 + abs(v) - h0) * (1 if v >= 0 else -1) if abs(v) > h0 else v * new / old
+    l = body_l or pkg_dict["body_l"]
+    w = body_w or pkg_dict["body_w"]
+    pkg_dict["pads"] = [[round(move(cx, pkg_dict["body_l"], l), 3), round(move(cy, pkg_dict["body_w"], w), 3), pl, pw]
+                        for cx, cy, pl, pw in pkg_dict["pads"]]
+    pkg_dict["body_l"], pkg_dict["body_w"] = round(l, 3), round(w, 3)
+    return pkg_dict

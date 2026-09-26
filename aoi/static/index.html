@@ -181,6 +181,7 @@ rois(el,d){
    <div style="text-align:center;color:var(--dim)">Move ROI (0.05 mm)</div>
    <div class="pad"><span></span><button data-m="0,1">▲</button><span></span><button data-m="-1,0">◀</button><button id="bRot" title="Rotate 90°">⟳</button><button data-m="1,0">▶</button><span></span><button data-m="0,-1">▼</button><span></span></div>
    <div style="text-align:center;color:var(--dim)">Body size — all <b>${c.package}</b> (${pk.body_l.toFixed(2)} × ${pk.body_w.toFixed(2)} mm)</div>
+   <button class="big pri" id="bFit"><span class="ico">✨</span>Auto-fit size from image</button>
    <div class="row"><button data-b="body_l,-1">L −</button><button data-b="body_l,1">L ＋</button><button data-b="body_w,-1">W −</button><button data-b="body_w,1">W ＋</button></div>
    <div style="color:var(--dim);margin-top:10px">Checks</div>
    <div class="chk">${[["presence","⬛ Missing"],["polarity","➕ Polarity"],["ocv","🔤 Marking"],["offset","↔ Offset"],["bridge","🔗 Bridge"]].map(([k,t])=>`<button data-c="${k}" class="${ch[k]?"on":""}">${ch[k]?"✔":"✖"} ${t}</button>`).join("")}</div>
@@ -189,6 +190,8 @@ rois(el,d){
   const put=async b=>{const r=await api(P()+"/component/"+encodeURIComponent(c.ref),{method:"PUT",json:b});S.data.overlay=r.overlay;await refresh();side();draw();};
   el.querySelectorAll("[data-m]").forEach(b=>b.onclick=()=>{const[x,y]=b.dataset.m.split(",").map(Number);put({dx:+(c.dx+x*.05).toFixed(3),dy:+(c.dy+y*.05).toFixed(3)});});
   $("#bRot").onclick=()=>put({rot:(c.rot+90)%360});
+  $("#bFit").onclick=async()=>{const r=await api(P()+"/autofit/"+encodeURIComponent(c.package),{method:"POST"});
+    toast(`✨ ${c.package}: ${r.body_l} × ${r.body_w} mm (measured on ${r.measured})`,4000);await refresh();side();draw();};
   el.querySelectorAll("[data-b]").forEach(b=>b.onclick=async()=>{const[k,s]=b.dataset.b.split(",");const v=Math.max(.1,+(pk[k]*(1+.05*s)).toFixed(3));
     await api(P()+"/package/"+encodeURIComponent(c.package),{method:"PUT",json:{[k]:v}});await refresh();side();draw();});
   el.querySelectorAll("[data-c]").forEach(b=>b.onclick=()=>put({checks:{...ch,[b.dataset.c]:!ch[b.dataset.c]}}));

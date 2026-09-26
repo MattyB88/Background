@@ -12,7 +12,7 @@ import cv2
 import numpy as np
 
 from . import vision
-from .packages import Package, derive
+from .packages import Package, derive, resize
 
 ROOT = Path(os.environ.get("AOI_DATA", Path.home() / "aoi_data"))
 MAX_REFS = 12
@@ -105,6 +105,30 @@ class Program:
                 self.data["y_up"] = yu
                 return self.teach([{"ref": f["ref"], "px": p[0], "py": p[1]} for f, p in zip(fids, pts)])
         raise ValueError("Fiducials not found automatically - click them on the image")
+
+    def autofit(self, package):
+        """Set body size of *package* from the golden image (median over all its placements)."""
+        img, M = self.golden(), self.M
+        if img is None or M is None:
+            raise ValueError("Align the board first")
+        ppm = vision.px_per_mm(M)
+        pkg = self.pkg(package)
+        sizes = []
+        for c in self.data["components"]:
+            if c["package"] == package:
+                ctr, ang = vision.comp_pose(M, c, self.data["y_up"])
+                r = vision.fit_body(img, ctr, ang, ppm, min(25.0, max(6.0, 3 * max(pkg.body_l, pkg.body_w))), len(pkg.pads) == 2)
+                if r:
+                    sizes.append(r)
+        if not sizes:
+            raise ValueError("Could not measure the body - adjust L/W by hand")
+        l, w = (float(np.median([s[i] for s in sizes])) for i in (0, 1))
+        d = self.data["packages"][package]
+        if len(sizes[0]) == 3:  # measured overall footprint length: scale body in proportion
+            l = l / 1.35  # pads/fillets typically reach ~15-20% past each end
+        resize(d, round(l, 2), round(w, 2))
+        self.save()
+        return d["body_l"], d["body_w"], len(sizes)
 
     @property
     def M(self):
