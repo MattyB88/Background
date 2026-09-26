@@ -270,13 +270,15 @@ async settings(el,d){
   el.innerHTML=`<h2>⚙ Settings</h2>${t?`<h3>Sensitivity</h3>
    ${sl("presence","Missing part (higher = stricter)",.3,.9,.01)}${sl("polarity_margin","Polarity margin (lower = stricter)",0,.3,.01)}
    ${sl("ocv","Marking match",.1,.9,.01)}${sl("offset_mm","Max offset mm",.05,1,.05)}${sl("bridge","Solder bridge (lower = stricter)",.4,3,.1)}
-   <button class="big ${d.compare&&d.compare.enabled?"ok":""}" id="bCmp">${d.compare&&d.compare.enabled?"✔":"✖"} Whole-board golden compare</button>${sl("search_mm","Search range mm",.2,2,.1)}`:""}
+   <button class="big ${d.compare&&d.compare.enabled?"ok":""}" id="bCmp">${d.compare&&d.compare.enabled?"✔":"✖"} Foreign object (FOD) check</button>
+   ${d.compare&&d.compare.enabled?`<label class="sl">FOD sensitivity (higher = finds smaller/fainter, more false calls): <b id="v_fod">${d.compare.sensitivity??0.5}</b></label><input type="range" id="fod" min="0" max="1" step="0.05" value="${d.compare.sensitivity??0.5}">`:""}${sl("search_mm","Search range mm",.2,2,.1)}`:""}
    <h3>🤖 Advanced — AI assistant (optional)</h3>
    <div class="hint" style="font-size:14px">AOI works fully without this. When on, stats (no images, no customer data) are sent to the Claude API for summaries; single defect crops only when you press “second opinion”.</div>
    <button class="big ${a.enabled?"ok":""}" id="bAiOn">${a.enabled?"✔ AI on":"✖ AI off"}</button>
    <input id="key" type="password" placeholder="${a.has_key?"key saved ••••":"API key"}" style="width:100%;margin:6px 0">
    <input id="model" value="${a.model}" style="width:100%;margin:6px 0"><button class="big" id="bSave">💾 Save AI settings</button>`;
   el.querySelectorAll("input[type=range]").forEach(r=>r.onchange=async()=>{$("#v_"+r.dataset.k).textContent=r.value;await api(P()+"/settings",{method:"PUT",json:{thresholds:{[r.dataset.k]:r.value}}});await refresh();toast("✔ Saved");});
+  if($("#fod"))$("#fod").onchange=async e=>{$("#v_fod").textContent=e.target.value;await api(P()+"/settings",{method:"PUT",json:{compare:{sensitivity:+e.target.value}}});toast("✔ Saved");};
   if($("#bCmp"))$("#bCmp").onclick=async()=>{await api(P()+"/settings",{method:"PUT",json:{compare:{enabled:!(d.compare&&d.compare.enabled)}}});await refresh();side();};
   $("#bAiOn").onclick=async()=>{await api("/api/settings",{json:{enabled:!a.enabled}});if(S.prog)await refresh();side();};
   $("#bSave").onclick=async()=>{const b={model:$("#model").value};if($("#key").value)b.api_key=$("#key").value;await api("/api/settings",{json:b});toast("✔ Saved");side();};
@@ -310,7 +312,7 @@ function draw(){
   });
   if(showRes)S.result.components.filter(c=>c.box&&!c.ok).forEach(c=>{const[x,y,w,h]=c.box;const sel=c.ref==S.sel;
     ctx.lineWidth=(sel?4:3)/v.s;ctx.strokeStyle=sel?"#c77dff":"#ff4d4d";ctx.setLineDash([8/v.s,5/v.s]);ctx.strokeRect(x,y,w,h);ctx.setLineDash([]);
-    ctx.font=`bold ${Math.max(10,13/v.s)}px system-ui`;ctx.fillStyle=ctx.strokeStyle;ctx.fillText(c.ref.split(" ")[0]+" CHANGED",x,y-4/v.s);});
+    ctx.font=`bold ${Math.max(10,13/v.s)}px system-ui`;ctx.fillStyle=ctx.strokeStyle;ctx.fillText(c.ref.split(" ")[0]+" FOD?",x,y-4/v.s);});
   S.teach.forEach(t=>{ctx.strokeStyle="#ffb020";ctx.lineWidth=3/v.s;ctx.beginPath();ctx.arc(t.px,t.py,12/v.s,0,7);ctx.moveTo(t.px-20/v.s,t.py);ctx.lineTo(t.px+20/v.s,t.py);ctx.moveTo(t.px,t.py-20/v.s);ctx.lineTo(t.px,t.py+20/v.s);ctx.stroke();});
 }
 function toImg(e){const r=cv.getBoundingClientRect();return[(e.clientX-r.left-S.view.x)/S.view.s,(e.clientY-r.top-S.view.y)/S.view.s];}

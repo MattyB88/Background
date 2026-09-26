@@ -154,6 +154,8 @@ def test_photo_mode_no_csv(tmp_path, monkeypatch):
     p = Program("photo")
     info = autodetect.program_from_image(p, img)
     assert info["parts"] >= 8
+    p.data["compare"]["sensitivity"] = 1.0  # synthetic faults are much fainter than real debris
+    p.save()
     for s in range(4):
         p.train_good(T.capture(img, 100 + s, 0.6))
     for s in range(4):

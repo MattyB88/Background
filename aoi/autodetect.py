@@ -103,6 +103,12 @@ def program_from_image(prog, img, ppm=None, board_mm=None):
             ppm = max(bo[0][1]) / float(board_mm)
     ppm = float(ppm or 20.0)
     parts, holes = detect(img, ppm=ppm)
+    from .vision import board_outline
+    bo = board_outline(img)
+    if bo is not None:  # ignore anything off the board (fixture, overlay text from camera software)
+        inside = cv2.erode(bo[1], np.ones((int(ppm * 1.0) | 1,) * 2, np.uint8))
+        parts = [p for p in parts if inside[int(p["cy"]), int(p["cx"])]]
+        holes = [hh for hh in holes if bo[1][int(hh[1]), int(hh[0])]]
     comps, pkgs = [], {}
     for i, p in enumerate(sorted(parts, key=lambda p: (round(p["cy"] / (ppm * 3)), p["cx"]))):
         L, W = p["l"] / ppm, p["w"] / ppm
@@ -133,7 +139,7 @@ def program_from_image(prog, img, ppm=None, board_mm=None):
     prog.data["transform"] = [[ppm, 0.0, 0.0], [0.0, ppm, 0.0]]
     prog.data["fiducials"] = fids
     prog.data["source"] = "photo"
-    prog.data["compare"] = {"enabled": True, "base": 28.0}
+    prog.data["compare"] = {"enabled": True, "sensitivity": 0.0}
     prog.data["align"] = "features"
     import cv2 as _cv
     _cv.imwrite(str(prog.path("golden.png")), img)

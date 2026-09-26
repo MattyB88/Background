@@ -247,7 +247,7 @@ class Program:
         glare = np.zeros(gold.shape[:2], np.uint8)
         for im in (gold, warped):
             lab = cv2.cvtColor(im, cv2.COLOR_BGR2LAB)
-            glare |= ((lab[..., 0] > 225) & (np.abs(lab[..., 1].astype(int) - 128) + np.abs(lab[..., 2].astype(int) - 128) < 20)).astype(np.uint8)
+            glare |= ((lab[..., 0] > 200) & (np.abs(lab[..., 1].astype(int) - 128) + np.abs(lab[..., 2].astype(int) - 128) < 20)).astype(np.uint8)
         # only big shiny patches are glare; a small bright spot may be a solder ball
         n, lbl, st, _ = cv2.connectedComponentsWithStats(glare)
         big = np.zeros(n, np.uint8)
@@ -256,8 +256,14 @@ class Program:
         valid = np.where(glare > 0, 0, valid)
         tol = np.full(gold.shape[:2], 0, np.float32) if tol is None else tol
         tol = np.where(valid > 0, tol, 1e6).astype(np.float32)
-        blobs, d = vision.diff_defects(gold, warped, tol, cfg.get("base", 28.0),
-                                       max(60, int(cfg.get("min_area_mm2", 0.12) * ppm * ppm)), max(1, int(ppm * 0.1)), int(ppm * 0.8))
+        # FOD-style compare: compact, strong changes only (large diffuse ones are flux / shine / texture)
+        sens = float(cfg.get("sensitivity", 0.5))  # 0 = only obvious objects, 1 = everything
+        base = cfg.get("base", 110 - 80 * sens)
+        peak = cfg.get("min_peak", 235 - 150 * sens)
+        blobs, d = vision.diff_defects(gold, warped, tol, base,
+                                       max(20, int(cfg.get("min_area_mm2", 0.15) * ppm * ppm)), max(1, int(ppm * 0.1)),
+                                       max(3, int(ppm * 0.35)), int(cfg.get("max_area_mm2", 2.5) * ppm * ppm), peak,
+                                       cfg.get("big_mean", 150 - 40 * sens))
         cv2.imwrite(str(rdir / "diff.png"), d.clip(0, 255).astype(np.uint8))
         failed = [c for c in result["components"] if not c["ok"]]
         for i, b in enumerate(blobs):
@@ -273,7 +279,7 @@ class Program:
             cv2.imwrite(str(rdir / f"{_safe(ref)}_test.png"), warped[y0:y1, x0:x1])
             result["components"].append({"ref": ref, "package": "board", "part": "golden compare", "cx": b["cx"], "cy": b["cy"],
                                          "angle": 0, "presence": None, "match": None, "offset_mm": [0, 0],
-                                         "fails": ["CHANGED"], "ok": False, "diff": b["score"],
+                                         "fails": ["FOREIGN OBJECT"], "ok": False, "diff": b["score"],
                                          "box": [x0, y0, x1 - x0, y1 - y0]})
 
     def train_good(self, img):

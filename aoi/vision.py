@@ -578,7 +578,7 @@ def diff_map(golden, test, slack_px=2):
     return out
 
 
-def diff_defects(golden, test, tol=None, base=28.0, min_area_px=40, slack_px=2, merge_px=12):
+def diff_defects(golden, test, tol=None, base=28.0, min_area_px=40, slack_px=2, merge_px=12, max_area_px=None, min_peak=0.0, big_mean=None):
     """Blobs where *test* differs from *golden* beyond the learned tolerance map."""
     d = diff_map(golden, test, slack_px)
     thr = base if tol is None else np.maximum(base, tol * 1.3 + 8)
@@ -590,7 +590,15 @@ def diff_defects(golden, test, tol=None, base=28.0, min_area_px=40, slack_px=2, 
     out = []
     for i in range(1, n):
         x, y, w, h, a = st[i]
-        if int(core[lbl == i].sum()) < min_area_px // 3:
+        blob = lbl == i
+        core_area = int(core[blob].sum())
+        if core_area < min_area_px // 3:
+            continue
+        if max_area_px and core_area > max_area_px:
+            # large change: keep only if strong throughout (missing / wrong part), drop patchy flux / shine / texture
+            if big_mean is None or float(d[blob & (core > 0)].mean()) < big_mean:
+                continue
+        if float(d[blob].max()) < min_peak:
             continue
         out.append({"x": int(x), "y": int(y), "w": int(w), "h": int(h), "area": int(a),
                     "cx": float(cen[i][0]), "cy": float(cen[i][1]), "score": round(float(d[lbl == i].max()), 1)})
