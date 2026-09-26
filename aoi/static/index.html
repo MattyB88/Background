@@ -128,6 +128,7 @@ program(el,d){
   el.innerHTML=`<h2>📄 Placement data</h2>
    <div class="hint">Load the PnP / MYData export (CSV, TXT, .pos). Packages are made automatically.</div>
    <button class="big pri" id="bImp"><span class="ico">📂</span>Import file</button>
+   <button class="big" id="bPhoto"><span class="ico">📷</span>No placement file? Build from photo</button>
    <div class="row"><span>Units</span><select id="units"><option value="auto">Auto</option><option>mm</option><option value="um">µm (MYData)</option><option>mil</option></select></div>
    ${d.components.length?`<div class="tiles"><div class="tile"><b>${d.components.length}</b><span>placements</span></div>
    <div class="tile"><b>${Object.keys(d.packages).length}</b><span>packages</span></div>
@@ -138,6 +139,9 @@ program(el,d){
     const fd=new FormData();fd.append("file",f);fd.append("units",$("#units").value);
     const r=await api(P()+"/import",{method:"POST",body:fd});
     toast(`✔ ${r.count} parts, ${r.packages} packages`+(r.warnings.length?" — "+r.warnings.join("; "):""),5000);await refresh();side();};
+  $("#bPhoto").onclick=async()=>{const f=await pickFile("image/*");if(!f)return;const fd=new FormData();fd.append("image",f);toast("Finding parts…");
+    const r=await api(P()+"/from_photo",{method:"POST",body:fd});toast(`✔ ${r.parts} parts, ${r.holes} holes found — now train with good boards`,5000);
+    await refresh();go("inspect");};
   if($("#bNext"))$("#bNext").onclick=()=>go("board");
 },
 board(el,d){
@@ -211,6 +215,7 @@ inspect(el,d){
    ${!d.transform?`<div class="hint">Finish Align first</div>`:""}
    <button class="big pri" id="bIn" style="font-size:30px;padding:30px"><span class="ico">▶</span>INSPECT IMAGE</button>
    <div class="row"><button id="bCam">📷 Camera</button><button id="bAuto" class="${S.watch?"on":""}">${S.watch?"⏸ Stop auto":"🔁 Auto folder"}</button></div>
+   <button class="big ok" id="bTrain"><span class="ico">✔</span>Train with GOOD board${d.compare&&d.compare.trained?` (${d.compare.trained})`:""}</button>
    ${r?`<div class="banner ${r.ok?"pass":"fail"}">${r.ok?"PASS ✔":"FAIL ✖ "+(r.n_fail||"")}</div>
    <div class="tiles"><div class="tile"><b>${r.cycle_s}s</b><span>cycle</span></div><div class="tile"><b>${(r.registration.angle||0).toFixed(2)}°</b><span>board angle</span></div></div>
    ${r.ok?"":`<button class="big bad" id="bRev">Review ${r.n_fail||""} fails ➜</button>`}`:""}
@@ -223,6 +228,8 @@ inspect(el,d){
     const folder=prompt("Folder where the camera saves images:",localStorage.aoiFolder||"");if(!folder)return;localStorage.aoiFolder=folder;
     S.watch=setInterval(async()=>{const r=await api(P()+"/watch",{json:{folder}}).catch(()=>null);if(r&&!r.idle)show(r);},2000);side();};
   if($("#bRev"))$("#bRev").onclick=()=>go("review");
+  $("#bTrain").onclick=async()=>{const f=await pickFile("image/*");if(!f)return;const fd=new FormData();fd.append("image",f);toast("Learning…");
+    const r=await api(P()+"/train",{method:"POST",body:fd});toast(`✔ Learned good board #${r.trained} · ${r.roi_fixed} boxes moved · ${r.learned} parts learned`,5000);await refresh();side();draw();};
 },
 review(el,d){
   const r=S.result;if(!r){el.innerHTML=`<h2>✔ Review</h2><div class="hint">Run an inspection first</div>`;return;}
@@ -262,13 +269,15 @@ async settings(el,d){
   const sl=(k,lbl,min,max,step)=>`<label class="sl">${lbl}: <b id="v_${k}">${t[k]}</b></label><input type="range" data-k="${k}" min="${min}" max="${max}" step="${step}" value="${t[k]}">`;
   el.innerHTML=`<h2>⚙ Settings</h2>${t?`<h3>Sensitivity</h3>
    ${sl("presence","Missing part (higher = stricter)",.3,.9,.01)}${sl("polarity_margin","Polarity margin (lower = stricter)",0,.3,.01)}
-   ${sl("ocv","Marking match",.1,.9,.01)}${sl("offset_mm","Max offset mm",.05,1,.05)}${sl("bridge","Solder bridge (lower = stricter)",.4,3,.1)}${sl("search_mm","Search range mm",.2,2,.1)}`:""}
+   ${sl("ocv","Marking match",.1,.9,.01)}${sl("offset_mm","Max offset mm",.05,1,.05)}${sl("bridge","Solder bridge (lower = stricter)",.4,3,.1)}
+   <button class="big ${d.compare&&d.compare.enabled?"ok":""}" id="bCmp">${d.compare&&d.compare.enabled?"✔":"✖"} Whole-board golden compare</button>${sl("search_mm","Search range mm",.2,2,.1)}`:""}
    <h3>🤖 Advanced — AI assistant (optional)</h3>
    <div class="hint" style="font-size:14px">AOI works fully without this. When on, stats (no images, no customer data) are sent to the Claude API for summaries; single defect crops only when you press “second opinion”.</div>
    <button class="big ${a.enabled?"ok":""}" id="bAiOn">${a.enabled?"✔ AI on":"✖ AI off"}</button>
    <input id="key" type="password" placeholder="${a.has_key?"key saved ••••":"API key"}" style="width:100%;margin:6px 0">
    <input id="model" value="${a.model}" style="width:100%;margin:6px 0"><button class="big" id="bSave">💾 Save AI settings</button>`;
   el.querySelectorAll("input[type=range]").forEach(r=>r.onchange=async()=>{$("#v_"+r.dataset.k).textContent=r.value;await api(P()+"/settings",{method:"PUT",json:{thresholds:{[r.dataset.k]:r.value}}});await refresh();toast("✔ Saved");});
+  if($("#bCmp"))$("#bCmp").onclick=async()=>{await api(P()+"/settings",{method:"PUT",json:{compare:{enabled:!(d.compare&&d.compare.enabled)}}});await refresh();side();};
   $("#bAiOn").onclick=async()=>{await api("/api/settings",{json:{enabled:!a.enabled}});if(S.prog)await refresh();side();};
   $("#bSave").onclick=async()=>{const b={model:$("#model").value};if($("#key").value)b.api_key=$("#key").value;await api("/api/settings",{json:b});toast("✔ Saved");side();};
 }};
@@ -299,6 +308,9 @@ function draw(){
     const fs=Math.max(10,13/v.s);ctx.font=`bold ${fs}px system-ui`;ctx.fillStyle=col;
     if(v.s>0.6||o.ref==S.sel||(r&&!r.ok)||o.fiducial)ctx.fillText(o.ref+(r&&!r.ok?" "+r.fails.join("/"):""),o.cx+o.body[0]*o.ppm/2+3/v.s,o.cy-o.body[1]*o.ppm/2);
   });
+  if(showRes)S.result.components.filter(c=>c.box&&!c.ok).forEach(c=>{const[x,y,w,h]=c.box;const sel=c.ref==S.sel;
+    ctx.lineWidth=(sel?4:3)/v.s;ctx.strokeStyle=sel?"#c77dff":"#ff4d4d";ctx.setLineDash([8/v.s,5/v.s]);ctx.strokeRect(x,y,w,h);ctx.setLineDash([]);
+    ctx.font=`bold ${Math.max(10,13/v.s)}px system-ui`;ctx.fillStyle=ctx.strokeStyle;ctx.fillText(c.ref.split(" ")[0]+" CHANGED",x,y-4/v.s);});
   S.teach.forEach(t=>{ctx.strokeStyle="#ffb020";ctx.lineWidth=3/v.s;ctx.beginPath();ctx.arc(t.px,t.py,12/v.s,0,7);ctx.moveTo(t.px-20/v.s,t.py);ctx.lineTo(t.px+20/v.s,t.py);ctx.moveTo(t.px,t.py-20/v.s);ctx.lineTo(t.px,t.py+20/v.s);ctx.stroke();});
 }
 function toImg(e){const r=cv.getBoundingClientRect();return[(e.clientX-r.left-S.view.x)/S.view.s,(e.clientY-r.top-S.view.y)/S.view.s];}

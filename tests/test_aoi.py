@@ -139,3 +139,29 @@ def test_export_csv(prog):
     rows = list(csv.DictReader(io.StringIO(prog.export_csv())))
     assert [x["result"] for x in rows] == ["FAIL", "PASS"]
     assert rows[0]["ref"] == "R1" and rows[0]["defect"] == "MISSING" and rows[0]["operator_verdict"] == "real defect"
+
+
+def test_photo_mode_no_csv(tmp_path, monkeypatch):
+    """Program from a photo only, trained on good captures: repeat captures pass, injected faults are found."""
+    import sys
+    from pathlib import Path
+    monkeypatch.setattr("aoi.program.ROOT", tmp_path)
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
+    import photo_trial as T
+    from aoi import autodetect
+    from aoi.program import Program
+    img = synth.render(seed=1)
+    p = Program("photo")
+    info = autodetect.program_from_image(p, img)
+    assert info["parts"] >= 8
+    for s in range(4):
+        p.train_good(T.capture(img, 100 + s, 0.6))
+    for s in range(4):
+        r = p.inspect(T.capture(img, 200 + s, 0.6))
+        assert r["ok"], [(c["ref"], c["fails"]) for c in r["components"] if not c["ok"]]
+    parts, _ = autodetect.detect(img)
+    bad, faults = T.inject(img, parts, 20.0, 3)
+    r = p.inspect(T.capture(bad, 300, 0.6))
+    import math
+    hits = [any(math.hypot(c["cx"] - x, c["cy"] - y) < rad + 40 for c in r["components"] if not c["ok"]) for _, x, y, rad in faults]
+    assert sum(hits) >= len(hits) - 1, faults

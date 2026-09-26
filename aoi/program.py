@@ -187,7 +187,7 @@ class Program:
         cv2.imwrite(str(d / f"{int(time.time() * 1000)}.png"), cv2.imread(str(src), cv2.IMREAD_GRAYSCALE))
 
     # ------------------------------------------------ inspection
-    def inspect(self, img, board_id=""):
+    def inspect(self, img, board_id="", log=True):
         t0 = time.time()
         gold = self.golden()
         if gold is None or self.M is None:
@@ -215,12 +215,106 @@ class Program:
             cv2.imwrite(str(rdir / f"{_safe(c['ref'])}_test.png"), r.pop("_test"))
             result["components"].append({"ref": c["ref"], "package": c["package"], "part": c["part"],
                                          "cx": ctr[0], "cy": ctr[1], "angle": ang, **r})
+        if self.data.get("compare", {}).get("enabled"):
+            self._compare(gold, warped, rdir, result)
         fails = [c for c in result["components"] if not c["ok"]]
         result.update(ok=not fails, n_fail=len(fails), cycle_s=round(time.time() - t0, 3))
         (rdir / "result.json").write_text(json.dumps(result))
-        self._log(result)
+        if log:
+            self._log(result)
         self._prune_runs()
         return result
+
+    # ------------------------------------------------ whole-board golden compare
+    def tol_map(self):
+        p = self.dir / "tol.png"
+        return cv2.imread(str(p), cv2.IMREAD_GRAYSCALE).astype(np.float32) if p.exists() else None
+
+    def _compare(self, gold, warped, rdir, result):
+        cfg = self.data["compare"]
+        ppm = vision.px_per_mm(self.M)
+        tol = self.tol_map()
+        # only compare where the camera actually saw the board (ignore content shifted in from outside)
+        reg = result["registration"]
+        valid = cv2.warpAffine(np.full(reg["src_shape"], 255, np.uint8), np.float64(reg["M"]),
+                               (gold.shape[1], gold.shape[0]), flags=cv2.INTER_NEAREST, borderValue=0)
+        valid = cv2.erode(valid, np.ones((int(ppm * 0.8) | 1,) * 2, np.uint8))
+        tol = np.full(gold.shape[:2], 0, np.float32) if tol is None else tol
+        tol = np.where(valid > 0, tol, 1e6).astype(np.float32)
+        blobs, d = vision.diff_defects(gold, warped, tol, cfg.get("base", 28.0),
+                                       int(cfg.get("min_area_mm2", 0.12) * ppm * ppm), max(1, int(ppm * 0.1)), int(ppm * 0.8))
+        cv2.imwrite(str(rdir / "diff.png"), d.clip(0, 255).astype(np.uint8))
+        failed = [c for c in result["components"] if not c["ok"]]
+        for i, b in enumerate(blobs):
+            if any(abs(b["cx"] - c["cx"]) < b["w"] / 2 + 10 and abs(b["cy"] - c["cy"]) < b["h"] / 2 + 10 for c in failed):
+                continue  # already reported by the part check
+            near = min(result["components"] or [{"ref": "", "cx": 1e9, "cy": 1e9}],
+                       key=lambda c: math.hypot(c["cx"] - b["cx"], c["cy"] - b["cy"]))
+            ref = f"Δ{i + 1}" + (f" near {near['ref']}" if near["ref"] and math.hypot(near["cx"] - b["cx"], near["cy"] - b["cy"]) < 4 * ppm else "")
+            pad = int(ppm * 1.0)
+            x0, y0 = max(0, b["x"] - pad), max(0, b["y"] - pad)
+            x1, y1 = min(gold.shape[1], b["x"] + b["w"] + pad), min(gold.shape[0], b["y"] + b["h"] + pad)
+            cv2.imwrite(str(rdir / f"{_safe(ref)}_golden.png"), gold[y0:y1, x0:x1])
+            cv2.imwrite(str(rdir / f"{_safe(ref)}_test.png"), warped[y0:y1, x0:x1])
+            result["components"].append({"ref": ref, "package": "board", "part": "golden compare", "cx": b["cx"], "cy": b["cy"],
+                                         "angle": 0, "presence": None, "match": None, "offset_mm": [0, 0],
+                                         "fails": ["CHANGED"], "ok": False, "diff": b["score"],
+                                         "box": [x0, y0, x1 - x0, y1 - y0]})
+
+    def train_good(self, img):
+        """Learn normal variation from a known-good capture (lighting, focus, placement spread)."""
+        gold = self.golden()
+        warped, reg = vision.register(gold, img, self.anchors(), patch=int(vision.px_per_mm(self.M) * 1.5))
+        if warped is None:
+            raise ValueError("Board not found in image")
+        d = vision.diff_map(gold, warped, max(1, int(vision.px_per_mm(self.M) * 0.1)))
+        d = cv2.dilate(d, np.ones((5, 5), np.uint8))
+        tol = self.tol_map()
+        tol = d if tol is None else np.maximum(tol, d)
+        cv2.imwrite(str(self.path("tol.png")), tol.clip(0, 255).astype(np.uint8))
+        cmp = self.data.setdefault("compare", {"enabled": False})
+        cmp["trained"] = cmp.get("trained", 0) + 1
+        self.save()
+        # self-check every part on this known-good board: fix small ROI offsets, learn the rest as normal
+        r = self.inspect(img, "train", log=False)
+        fixed = learned = 0
+        comps = {c["ref"]: c for c in self.data["components"]}
+        M = self.M
+        for c in r["components"]:
+            if c["ok"] or c["ref"] not in comps:
+                continue
+            pc = comps[c["ref"]]
+            if c["fails"] == ["OFFSET"] and math.hypot(*c["offset_mm"]) >= 0.5:
+                # big jump on a GOOD board = matched a look-alike neighbour: search less far for this part
+                pc.setdefault("th", {})["search_mm"] = 0.3
+                pc["th"]["offset_mm"] = max(pc["th"].get("offset_mm", 0), 0.25)
+                fixed += 1
+            elif c["fails"] == ["OFFSET"]:
+                a = math.radians(c["angle"])
+                ox, oy = (v * vision.px_per_mm(M) for v in c["offset_mm"])
+                v_img = np.float64([ox * math.cos(a) - oy * math.sin(a), ox * math.sin(a) + oy * math.cos(a)])
+                dx, ys = np.linalg.solve(M[:, :2], v_img)
+                pc["dx"] = round(pc.get("dx", 0) + dx, 3)
+                pc["dy"] = round(pc.get("dy", 0) + (-ys if self.data["y_up"] else ys), 3)
+                fixed += 1
+            else:
+                if c["fails"] == ["MARKING"] and c.get("ocv") is not None:  # this part's text is just hard to see
+                    pc.setdefault("th", {})["ocv"] = round(max(0.05, c["ocv"] * 0.75), 3)
+                self.learn(r["run"], c["ref"])
+                learned += 1
+        self.save()
+        return {"trained": cmp["trained"], "roi_fixed": fixed, "learned": learned}
+
+    def _learn_diff(self, run_id, ref):
+        rdir = self.dir / "runs" / run_id
+        res = json.loads((rdir / "result.json").read_text())
+        c = next(c for c in res["components"] if c["ref"] == ref)
+        d = cv2.imread(str(rdir / "diff.png"), cv2.IMREAD_GRAYSCALE).astype(np.float32)
+        tol = self.tol_map()
+        tol = np.zeros_like(d) if tol is None else tol
+        x, y, w, h = c["box"]
+        tol[y:y + h, x:x + w] = np.maximum(tol[y:y + h, x:x + w], d[y:y + h, x:x + w])
+        cv2.imwrite(str(self.path("tol.png")), tol.clip(0, 255).astype(np.uint8))
 
     def _prune_runs(self, keep=200):
         runs = sorted((self.dir / "runs").iterdir())
@@ -242,7 +336,10 @@ class Program:
         with open(self.path("feedback.jsonl"), "a") as f:
             f.write(json.dumps({"run": run_id, "ref": ref, "verdict": verdict, "time": time.time()}) + "\n")
         if verdict == "false_call":
-            self.learn(run_id, ref)
+            if ref.startswith("Δ"):
+                self._learn_diff(run_id, ref)
+            else:
+                self.learn(run_id, ref)
 
     def _read(self, fname):
         p = self.dir / fname

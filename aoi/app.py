@@ -112,6 +112,22 @@ def import_file(name):
                    packages=len(p.data["packages"]), fiducials=sum(c["fiducial"] for c in p.data["components"]))
 
 
+@app.post("/api/programs/<name>/from_photo")
+def from_photo(name):
+    from . import autodetect
+    p = Program(name)
+    img = _capture(request.args.get("cam", 0)) if request.args.get("camera") else _img_from_request()
+    info = autodetect.program_from_image(p, img)
+    return jsonify(**info, overlay=p.overlay())
+
+
+@app.post("/api/programs/<name>/train")
+def train(name):
+    p = _prog(name)
+    img = _capture(request.args.get("cam", 0)) if request.args.get("camera") else _img_from_request()
+    return jsonify(p.train_good(img))
+
+
 @app.post("/api/programs/<name>/golden")
 def golden(name):
     p = _prog(name)
@@ -153,6 +169,8 @@ def prog_settings(name):
         p.data["thresholds"].update({k: float(v) for k, v in body["thresholds"].items()})
     if "y_up" in body:
         p.data["y_up"] = bool(body["y_up"])
+    if "compare" in body:
+        p.data.setdefault("compare", {}).update(body["compare"])
     p.save()
     return jsonify(ok=True)
 

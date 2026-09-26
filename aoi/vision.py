@@ -188,10 +188,34 @@ def register(golden, test, anchors_px, patch=60):
                 M, _ = cv2.estimateAffinePartial2D(a, b, method=cv2.RANSAC, ransacReprojThreshold=3)
     if M is None:
         return None, {"ok": False, "method": "none", "msg": "Board not found - check position / lighting"}
+    M, refined = refine_ecc(g, t, M)
+    if refined:
+        method += "+ecc"
     warped = cv2.warpAffine(test, M, (W, H), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
     ang = math.degrees(math.atan2(M[1, 0], M[0, 0]))
-    return warped, {"ok": True, "method": method, "shift_px": [float(M[0, 2]), float(M[1, 2])],
+    return warped, {"ok": True, "method": method, "M": M.tolist(), "src_shape": list(test.shape[:2]), "shift_px": [float(M[0, 2]), float(M[1, 2])],
                     "angle": ang, "scale": px_per_mm(M), "scores": scores}
+
+
+def refine_ecc(g, t, M, scale=0.5):
+    """Sub-pixel whole-image refinement of test->golden affine M (ECC). Returns (M, ok)."""
+    try:
+        gs = cv2.resize(g, None, fx=scale, fy=scale).astype(np.float32)
+        ts = cv2.resize(t, None, fx=scale, fy=scale).astype(np.float32)
+        # ECC wants warp mapping template(golden) coords -> input(test) coords
+        Ms = cv2.invertAffineTransform(M).astype(np.float32)
+        Ms[:, 2] *= scale
+        _, Ms = cv2.findTransformECC(gs, ts, Ms, cv2.MOTION_AFFINE,
+                                     (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 60, 1e-5), None, 5)
+        Ms[:, 2] /= scale
+        M2 = cv2.invertAffineTransform(Ms)
+        # reject a refinement that wanders far from the initial estimate
+        corners = np.float64([[0, 0], [g.shape[1], 0], [0, g.shape[0]], [g.shape[1], g.shape[0]]])
+        if np.abs(apply(M2, corners) - apply(M, corners)).max() > 0.02 * max(g.shape):
+            return M, False
+        return M2, True
+    except cv2.error:
+        return M, False
 
 
 # ---------------------------------------------------------------- crops
@@ -318,7 +342,8 @@ def inspect_component(golden, test, center, angle, pkg: Package, ppm, refs=(), t
             fails.append("OFFSET")
         if checks.get("ocv"):
             bs = _body_slice(tpl.shape, pkg, ppm, 0.7)
-            ocv = max(ncc(grad(found[bs]), grad(t[bs])) for t in templates) if found[bs].size > 16 else 1.0
+            sm = lambda a: cv2.GaussianBlur(a, (0, 0), 1.2)  # tolerate focus / JPEG differences
+            ocv = max(ncc(grad(sm(found[bs])), grad(sm(t[bs]))) for t in templates) if found[bs].size > 16 else 1.0
             out["ocv"] = round(ocv, 3)
             if ocv < th["ocv"]:
                 fails.append("MARKING")
@@ -483,3 +508,42 @@ def ocr_text(crop):
         return pytesseract.image_to_string(crop, config="--psm 7").strip()
     except Exception:
         return ""
+
+
+# ---------------------------------------------------------------- whole-board golden compare
+def _cmp_planes(img):
+    """Lighting-normalised planes for comparison: CLAHE lightness + two chroma channels."""
+    lab = cv2.cvtColor(cv2.GaussianBlur(img, (3, 3), 0), cv2.COLOR_BGR2LAB)
+    L = _clahe.apply(lab[..., 0])
+    return [L.astype(np.float32), lab[..., 1].astype(np.float32) * 2, lab[..., 2].astype(np.float32) * 2]
+
+
+def diff_map(golden, test, slack_px=2):
+    """Per-pixel difference that tolerates +/- slack_px misregistration (min-max comparison)."""
+    k = cv2.getStructuringElement(cv2.MORPH_RECT, (2 * slack_px + 1,) * 2)
+    out = None
+    for g, t in zip(_cmp_planes(golden), _cmp_planes(test)):
+        t = t - np.median(t - g)  # global brightness offset
+        hi, lo = cv2.dilate(g, k), cv2.erode(g, k)
+        d = np.maximum(t - hi, lo - t).clip(0)
+        out = d if out is None else np.maximum(out, d)
+    return out
+
+
+def diff_defects(golden, test, tol=None, base=28.0, min_area_px=40, slack_px=2, merge_px=12):
+    """Blobs where *test* differs from *golden* beyond the learned tolerance map."""
+    d = diff_map(golden, test, slack_px)
+    thr = base if tol is None else np.maximum(base, tol * 1.3 + 8)
+    m = (d > thr).astype(np.uint8)
+    m = cv2.morphologyEx(m, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    core = m.copy()
+    m = cv2.dilate(m, np.ones((merge_px | 1,) * 2, np.uint8))  # one call per defect, not per fragment
+    n, lbl, st, cen = cv2.connectedComponentsWithStats(m)
+    out = []
+    for i in range(1, n):
+        x, y, w, h, a = st[i]
+        if int(core[lbl == i].sum()) < min_area_px // 3:
+            continue
+        out.append({"x": int(x), "y": int(y), "w": int(w), "h": int(h), "area": int(a),
+                    "cx": float(cen[i][0]), "cy": float(cen[i][1]), "score": round(float(d[lbl == i].max()), 1)})
+    return out, d
