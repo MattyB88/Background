@@ -1,0 +1,299 @@
+[
+ {
+  "photo": "board1.jpg",
+  "parts": 69,
+  "holes": 1,
+  "good_boards_with_false_calls": 4,
+  "false_call_spots": 8,
+  "faults_found": 4,
+  "faults": 5,
+  "detail": [
+   [
+    "missing",
+    true
+   ],
+   [
+    "reversed",
+    true
+   ],
+   [
+    "shifted",
+    true
+   ],
+   [
+    "wrong part",
+    false
+   ],
+   [
+    "solder ball",
+    true
+   ]
+  ],
+  "extra_calls_on_faulty": 1,
+  "cycle_s": 0.435
+ },
+ {
+  "photo": "board2.jpg",
+  "parts": 65,
+  "holes": 5,
+  "good_boards_with_false_calls": 0,
+  "false_call_spots": 0,
+  "faults_found": 5,
+  "faults": 5,
+  "detail": [
+   [
+    "missing",
+    true
+   ],
+   [
+    "reversed",
+    true
+   ],
+   [
+    "shifted",
+    true
+   ],
+   [
+    "wrong part",
+    true
+   ],
+   [
+    "solder ball",
+    true
+   ]
+  ],
+  "extra_calls_on_faulty": 0,
+  "cycle_s": 0.457
+ },
+ {
+  "photo": "board3.jpg",
+  "parts": 34,
+  "holes": 12,
+  "good_boards_with_false_calls": 0,
+  "false_call_spots": 0,
+  "faults_found": 4,
+  "faults": 5,
+  "detail": [
+   [
+    "missing",
+    true
+   ],
+   [
+    "reversed",
+    true
+   ],
+   [
+    "shifted",
+    true
+   ],
+   [
+    "wrong part",
+    false
+   ],
+   [
+    "solder ball",
+    true
+   ]
+  ],
+  "extra_calls_on_faulty": 0,
+  "cycle_s": 0.505
+ },
+ {
+  "photo": "board4.jpg",
+  "parts": 48,
+  "holes": 4,
+  "good_boards_with_false_calls": 2,
+  "false_call_spots": 3,
+  "faults_found": 5,
+  "faults": 5,
+  "detail": [
+   [
+    "missing",
+    true
+   ],
+   [
+    "reversed",
+    true
+   ],
+   [
+    "shifted",
+    true
+   ],
+   [
+    "wrong part",
+    true
+   ],
+   [
+    "solder ball",
+    true
+   ]
+  ],
+  "extra_calls_on_faulty": 0,
+  "cycle_s": 0.493
+ },
+ {
+  "photo": "board5.jpg",
+  "parts": 65,
+  "holes": 2,
+  "good_boards_with_false_calls": 0,
+  "false_call_spots": 0,
+  "faults_found": 5,
+  "faults": 5,
+  "detail": [
+   [
+    "missing",
+    true
+   ],
+   [
+    "reversed",
+    true
+   ],
+   [
+    "shifted",
+    true
+   ],
+   [
+    "wrong part",
+    true
+   ],
+   [
+    "solder ball",
+    true
+   ]
+  ],
+  "extra_calls_on_faulty": 0,
+  "cycle_s": 0.435
+ },
+ {
+  "photo": "board6.jpg",
+  "parts": 75,
+  "holes": 3,
+  "good_boards_with_false_calls": 0,
+  "false_call_spots": 0,
+  "faults_found": 5,
+  "faults": 5,
+  "detail": [
+   [
+    "missing",
+    true
+   ],
+   [
+    "reversed",
+    true
+   ],
+   [
+    "shifted",
+    true
+   ],
+   [
+    "wrong part",
+    true
+   ],
+   [
+    "solder ball",
+    true
+   ]
+  ],
+  "extra_calls_on_faulty": 0,
+  "cycle_s": 0.635
+ },
+ {
+  "photo": "board7.jpg",
+  "parts": 69,
+  "holes": 5,
+  "good_boards_with_false_calls": 0,
+  "false_call_spots": 0,
+  "faults_found": 3,
+  "faults": 5,
+  "detail": [
+   [
+    "missing",
+    false
+   ],
+   [
+    "reversed",
+    true
+   ],
+   [
+    "shifted",
+    true
+   ],
+   [
+    "wrong part",
+    true
+   ],
+   [
+    "solder ball",
+    false
+   ]
+  ],
+  "extra_calls_on_faulty": 0,
+  "cycle_s": 0.445
+ },
+ {
+  "photo": "board8.jpg",
+  "parts": 37,
+  "holes": 0,
+  "good_boards_with_false_calls": 1,
+  "false_call_spots": 1,
+  "faults_found": 5,
+  "faults": 5,
+  "detail": [
+   [
+    "missing",
+    true
+   ],
+   [
+    "reversed",
+    true
+   ],
+   [
+    "shifted",
+    true
+   ],
+   [
+    "wrong part",
+    true
+   ],
+   [
+    "solder ball",
+    true
+   ]
+  ],
+  "extra_calls_on_faulty": 0,
+  "cycle_s": 0.225
+ },
+ {
+  "photo": "board9.jpg",
+  "parts": 41,
+  "holes": 6,
+  "good_boards_with_false_calls": 0,
+  "false_call_spots": 0,
+  "faults_found": 5,
+  "faults": 5,
+  "detail": [
+   [
+    "missing",
+    true
+   ],
+   [
+    "reversed",
+    true
+   ],
+   [
+    "shifted",
+    true
+   ],
+   [
+    "wrong part",
+    true
+   ],
+   [
+    "solder ball",
+    true
+   ]
+  ],
+  "extra_calls_on_faulty": 0,
+  "cycle_s": 0.234
+ }
+]
