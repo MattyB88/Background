@@ -83,3 +83,21 @@ Off by default – everything works without a key. When on (Anthropic API key), 
 ## Tests
 
 `python -m pytest tests` – imports, package derivation, clean boards pass under lighting/rotation changes, all 7 injected defects detected with the right type, false-call learning.
+
+## Added during the 2-day improvement run
+
+| Feature | Where |
+|---|---|
+| **Build from photo** (no placement file): parts + mounting holes found automatically; board length in mm sets the scale | Step 1 📷 |
+| **Teach parts**: click a part to snap a box onto it, then rename / delete / nudge / resize | Step 4 ➕ |
+| **Presence + ≥50 % on pad** check for taught parts (ignores marking, vendor, 180° non-polar) | automatic |
+| **Train with GOOD board**: learns lighting / flux / placement spread, fixes small ROI offsets | Step 5 ✔ |
+| **Foreign object (FOD) check**: bare board only (parts, connector housings, pins and shadows masked), fixed working scale for 4K cameras, sensitivity slider | ⚙ Settings |
+| **Solder bridge**, **tombstone / billboard / wrong part** classification | automatic |
+| **Auto-fit package sizes** from the golden image (one or all) | Step 4 ✨ |
+| **Robust auto-fiducials** (rotation, decoy vias, hi-res) + ECC sub-pixel alignment + feature/outline fallback | automatic |
+| **📋 Report sheet**: numbered board overview + golden vs this-board zoom pairs | after Inspect |
+| **False-call reasons** (lighting, flux, variant, position, box, other) in Stats + CSV | Review |
+| **CSV export** of every board and call | 📊 Stats |
+| `tools/photo_trial.py`: repeatability + injected-fault stress test on your own photos | command line |
+| `tools/build_usb_bundle.py`: offline Windows bundle (own Python, no install) | command line |
