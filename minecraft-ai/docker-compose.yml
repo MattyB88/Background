@@ -1,0 +1,70 @@
+# Minecraft server (Fabric + performance mods) + Mindcraft AI companion.
+# Start:  docker compose up -d      Logs: docker compose logs -f
+services:
+  minecraft:
+    image: itzg/minecraft-server:java21
+    container_name: mc-server
+    restart: unless-stopped
+    ports:
+      - "25565:25565"
+    environment:
+      EULA: "TRUE"
+      TYPE: FABRIC
+      VERSION: "${MC_VERSION:-1.21.1}"
+      MEMORY: "${MC_MEMORY:-4G}"
+      # Server-side only mods: vanilla clients can join without installing anything.
+      MODRINTH_PROJECTS: |
+        fabric-api
+        lithium
+        ferrite-core
+        chunky
+        spark
+      MOTD: "${MC_MOTD:-Family world with our AI buddy}"
+      DIFFICULTY: "${MC_DIFFICULTY:-easy}"
+      MODE: survival
+      # Mindcraft bots log in without a Microsoft account, so the server must be offline-mode.
+      # Keep port 25565 on your home network only (don't port-forward it to the internet).
+      ONLINE_MODE: "FALSE"
+      ENFORCE_SECURE_PROFILE: "FALSE"
+      OPS: "${MC_OPS:-}"
+      SPAWN_PROTECTION: "0"
+      VIEW_DISTANCE: "10"
+    volumes:
+      - ./data:/data
+    healthcheck:
+      test: ["CMD", "mc-health"]
+      interval: 15s
+      retries: 20
+      start_period: 120s
+
+  mindcraft:
+    build: ./mindcraft
+    container_name: mindcraft
+    restart: unless-stopped
+    depends_on:
+      minecraft:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      SETTINGS_JSON: |
+        {
+          "minecraft_version": "${MC_VERSION:-1.21.1}",
+          "host": "minecraft",
+          "port": 25565,
+          "auth": "offline",
+          "host_mindserver": true,
+          "mindserver_port": 8080,
+          "profiles": ["./profiles/buddy.json"],
+          "load_memory": true,
+          "init_message": "Say hi to everyone, then follow the nearest player and help them. When nobody needs you, set yourself a useful goal like gathering wood, food and building a shelter.",
+          "only_chat_with": [],
+          "allow_insecure_coding": false,
+          "allow_vision": false,
+          "chat_bot_messages": true,
+          "narrate_behavior": true
+        }
+    ports:
+      - "8080:8080"   # Mindcraft web dashboard: http://<server-ip>:8080
+    volumes:
+      - ./profiles:/app/profiles
+      - ./bot-memory:/app/bots

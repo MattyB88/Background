@@ -32,3 +32,6 @@ Press `Esc` to quit.
 
 - Target platform: **Windows 10/11** (uses Win32 via `ctypes`).
 - Current environment here may not display GUI unless running on a Windows desktop session.
+
+## Minecraft AI server
+See [minecraft-ai/README.md](minecraft-ai/README.md) for a family Minecraft server with a Mindcraft AI companion.
