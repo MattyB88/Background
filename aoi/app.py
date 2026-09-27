@@ -132,6 +132,7 @@ def _prog(name):
 def get_program(name):
     p = _prog(name)
     return jsonify({**p.data, "overlay": p.overlay(), "has_golden": (p.dir / "golden.png").exists(),
+                    "has_bare": (p.dir / "bare.png").exists(),
                     "ai": ai.available()})
 
 
@@ -216,6 +217,13 @@ def ren_part(name, ref):
     p = _prog(name)
     p.rename_part(ref, request.json["ref"].strip())
     return jsonify(ok=True)
+
+
+@app.post("/api/programs/<name>/bare")
+def bare(name):
+    p = _prog(name)
+    img = _capture(request.args.get("cam")) if request.args.get("camera") else _img_from_request()
+    return jsonify(**p.set_bare(img), overlay=p.overlay())
 
 
 @app.post("/api/programs/<name>/train")

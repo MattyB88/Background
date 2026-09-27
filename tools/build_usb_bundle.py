@@ -64,6 +64,7 @@ def main(csvs):
         (d / "EXPECTED_DEFECTS.txt").write_text("3_defect_board_SIMULATED.png should FAIL on:\r\n" +
                                                "\r\n".join(f"  {r}: {k.upper()}" for r, k in pick.items()) + "\r\n")
     shutil.copy(ROOT / "docs" / "USB_README.txt", OUT / "READ_ME_FIRST.txt")
+    shutil.copytree(ROOT / "docs" / "templates", OUT / "csv_templates")
     shutil.make_archive(str(OUT), "zip", OUT.parent, OUT.name)
     print("Built", OUT.with_suffix(".zip"), f"{OUT.with_suffix('.zip').stat().st_size / 1e6:.0f} MB")
 

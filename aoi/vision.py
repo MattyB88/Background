@@ -709,3 +709,43 @@ def presence_onpad(test_bgr, center, angle, pkg, ppm, gold_bgr, min_on=0.5, sear
     overlap = (t & gp & body).sum() / max(1, (g & body).sum())
     return {"presence": round(float(test_cover / max(golden_cover, 1e-3)), 3), "on_pad": round(float(overlap), 3),
             "fails": [] if present and overlap >= min_on else (["MISSING"] if not present else ["OFF PAD"])}
+
+
+# ---------------------------------------------------------------- bare board helpers
+def part_blobs(gold, bare, ppm, min_mm2=0.3):
+    """Parts = compact regions where the populated golden differs from the bare board."""
+    d = diff_map(bare, gold, max(1, int(ppm * 0.1)))
+    m = (d > 45).astype(np.uint8)
+    m = cv2.morphologyEx(m, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, np.ones((max(3, int(ppm * 0.3)) | 1,) * 2, np.uint8))
+    cnts, _ = cv2.findContours(m, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    out = []
+    for cn in cnts:
+        area = cv2.contourArea(cn)
+        if area < min_mm2 * ppm * ppm or area > 0.25 * m.size:
+            continue
+        (cx, cy), (a, b), ang = cv2.minAreaRect(cn)
+        if a < b:
+            a, b, ang = b, a, ang + 90
+        norm = ((ang + 45) % 90) - 45
+        if abs(norm) < 8:
+            ang -= norm
+        out.append({"cx": float(cx), "cy": float(cy), "l": float(a), "w": float(b), "angle": float(ang), "area": float(area)})
+    return out
+
+
+def presence_vs_bare(test, gold, bare, center, angle, pkg, ppm):
+    """Present = the part area looks more like the golden than like the bare board (lighting-normalised)."""
+    size = roi_size(pkg, ppm, 0.3)
+    sl = _body_slice((int(round(size[1])), int(round(size[0]))), pkg, ppm, 0.9)
+    crops = [cv2.cvtColor(crop_rot(im, center, angle, size), cv2.COLOR_BGR2LAB).astype(np.float32) for im in (test, gold, bare)]
+    def norm(c):  # per-channel normalise on the whole crop (body + surrounding board): removes gain/offset
+        return (c - c.reshape(-1, 3).mean(0)) / (c.reshape(-1, 3).std(0) + 4.0)
+    crops = [norm(c) for c in crops]
+    t, g, b = (c[sl] for c in crops)
+    if t.size < 12:
+        return {"presence": 1.0, "fails": []}
+    dg = float(np.linalg.norm(t - g, axis=2).mean())
+    db = float(np.linalg.norm(t - b, axis=2).mean())
+    score = db / max(dg + db, 1e-3)  # 1 = like golden, 0 = like bare
+    return {"presence": round(score, 3), "fails": [] if score >= 0.5 else ["MISSING"]}

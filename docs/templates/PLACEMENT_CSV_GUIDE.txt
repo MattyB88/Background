@@ -1,0 +1,30 @@
+PLACEMENT FILE (CSV) FOR THE AOI  -  what it needs
+===================================================
+This is a PICK & PLACE / centroid file, not a BOM: one row per placed part.
+Export it from Altium ("Pick and Place"), KiCad (.pos / Fabrication -> Footprint positions),
+Eagle (mountsmd), or MYData/TPSys. Any of these header names are recognised (case ignored):
+
+ REQUIRED
+  Designator   : Designator, RefDes, Ref, Reference, Name, Comp
+  X  (centre)  : X, Mid X, Center-X(mm), PosX, Ref X
+  Y  (centre)  : Y, Mid Y, Center-Y(mm), PosY, Ref Y
+ STRONGLY RECOMMENDED
+  Rotation     : Rotation, Rot, Angle, Theta       (degrees, counter-clockwise, 0-360)
+  Package      : Package, Footprint, Pattern, Case  (0603, SOIC-8, SOT-23, TQFP-64 ... drives box size + checks)
+  Value/Part   : Comment, Value, Part Number, Device (shown in reports; "DNF"/"DNP" = part not inspected)
+ OPTIONAL
+  Side         : Layer, Side, TB   (Bottom rows are skipped)
+
+ UNITS    mm, mil or um - detected automatically (units dropdown to force it).
+ ORIGIN   any corner; the AOI aligns with fiducials, so only the relative positions matter.
+          If boxes come out mirrored, press "Flip Y" in Align.
+ FIDUCIALS  name them FID... or use package FIDUCIAL... -> used for automatic alignment.
+ SEPARATOR  comma, semicolon or tab. First line with Designator + X + Y = header.
+
+ See placement_template.csv (same folder) for a working example.
+
+WHY ADD A BARE BOARD PHOTO TOO?
+  Step 2 -> "Add BARE board": same camera, same position, board with NO parts.
+  The AOI compares bare vs golden to find every part exactly, snaps each CSV position
+  onto it, sizes the package, and uses "looks like bare board" as the missing-part test.
+  Parts it can't match are listed to check by hand.

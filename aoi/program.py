@@ -148,6 +148,84 @@ class Program:
                 out["failed"].append(name)
         return out
 
+    # ------------------------------------------------ bare (unpopulated) board
+    def bare(self):
+        p = self.dir / "bare.png"
+        return cv2.imread(str(p)) if p.exists() else None
+
+    def set_bare(self, img):
+        """Store a bare-board photo aligned to the golden, then auto-program from the difference."""
+        gold = self.golden()
+        if gold is None or self.M is None:
+            raise ValueError("Add the golden (populated) board first")
+        warped, reg = vision.register(gold, img, [], prefer="features")
+        if warped is None:
+            raise ValueError("Bare board not found - same camera position as the golden please")
+        cv2.imwrite(str(self.path("bare.png")), warped)
+        return self.auto_from_bare()
+
+    def auto_from_bare(self):
+        """Parts = where golden differs from bare. With a CSV: snap each placement onto its part and size
+        its package; without: create parts from the blobs."""
+        gold, bare, M = self.golden(), self.bare(), self.M
+        ppm = vision.px_per_mm(M)
+        blobs = vision.part_blobs(gold, bare, ppm)
+        comps = [c for c in self.data["components"] if not c["fiducial"]]
+        yu = self.data["y_up"]
+        snapped, sizes = 0, {}
+        if comps:
+            used = set()
+            for c in comps:
+                c["dx"] = c["dy"] = 0
+                ctr, ang = vision.comp_pose(M, c, yu)
+                pkg = self.pkg(c["package"])
+                reach = max(1.5 * ppm, 0.6 * max(pkg.extent()) * 2 * ppm)
+                best = None
+                for i, b in enumerate(blobs):
+                    d = math.hypot(b["cx"] - ctr[0], b["cy"] - ctr[1])
+                    if i not in used and d < reach and (best is None or d < best[0]):
+                        best = (d, i)
+                if best is None:
+                    continue
+                b = blobs[best[1]]
+                hx, hy = pkg.extent()
+                exp_area = (2 * hx * ppm) * (2 * hy * ppm)
+                if not (0.4 < b["l"] * b["w"] / max(exp_area, 1.0) < 2.5):
+                    continue  # blob doesn't look like this package (partial / merged) - keep the CSV position
+                used.add(best[1])
+                inv = cv2.invertAffineTransform(M)
+                mx, my = vision.apply(inv, [(b["cx"], b["cy"])])[0]
+                my = -my if yu else my
+                c["dx"], c["dy"] = round(mx - c["x"], 3), round(my - c["y"], 3)
+                # body size in the part's own axes
+                a = math.radians(ang)
+                along = abs(math.cos(a - math.radians(b["angle"])))
+                l, w = (b["l"], b["w"]) if along > 0.7 else (b["w"], b["l"])
+                sizes.setdefault(c["package"], []).append((l / ppm, w / ppm))
+                snapped += 1
+            for name, ls in sizes.items():
+                d = self.data["packages"][name]
+                L, W = (float(np.median([x[i] for x in ls])) for i in (0, 1))
+                if d["kind"] not in ("fiducial",) and 0.3 < L / max(d["body_l"], 0.1) < 3:
+                    resize(d, round(L * 0.9, 2), round(W * 0.9, 2))  # blob includes solder/terminations
+            created = 0
+        else:
+            created = 0
+            for b in blobs:
+                L, W = b["l"] / ppm, b["w"] / ppm
+                name = f"BARE_{L:.1f}x{W:.1f}"
+                self.data["packages"].setdefault(name, Package(name, round(L * 0.9, 2), round(W * 0.9, 2), [], False, False, "generic").to_dict())
+                inv = cv2.invertAffineTransform(M)
+                mx, my = vision.apply(inv, [(b["cx"], b["cy"])])[0]
+                created += 1
+                self.data["components"].append({"ref": f"B{created}", "x": float(mx), "y": float(-my if yu else my),
+                                                "rot": (-b["angle"]) % 360, "part": name, "package": name, "side": "top",
+                                                "fiducial": False, "enabled": True, "dnf": False, "dx": 0, "dy": 0,
+                                                "checks": None, "th": {}, "mode": "presence"})
+        self.save()
+        return {"parts_found": len(blobs), "snapped": snapped, "created": created,
+                "not_found": [c["ref"] for c in comps if c["dx"] == 0 and c["dy"] == 0] if comps else []}
+
     # ------------------------------------------------ tuning layers: program < package < part
     def tuning(self, c):
         pk = self.data["packages"].get(c["package"], {})
@@ -320,19 +398,34 @@ class Program:
         g, t = vision.prep(gold), vision.prep(warped)
         lab = (cv2.cvtColor(gold, cv2.COLOR_BGR2LAB), cv2.cvtColor(warped, cv2.COLOR_BGR2LAB))
         M, ppm, yu = self.M, vision.px_per_mm(self.M), self.data["y_up"]
+        bare = self.bare()
         for c in self.data["components"]:
             if not c["enabled"] or c["fiducial"]:
                 continue
             ctr, ang = vision.comp_pose(M, c, yu)
             pkg = self.pkg(c["package"])
             th = self.tuning(c)
-            if c.get("mode") == "presence":
+            if bare is not None and c.get("mode") != "presence":
+                pb = vision.presence_vs_bare(warped, gold, bare, ctr, ang, pkg, ppm)
+            else:
+                pb = None
+            if c.get("mode") == "presence" and bare is not None:
+                pr = vision.presence_vs_bare(warped, gold, bare, ctr, ang, pkg, ppm)
+                size = vision.roi_size(pkg, ppm, 1.0)
+                r = {**pr, "ok": not pr["fails"], "offset_mm": [0, 0], "match": None,
+                     "_golden": vision.crop_rot(g, ctr, ang, size), "_test": vision.crop_rot(t, ctr, ang, size)}
+            elif c.get("mode") == "presence":
                 pr = vision.presence_onpad(warped, ctr, ang, pkg, ppm, gold, th.get("min_on_pad", 0.5))
                 size = vision.roi_size(pkg, ppm, 1.0)
                 r = {**pr, "ok": not pr["fails"], "offset_mm": [0, 0], "match": None,
                      "_golden": vision.crop_rot(g, ctr, ang, size), "_test": vision.crop_rot(t, ctr, ang, size)}
             else:
                 r = vision.inspect_component(g, t, ctr, ang, pkg, ppm, self.refs_for(c["ref"]), th, c.get("checks"), lab)
+            if pb is not None and pb["fails"] == ["MISSING"] and "MISSING" not in r["fails"]:
+                r["fails"] = ["MISSING"] + [f for f in r["fails"] if f not in ("TOMBSTONE", "BILLBOARD", "WRONG PART")]
+                r["ok"] = False
+            elif pb is not None and not pb["fails"] and r["fails"] and set(r["fails"]) <= {"MISSING"}:
+                r["fails"], r["ok"] = ["WRONG PART"], False  # something is there, but not the golden part
             cv2.imwrite(str(rdir / f"{_safe(c['ref'])}_golden.png"), r.pop("_golden"))
             cv2.imwrite(str(rdir / f"{_safe(c['ref'])}_test.png"), r.pop("_test"))
             result["components"].append({"ref": c["ref"], "package": c["package"], "part": c["part"],

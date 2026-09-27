@@ -190,3 +190,28 @@ def test_tuning_layers_library_backup(prog, tmp_path):
     cp = Program(name)
     assert cp.data["packages"]["0603"]["th"]["presence"] == 0.9 and (cp.dir / "golden.png").exists()
     assert cp.inspect(synth.render(seed=31))["ok"]
+
+
+def test_bare_board_autoprogram(tmp_path, monkeypatch):
+    import math
+    monkeypatch.setattr("aoi.program.ROOT", tmp_path)
+    from aoi.program import Program
+    allmiss = {r: "missing" for r, *_ in synth.DEMO if not r.startswith("FID")}
+    parsed = pnp_import.parse(synth.csv_text())
+    for c in parsed["components"]:
+        if not c["ref"].startswith("FID"):
+            c["x"] += 0.5
+            c["y"] -= 0.4  # sloppy placement file
+    p = Program("bare")
+    p.import_placements(parsed)
+    p.set_golden(synth.render())
+    p.auto_teach()
+    info = p.set_bare(synth.render(allmiss, light=0.9, angle=0.6, offset=(44, 33), seed=4))
+    assert info["snapped"] >= 8
+    for c in p.data["components"]:
+        if c["ref"] in ("U1", "Q1", "C1"):
+            true = next(d for d in synth.DEMO if d[0] == c["ref"])
+            assert math.hypot(c["x"] + c["dx"] - true[1], c["y"] + c["dy"] - true[2]) < 0.15
+    assert p.inspect(synth.render(light=1.2, angle=-1, offset=(30, 40), seed=8))["ok"]
+    r = p.inspect(synth.render({"R1": "missing", "U2": "missing"}, light=0.8, angle=1, offset=(50, 25), seed=9))
+    assert {c["ref"]: c["fails"][0] for c in r["components"] if not c["ok"]} == {"R1": "MISSING", "U2": "MISSING"}

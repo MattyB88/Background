@@ -150,10 +150,16 @@ board(el,d){
    <div class="hint">Use a <b>known-good</b> board. Same camera + lights as production.</div>
    <button class="big pri" id="bUp"><span class="ico">🖼</span>Upload image</button>
    <button class="big" id="bCam"><span class="ico">📷</span>Camera snapshot</button>
+   ${d.has_golden&&d.transform?`<div class="hint" style="margin-top:14px">Optional: photo of a <b>BARE board</b> (no parts), same camera position → boxes snap onto the real parts + stronger missing-part check.</div>
+   <button class="big ${d.has_bare?"ok":""}" id="bBare"><span class="ico">⬜</span>${d.has_bare?"✔ Bare board added — replace":"Add BARE board"}</button><div id="bareOut"></div>`:""}
    ${d.has_golden?`<button class="big ok" id="bNext">Next ➜ Align</button>`:""}`;
   const done=async r=>{toast(r.auto_aligned?"✔ Fiducials found automatically":"Image saved — now click the fiducials",4000);await refresh();go("align");};
   $("#bUp").onclick=async()=>{const f=await pickFile("image/*");if(!f)return;const fd=new FormData();fd.append("image",f);done(await api(P()+"/golden",{method:"POST",body:fd}));};
   $("#bCam").onclick=async()=>done(await api(P()+"/golden?camera=1",{method:"POST"}));
+  if($("#bBare"))$("#bBare").onclick=async()=>{const f=await pickFile("image/*");if(!f)return;const fd=new FormData();fd.append("image",f);toast("Comparing bare vs golden…");
+    const r=await api(P()+"/bare",{method:"POST",body:fd});await refresh();side();draw();
+    $("#bareOut").innerHTML=`<div class="tiles"><div class="tile"><b>${r.parts_found}</b><span>parts seen</span></div><div class="tile"><b style="color:var(--ok)">${r.snapped||r.created}</b><span>${r.created?"parts created":"boxes snapped"}</span></div></div>`+
+      (r.not_found.length?`<div style="color:var(--warn)">Check by hand: ${r.not_found.map(esc).join(", ")}</div>`:"");};
   if($("#bNext"))$("#bNext").onclick=()=>go("align");
 },
 align(el,d){

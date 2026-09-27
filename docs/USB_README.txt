@@ -54,3 +54,10 @@ CAMERA (plug and play)
  Tick "Lock exposure" once the picture looks right.  Then ▶ Inspect -> 📷 Camera.
  Or use any camera software that saves photos to a folder: ▶ Inspect -> 🔁 Auto folder.
  Aim: whole board fills the picture, camera square to the board, even light, no glare.
+
+BARE BOARD + CSV (easiest, most accurate programming)
+-----------------------------------------------------
+ 1 Import the placement CSV (see csv_templates\PLACEMENT_CSV_GUIDE.txt + placement_template.csv)
+ 2 Golden photo (good, populated board)  -> fiducials found
+ 3 Same step: "Add BARE board" = photo of an unpopulated board, same camera position
+   -> every part box snaps onto the real part, packages get sized, missing-part check uses the bare board.
