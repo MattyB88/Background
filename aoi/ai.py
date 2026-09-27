@@ -30,7 +30,7 @@ def settings():
 
 def save_settings(new):
     s = settings()
-    s.update({k: v for k, v in new.items() if k in ("api_key", "model", "enabled")})
+    s.update({k: v for k, v in new.items() if k in ("api_key", "model", "enabled", "camera")})
     ROOT.mkdir(parents=True, exist_ok=True)
     SETTINGS.write_text(json.dumps(s))
     try:

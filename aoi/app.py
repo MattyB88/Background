@@ -27,16 +27,49 @@ def _img_from_request():
     return img
 
 
-def _capture(cam=0):
-    cap = cv2.VideoCapture(int(cam))
+def _capture(cam=None):
+    """Grab one frame from a USB / plug-and-play camera at its highest resolution."""
+    cfg = ai.settings().get("camera", {})
+    idx = int(cam if cam not in (None, "") else cfg.get("index", 0))
+    backend = cv2.CAP_DSHOW if os.name == "nt" else cv2.CAP_ANY
+    cap = cv2.VideoCapture(idx, backend)
     try:
-        for _ in range(5):  # let exposure settle
+        if not cap.isOpened():
+            abort(400, f"Camera {idx} not found - check USB / camera number in Settings")
+        w, h = cfg.get("width", 9999), cfg.get("height", 9999)  # ask for max; driver picks nearest
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, w)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
+        if cfg.get("lock_exposure"):
+            cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25)
+            cap.set(cv2.CAP_PROP_EXPOSURE, float(cfg.get("exposure", -6)))
+        ok, img = False, None
+        for _ in range(int(cfg.get("warmup", 8))):  # let exposure / focus settle
             ok, img = cap.read()
-        if not ok:
-            abort(400, "Camera not available")
+        if not ok or img is None:
+            abort(400, "Camera gave no picture")
         return img
     finally:
         cap.release()
+
+
+@app.get("/api/cameras")
+def cameras():
+    found = []
+    backend = cv2.CAP_DSHOW if os.name == "nt" else cv2.CAP_ANY
+    for i in range(5):
+        cap = cv2.VideoCapture(i, backend)
+        if cap.isOpened():
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 9999)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 9999)
+            found.append({"index": i, "width": int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), "height": int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))})
+        cap.release()
+    return jsonify(found)
+
+
+@app.get("/api/camera/preview.jpg")
+def camera_preview():
+    img = _capture(request.args.get("cam"))
+    return cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 85])[1].tobytes(), 200, {"Content-Type": "image/jpeg"}
 
 
 @app.errorhandler(ValueError)
@@ -120,6 +153,48 @@ def from_photo(name):
     bm = request.args.get("board_mm")
     info = autodetect.program_from_image(p, img, board_mm=float(bm) if bm else None)
     return jsonify(**info, overlay=p.overlay())
+
+
+@app.put("/api/programs/<name>/tune/package/<path:pkg>")
+def tune_pkg(name, pkg):
+    p = _prog(name)
+    p.set_package_tuning(pkg, request.json.get("th"), request.json.get("checks"))
+    return jsonify(ok=True)
+
+
+@app.put("/api/programs/<name>/tune/part/<ref>")
+def tune_part(name, ref):
+    p = _prog(name)
+    p.set_part_tuning(ref, request.json.get("th"), request.json.get("checks"))
+    return jsonify(ok=True)
+
+
+@app.get("/api/library")
+def library():
+    return jsonify(Program.library())
+
+
+@app.post("/api/programs/<name>/library/save/<path:pkg>")
+def lib_save(name, pkg):
+    return jsonify(count=_prog(name).save_to_library(pkg))
+
+
+@app.post("/api/programs/<name>/library/apply")
+def lib_apply(name):
+    return jsonify(updated=_prog(name).apply_library())
+
+
+@app.get("/api/programs/<name>/backup.zip")
+def backup(name):
+    p = _prog(name)
+    return p.backup_zip(), 200, {"Content-Type": "application/zip",
+                                 "Content-Disposition": f'attachment; filename="{p.name}_aoi_program.zip"'}
+
+
+@app.post("/api/restore")
+def restore():
+    f = request.files["file"]
+    return jsonify(name=Program.restore_zip(f.read(), request.form.get("name") or None))
 
 
 @app.post("/api/programs/<name>/parts")
@@ -312,7 +387,7 @@ def stats(name):
 @app.get("/api/settings")
 def get_settings():
     s = ai.settings()
-    return jsonify(enabled=s["enabled"], model=s["model"], has_key=bool(s.get("api_key") or os.environ.get("ANTHROPIC_API_KEY")))
+    return jsonify(camera=s.get("camera", {}), enabled=s["enabled"], model=s["model"], has_key=bool(s.get("api_key") or os.environ.get("ANTHROPIC_API_KEY")))
 
 
 @app.post("/api/settings")

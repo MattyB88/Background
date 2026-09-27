@@ -36,6 +36,9 @@ class Package:
             hy = max(hy, abs(cy) + w / 2)
         return hx, hy
 
+    th: dict = field(default_factory=dict)
+    checks: dict = None
+
     def to_dict(self):
         return asdict(self)
 

@@ -174,3 +174,19 @@ def test_false_call_reason(prog):
     prog.feedback(r["run"], "U2", "false_call", "lighting")
     assert prog.stats()["false_call_reasons"] == [("lighting", 1)]
     assert "lighting" in prog.export_csv()
+
+
+def test_tuning_layers_library_backup(prog, tmp_path):
+    from aoi.program import Program
+    c = next(c for c in prog.data["components"] if c["ref"] == "R1")
+    prog.set_package_tuning("0603", th={"presence": 0.9})
+    assert prog.tuning(c)["presence"] == 0.9                     # package overrides program
+    prog.set_part_tuning("R1", th={"presence": 0.4})
+    assert prog.tuning(c)["presence"] == 0.4                     # part overrides package
+    other = next(x for x in prog.data["components"] if x["package"] == "0603" and x["ref"] != "R1")
+    assert prog.tuning(other)["presence"] == 0.9
+    assert prog.save_to_library("0603") == 1
+    name = Program.restore_zip(prog.backup_zip(), "copy")
+    cp = Program(name)
+    assert cp.data["packages"]["0603"]["th"]["presence"] == 0.9 and (cp.dir / "golden.png").exists()
+    assert cp.inspect(synth.render(seed=31))["ok"]

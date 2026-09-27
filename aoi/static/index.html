@@ -57,6 +57,7 @@ label.sl{display:block;margin:10px 0 2px;color:var(--dim)}input[type=range]{widt
   <h1>🔍 AOI</h1>
   <select id="prog" title="Program"></select>
   <nav class="steps" id="steps"></nav>
+  <button id="bLib" title="Parts library">📚</button>
   <button id="bStats" title="Statistics">📊</button>
   <button id="bSet" title="Advanced settings">⚙</button>
 </header>
@@ -108,7 +109,7 @@ function renderSteps(){
   document.querySelectorAll(".step").forEach(b=>b.onclick=()=>go(b.dataset.k));
 }
 function go(k){S.step=k;if(k!=="align")S.teach=[];renderSteps();side();draw();}
-$("#bStats").onclick=()=>go("stats");$("#bSet").onclick=()=>go("settings");
+$("#bStats").onclick=()=>go("stats");$("#bLib").onclick=()=>{S.libPkg=null;go("library");};$("#bSet").onclick=()=>go("settings");
 
 /* ---------- side panels ---------- */
 function side(){
@@ -199,6 +200,8 @@ rois(el,d){
    <div style="color:var(--dim);margin-top:10px">Checks</div>
    <div class="chk">${[["presence","⬛ Missing"],["polarity","➕ Polarity"],["ocv","🔤 Marking"],["offset","↔ Offset"],["bridge","🔗 Bridge"]].map(([k,t])=>`<button data-c="${k}" class="${ch[k]?"on":""}">${ch[k]?"✔":"✖"} ${t}</button>`).join("")}</div>
    <div class="row"><button id="bRen">✏ Rename</button><button id="bDel" class="bad">🗑 Delete</button></div>
+   <details style="margin:8px 0"><summary style="font-size:18px;cursor:pointer">🎚 Fine-tune this part only</summary>
+   ${tuneBox({...d.thresholds,...(pk.th||{})},{...(c.th||{})},"c")}</details>
    <button class="big ${c.enabled?"":"pri"}" id="bEn">${c.enabled?"🚫 Skip this part":"✔ Inspect this part"}</button>
    <button class="big" id="bDone">✔ Done</button>`;
   const put=async b=>{const r=await api(P()+"/component/"+encodeURIComponent(c.ref),{method:"PUT",json:b});S.data.overlay=r.overlay;await refresh();side();draw();};
@@ -211,6 +214,7 @@ rois(el,d){
   el.querySelectorAll("[data-c]").forEach(b=>b.onclick=()=>put({checks:{...ch,[b.dataset.c]:!ch[b.dataset.c]}}));
   $("#pk").onchange=e=>put({package:e.target.value});
   $("#bEn").onclick=()=>put({enabled:!c.enabled});
+  {const own={...(c.th||{})};wireTune(el,own,async o=>{await api(P()+"/tune/part/"+encodeURIComponent(c.ref),{method:"PUT",json:{th:o}});await refresh();side();},"c");}
   $("#bRen").onclick=async()=>{const n=prompt("New name (e.g. U3, C12)",c.ref);if(!n)return;await api(P()+"/parts/"+encodeURIComponent(c.ref)+"/rename",{json:{ref:n}});S.sel=n;await refresh();side();draw();};
   $("#bDel").onclick=async()=>{if(!confirm("Delete "+c.ref+"?"))return;await api(P()+"/parts/"+encodeURIComponent(c.ref),{method:"DELETE"});S.sel=null;await refresh();side();draw();};$("#bDone").onclick=()=>{S.sel=null;side();draw();};
 },
@@ -260,6 +264,35 @@ review(el,d){
   if($("#bAi"))$("#bAi").onclick=async()=>{$("#aiOut").innerHTML='<div class="hint">Thinking…</div>';const a=await api(P()+"/ai/opinion",{json:{run:r.run,ref:c.ref}});$("#aiOut").innerHTML=`<div class="hint">${esc(a.text)}</div>`;};
   focus(c);
 },
+async library(el,d){
+  const lib=await api("/api/library");
+  if(!S.libPkg){
+    const counts={};d.components.forEach(c=>counts[c.package]=(counts[c.package]||0)+1);
+    el.innerHTML=`<h2>📚 Parts library</h2><div class="hint">Tune a <b>package</b> once — every part using it follows. Tune a single part in 🔲 ROIs.</div>
+      <button class="big" id="bApplyLib">⬇ Use shared library (${Object.keys(lib).length} saved)</button>
+      ${Object.keys(d.packages).filter(k=>d.packages[k].kind!="fiducial").sort((a,b)=>(counts[b]||0)-(counts[a]||0)).map(k=>{const p=d.packages[k];
+        return `<div class="card" data-pk="${esc(k)}" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center">
+        <div><b>${esc(k)}</b><br><span style="color:var(--dim);font-size:13px">${p.kind} · ${(+p.body_l).toFixed(1)}×${(+p.body_w).toFixed(1)} mm · ${p.pads.length} pads</span></div>
+        <div style="text-align:right"><b style="font-size:22px">${counts[k]||0}</b><br><span style="font-size:12px;color:var(--dim)">parts</span>
+        ${Object.keys(p.th||{}).length?'<br><span class="tag w">tuned</span>':''}${lib[k]?'<br><span class="tag" style="background:var(--acc)">in library</span>':''}</div></div>`}).join("")}`;
+    el.querySelectorAll("[data-pk]").forEach(c=>c.onclick=()=>{S.libPkg=c.dataset.pk;side();});
+    $("#bApplyLib").onclick=async()=>{const r=await api(P()+"/library/apply",{method:"POST"});toast(`✔ ${r.updated.length} packages updated from library`);await refresh();side();draw();};
+    return;}
+  const k=S.libPkg,p=d.packages[k];const own={...(p.th||{})};
+  const ch={presence:true,polarity:p.polarized,ocv:p.marking,offset:true,bridge:p.pads.length>=4,...(p.checks||{})};
+  const parts=d.components.filter(c=>c.package==k);
+  el.innerHTML=`<button id="bBack">◀ All packages</button><h2>${esc(k)}</h2>
+    <div style="color:var(--dim)">${parts.length} parts: ${parts.slice(0,12).map(c=>c.ref).join(", ")}${parts.length>12?"…":""}</div>
+    <div style="color:var(--dim);margin-top:10px">Checks for all ${esc(k)}</div>
+    <div class="chk">${CHECKS.map(([c,t])=>`<button data-c="${c}" class="${ch[c]?"on":""}">${ch[c]?"✔":"✖"} ${t}</button>`).join("")}</div>
+    <h3>🎚 Package tuning</h3>${tuneBox(d.thresholds,own,"p")}
+    <div class="row"><button class="big" id="bFitP">✨ Auto-fit size</button><button class="big pri" id="bSaveLib">💾 Save to library</button></div>`;
+  $("#bBack").onclick=()=>{S.libPkg=null;side();};
+  wireTune(el,own,async o=>{await api(P()+"/tune/package/"+encodeURIComponent(k),{method:"PUT",json:{th:o}});await refresh();side();},"p");
+  el.querySelectorAll("[data-c]").forEach(b=>b.onclick=async()=>{await api(P()+"/tune/package/"+encodeURIComponent(k),{method:"PUT",json:{checks:{...ch,[b.dataset.c]:!ch[b.dataset.c]}}});await refresh();side();});
+  $("#bFitP").onclick=async()=>{const r=await api(P()+"/autofit/"+encodeURIComponent(k),{method:"POST"});toast(`✨ ${r.body_l} × ${r.body_w} mm`);await refresh();side();draw();};
+  $("#bSaveLib").onclick=async()=>{const r=await api(P()+"/library/save/"+encodeURIComponent(k),{method:"POST"});toast(`💾 Saved — library has ${r.count} packages`);side();};
+},
 async stats(el,d){
   el.innerHTML="<h2>📊 Stats</h2>…";const s=await api(P()+"/stats");const mx=Math.max(1,...s.top_refs.map(x=>x[1]));
   const bars=(arr)=>arr.length?arr.map(([k,v])=>`<div class="bar" style="width:${20+80*v/Math.max(1,...arr.map(x=>x[1]))}%">${k||"?"} · ${v}</div>`).join(""):'<div style="color:var(--dim)">none yet</div>';
@@ -279,6 +312,13 @@ async settings(el,d){
    ${sl("ocv","Marking match",.1,.9,.01)}${sl("offset_mm","Max offset mm",.05,1,.05)}${sl("bridge","Solder bridge (lower = stricter)",.4,3,.1)}
    <button class="big ${d.compare&&d.compare.enabled?"ok":""}" id="bCmp">${d.compare&&d.compare.enabled?"✔":"✖"} Foreign object (FOD) check</button>
    ${d.compare&&d.compare.enabled?`<label class="sl">FOD sensitivity (higher = finds smaller/fainter, more false calls): <b id="v_fod">${d.compare.sensitivity??0.5}</b></label><input type="range" id="fod" min="0" max="1" step="0.05" value="${d.compare.sensitivity??0.5}">`:""}${sl("search_mm","Search range mm",.2,2,.1)}`:""}
+   <h3>📷 Camera</h3>
+   <div class="row"><select id="camSel"><option>searching…</option></select><button id="bCamTest">👁 Test shot</button></div>
+   <label style="display:flex;gap:8px;align-items:center;margin:6px 0"><input type="checkbox" id="camLock" ${(a.camera||{}).lock_exposure?"checked":""}> Lock exposure (stops brightness drifting)</label>
+   <div id="camPrev"></div>
+   <h3>💾 Programs</h3>
+   ${d?`<a class="big" href="${P()}/backup.zip" download style="display:flex;justify-content:center;gap:12px;text-decoration:none;color:var(--txt);background:var(--panel2);border-radius:12px;padding:16px;font-size:20px;font-weight:700">💾 Backup this program (zip)</a>`:""}
+   <button class="big" id="bRestore">📂 Restore program from zip</button>
    <h3>🤖 Advanced — AI assistant (optional)</h3>
    <div class="hint" style="font-size:14px">AOI works fully without this. When on, stats (no images, no customer data) are sent to the Claude API for summaries; single defect crops only when you press “second opinion”.</div>
    <button class="big ${a.enabled?"ok":""}" id="bAiOn">${a.enabled?"✔ AI on":"✖ AI off"}</button>
@@ -287,9 +327,26 @@ async settings(el,d){
   el.querySelectorAll("input[type=range]").forEach(r=>r.onchange=async()=>{$("#v_"+r.dataset.k).textContent=r.value;await api(P()+"/settings",{method:"PUT",json:{thresholds:{[r.dataset.k]:r.value}}});await refresh();toast("✔ Saved");});
   if($("#fod"))$("#fod").onchange=async e=>{$("#v_fod").textContent=e.target.value;await api(P()+"/settings",{method:"PUT",json:{compare:{sensitivity:+e.target.value}}});toast("✔ Saved");};
   if($("#bCmp"))$("#bCmp").onclick=async()=>{await api(P()+"/settings",{method:"PUT",json:{compare:{enabled:!(d.compare&&d.compare.enabled)}}});await refresh();side();};
+  api("/api/cameras").then(cs=>{$("#camSel").innerHTML=cs.length?cs.map(c=>`<option value="${c.index}" ${c.index==((a.camera||{}).index||0)?"selected":""}>Camera ${c.index} — ${c.width}×${c.height}</option>`).join(""):"<option>No camera found</option>";}).catch(()=>{});
+  const camSave=async()=>{await api("/api/settings",{json:{camera:{...(a.camera||{}),index:+$("#camSel").value||0,lock_exposure:$("#camLock").checked}}});toast("✔ Camera saved");};
+  $("#camSel").onchange=camSave;$("#camLock").onchange=camSave;
+  $("#bCamTest").onclick=()=>{$("#camPrev").innerHTML=`<img src="/api/camera/preview.jpg?cam=${$("#camSel").value}&t=${Date.now()}" style="width:100%;border-radius:8px" onerror="this.replaceWith('⚠ no picture')">`;};
+  $("#bRestore").onclick=async()=>{const f=await pickFile(".zip");if(!f)return;const fd=new FormData();fd.append("file",f);const r=await api("/api/restore",{method:"POST",body:fd});toast("✔ Restored "+r.name);await loadPrograms(r.name);};
   $("#bAiOn").onclick=async()=>{await api("/api/settings",{json:{enabled:!a.enabled}});if(S.prog)await refresh();side();};
   $("#bSave").onclick=async()=>{const b={model:$("#model").value};if($("#key").value)b.api_key=$("#key").value;await api("/api/settings",{json:b});toast("✔ Saved");side();};
 }};
+const TUNE=[["presence","Missing part (higher = stricter)",.2,.95,.01],["min_on_pad","On pad min (taught parts)",.2,.95,.05],
+  ["offset_mm","Max offset mm",.05,1.5,.05],["polarity_margin","Polarity margin (lower = stricter)",0,.4,.01],
+  ["ocv","Marking match",.05,.9,.01],["bridge","Solder bridge (lower = stricter)",.3,3,.1],["search_mm","Search range mm",.1,2,.1]];
+const CHECKS=[["presence","⬛ Missing"],["polarity","➕ Polarity"],["ocv","🔤 Marking"],["offset","↔ Offset"],["bridge","🔗 Bridge"]];
+function tuneBox(base,own,idp){ // base = inherited values, own = this level's overrides
+  return TUNE.map(([k,t,a,b,st])=>{const v=own[k]??base[k]??0.5;const set=own[k]!=null;
+    return `<label class="sl">${t}: <b id="${idp}v_${k}">${(+v).toFixed(2)}</b> ${set?`<a data-reset="${k}" style="color:var(--warn);cursor:pointer">↺ inherited</a>`:`<span style="color:var(--dim)">(inherited)</span>`}</label>
+    <input type="range" data-tk="${k}" min="${a}" max="${b}" step="${st}" value="${v}">`}).join("");}
+function wireTune(el,own,save,idp){
+  el.querySelectorAll("[data-tk]").forEach(r=>{r.oninput=()=>{$("#"+idp+"v_"+r.dataset.tk).textContent=(+r.value).toFixed(2)};
+    r.onchange=async()=>{own[r.dataset.tk]=+r.value;await save(own);toast("✔ Saved");}});
+  el.querySelectorAll("[data-reset]").forEach(a=>a.onclick=async()=>{delete own[a.dataset.reset];await save(own);});}
 const esc=s=>s.replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
 
 /* ---------- canvas ---------- */

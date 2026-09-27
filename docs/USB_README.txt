@@ -31,3 +31,26 @@ WITH REAL PHOTOS
 Check in 4 ROIs: IC1 (64 pin TQFP) body size - nudge L/W if the box doesn't fit.
 
 Everything (programs, history, learned images) is saved in the aoi_data folder next to START_AOI.bat.
+
+NEW: PARTS LIBRARY + FINE TUNING
+--------------------------------
+ 📚 (top right)  = Parts library. Tap a package (e.g. 0603):
+    - tick/untick checks for ALL parts of that package
+    - sliders = package tuning (every 0603 follows)
+    - ✨ Auto-fit size   💾 Save to library (shared by all programs)
+    - "Use shared library" pulls saved packages into the current program
+ 🔲 ROIs -> click a part -> "🎚 Fine-tune this part only" = override for that one part.
+ Order: program settings < package < part.   "↺ inherited" removes an override.
+
+SAVING / MOVING PROGRAMS
+------------------------
+ Programs save automatically in the aoi_data folder next to START_AOI.bat.
+ ⚙ Settings -> 💾 Backup this program (zip)  /  📂 Restore program from zip
+ (use this to copy a program to another PC or keep a safe copy)
+
+CAMERA (plug and play)
+----------------------
+ Any USB (UVC) camera works: plug in, ⚙ Settings -> 📷 Camera -> pick it -> 👁 Test shot.
+ Tick "Lock exposure" once the picture looks right.  Then ▶ Inspect -> 📷 Camera.
+ Or use any camera software that saves photos to a folder: ▶ Inspect -> 🔁 Auto folder.
+ Aim: whole board fills the picture, camera square to the board, even light, no glare.

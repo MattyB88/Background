@@ -58,7 +58,8 @@ class Program:
         for c in parsed["components"]:
             pkg_name = c["package"] or "UNKNOWN"
             if pkg_name not in self.data["packages"]:
-                self.data["packages"][pkg_name] = derive(pkg_name, c["part"]).to_dict()
+                lib = self.library()
+                self.data["packages"][pkg_name] = lib[pkg_name] if pkg_name in lib else derive(pkg_name, c["part"]).to_dict()
             fid = self.data["packages"][pkg_name]["kind"] == "fiducial" or c["ref"].upper().startswith("FID")
             kind = self.data["packages"][pkg_name]["kind"]
             dnf = bool(re.search(r"\bDNF\b|\bDNP\b|\bNF\b", c["part"].upper()))
@@ -146,6 +147,83 @@ class Program:
             except ValueError:
                 out["failed"].append(name)
         return out
+
+    # ------------------------------------------------ tuning layers: program < package < part
+    def tuning(self, c):
+        pk = self.data["packages"].get(c["package"], {})
+        return {**self.data["thresholds"], **pk.get("th", {}), **c.get("th", {})}
+
+    def set_package_tuning(self, package, th=None, checks=None):
+        d = self.data["packages"][package]
+        if th is not None:
+            d["th"] = {k: float(v) for k, v in th.items() if v is not None}
+        if checks is not None:
+            d["checks"] = checks
+            for c in self.data["components"]:  # parts without their own override follow the package
+                if c["package"] == package and not c.get("own_checks"):
+                    c["checks"] = checks
+        self.save()
+
+    def set_part_tuning(self, ref, th=None, checks=None):
+        for c in self.data["components"]:
+            if c["ref"] == ref:
+                if th is not None:
+                    c["th"] = {k: float(v) for k, v in th.items() if v is not None}
+                if checks is not None:
+                    c["checks"], c["own_checks"] = checks, True
+        self.save()
+
+    # ------------------------------------------------ shared parts library (all programs)
+    @staticmethod
+    def library():
+        p = ROOT / "library.json"
+        return json.loads(p.read_text()) if p.exists() else {}
+
+    def save_to_library(self, package):
+        lib = self.library()
+        lib[package] = {k: v for k, v in self.data["packages"][package].items()}
+        ROOT.mkdir(parents=True, exist_ok=True)
+        (ROOT / "library.json").write_text(json.dumps(lib, indent=1))
+        return len(lib)
+
+    def apply_library(self):
+        """Use library geometry/tuning for any package with the same name. Returns names updated."""
+        lib, done = self.library(), []
+        for name in self.data["packages"]:
+            if name in lib:
+                self.data["packages"][name] = {**self.data["packages"][name], **lib[name], "name": name}
+                done.append(name)
+        self.save()
+        return done
+
+    # ------------------------------------------------ backup / restore
+    def backup_zip(self):
+        import io
+        import zipfile
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+            for f in self.dir.rglob("*"):
+                if f.is_file() and "runs" not in f.relative_to(self.dir).parts:
+                    z.write(f, f.relative_to(self.dir))
+        return buf.getvalue()
+
+    @staticmethod
+    def restore_zip(data, name=None):
+        import io
+        import zipfile
+        z = zipfile.ZipFile(io.BytesIO(data))
+        meta = json.loads(z.read("program.json"))
+        p = Program(name or meta["name"])
+        p.dir.mkdir(parents=True, exist_ok=True)
+        for n in z.namelist():
+            if ".." in n or n.startswith("/"):
+                continue
+            (p.dir / n).parent.mkdir(parents=True, exist_ok=True)
+            (p.dir / n).write_bytes(z.read(n))
+        p.data = json.loads((p.dir / "program.json").read_text())
+        p.data["name"] = p.name
+        p.save()
+        return p.name
 
     def add_part_at(self, px, py, ref=None):
         """Teach: snap a new part onto the golden image at pixel (px, py)."""
@@ -247,7 +325,7 @@ class Program:
                 continue
             ctr, ang = vision.comp_pose(M, c, yu)
             pkg = self.pkg(c["package"])
-            th = {**self.data["thresholds"], **c.get("th", {})}
+            th = self.tuning(c)
             if c.get("mode") == "presence":
                 pr = vision.presence_onpad(warped, ctr, ang, pkg, ppm, gold, th.get("min_on_pad", 0.5))
                 size = vision.roi_size(pkg, ppm, 1.0)
