@@ -139,3 +139,4 @@ details { margin-top: 14px; } summary { cursor: pointer; font-weight: 800; }
 .voicebox .toggle { margin: 0 0 8px; }
 .speaking { position: fixed; bottom: 24px; right: 24px; background: #111; border: 1px solid var(--sky); padding: 10px 16px; border-radius: 12px; max-width: 360px; z-index: 20; font-size: 14px; }
 .btn { white-space: nowrap; }
+.denied { border-color: var(--accent); margin-bottom: 16px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }

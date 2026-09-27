@@ -207,6 +207,8 @@ async function start() {
     for (const m of text.matchAll(/INFO\]: (?:\[Not Secure\] )?<(\w+)> (.+)/g)) speakChat(m[1], m[2]);
     const join = text.match(/: (\w+) joined the game/);
     if (join) setState({ online: [...new Set([...state.online, join[1]])] });
+    const denied = text.match(/Disconnecting (\w+) \(.*not white-listed/);
+    if (denied) emit({ type: 'denied', name: denied[1] });
     const left = text.match(/: (\w+) left the game/);
     if (left) setState({ online: state.online.filter((n) => n !== left[1]) });
   };
@@ -379,6 +381,15 @@ const routes = {
   'POST /api/start': () => { start(); return { ok: true }; },
   'POST /api/stop': () => { stop(); return { ok: true }; },
   'POST /api/restart-bots': () => { restartBots(); return { ok: true }; },
+  'POST /api/allow-player': (b) => {
+    const name = String(b.name || '');
+    if (!/^\w{3,16}$/.test(name)) throw new Error('Not a valid Minecraft name.');
+    if (!config.players.includes(name)) config.players.push(name);
+    saveConfig();
+    writeAccessLists(state.world || config.world);
+    sendServer('whitelist reload');
+    return { config: publicConfig() };
+  },
   'POST /api/command': (b) => {
     if (!serverProc) throw new Error('The server is not running.');
     sendServer(String(b.command || '').replace(/^\//, '').replace(/[\r\n]/g, ''));

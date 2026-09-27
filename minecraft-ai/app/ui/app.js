@@ -462,11 +462,24 @@ document.addEventListener('click', (e) => {
   if (c) navigator.clipboard.writeText(c.dataset.copy).then(() => toast(`Copied ${c.dataset.copy}`));
 });
 
+function showDenied(name) {
+  if ($(`[data-deny="${name}"]`)) return;
+  const bar = document.createElement('div');
+  bar.className = 'card denied';
+  bar.dataset.deny = name;
+  bar.innerHTML = `🚪 <b>${esc(name)}</b> tried to join but isn't on the family list. <button class="btn small">Let them in</button> <button class="btn small ghost">Ignore</button>`;
+  const [allow, ignore] = $$('button', bar);
+  allow.onclick = async () => { await api('/api/allow-player', { name }); bar.remove(); toast(`${name} can join now - try connecting again`); };
+  ignore.onclick = () => bar.remove();
+  $('main').prepend(bar);
+}
+
 function connectEvents() {
   const es = new EventSource('/api/events');
   es.onmessage = (m) => {
     const ev = JSON.parse(m.data);
     if (ev.type === 'state') { state = ev.state; renderStatus(); }
+    if (ev.type === 'denied') showDenied(ev.name);
     if (ev.type === 'voice' && soundOn) { audioQueue.push(ev); playNext(); }
     if (ev.type === 'log') {
       logs[ev.src].push(ev.line);
