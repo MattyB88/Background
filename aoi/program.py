@@ -303,10 +303,23 @@ class Program:
         sens = float(cfg.get("sensitivity", 0.5))  # 0 = only obvious objects, 1 = everything
         base = cfg.get("base", 110 - 80 * sens)
         peak = cfg.get("min_peak", 235 - 150 * sens)
-        blobs, d = vision.diff_defects(gold, warped, tol, base,
-                                       max(20, int(cfg.get("min_area_mm2", 0.15) * ppm * ppm)), max(1, int(ppm * 0.1)),
-                                       max(3, int(ppm * 0.35)), int(cfg.get("max_area_mm2", 2.5) * ppm * ppm), peak,
+        # compare at a fixed working scale so high-res cameras don't turn texture/shine into "objects"
+        k = min(1.0, 9.0 / ppm)
+        if k < 1.0:
+            rs = lambda a, interp=cv2.INTER_AREA: cv2.resize(a, None, fx=k, fy=k, interpolation=interp)
+            gold_s, warped_s, tol_s = rs(gold), rs(warped), rs(tol, cv2.INTER_NEAREST)
+            ppm_s = ppm * k
+        else:
+            gold_s, warped_s, tol_s, ppm_s = gold, warped, tol, ppm
+        blobs, d = vision.diff_defects(gold_s, warped_s, tol_s, base,
+                                       max(20, int(cfg.get("min_area_mm2", 0.15) * ppm_s * ppm_s)), max(1, int(ppm_s * 0.1)),
+                                       max(3, int(ppm_s * 0.35)), int(cfg.get("max_area_mm2", 2.5) * ppm_s * ppm_s), peak,
                                        cfg.get("big_mean", 150 - 40 * sens))
+        if k < 1.0:
+            d = cv2.resize(d, (gold.shape[1], gold.shape[0]), interpolation=cv2.INTER_NEAREST)
+            for b in blobs:
+                for key in ("x", "y", "w", "h", "cx", "cy"):
+                    b[key] = type(b[key])(b[key] / k)
         cv2.imwrite(str(rdir / "diff.png"), d.clip(0, 255).astype(np.uint8))
         failed = [c for c in result["components"] if not c["ok"]]
         for i, b in enumerate(blobs):
