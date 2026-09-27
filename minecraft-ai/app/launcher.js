@@ -119,6 +119,27 @@ function activeProfiles() {
   return config.profiles.filter((p) => p.enabled && (!PROVIDERS[p.provider].key || config.keys[PROVIDERS[p.provider].key]));
 }
 
+// ---------- whitelist / ops ----------
+// In offline mode the server identifies players by an "offline UUID" derived from their name.
+// `whitelist add` would store the Mojang account UUID instead (e.g. a real account called "Buddy"),
+// which then doesn't match and gets everyone kicked - so we write both lists ourselves.
+function offlineUUID(name) {
+  const h = crypto.createHash('md5').update(`OfflinePlayer:${name}`).digest();
+  h[6] = (h[6] & 0x0f) | 0x30;
+  h[8] = (h[8] & 0x3f) | 0x80;
+  const x = h.toString('hex');
+  return `${x.slice(0, 8)}-${x.slice(8, 12)}-${x.slice(12, 16)}-${x.slice(16, 20)}-${x.slice(20)}`;
+}
+
+function writeAccessLists(world) {
+  const dir = serverDir(world);
+  const names = [...new Set([...config.players, ...config.profiles.map((p) => p.name)])];
+  fs.writeFileSync(path.join(dir, 'whitelist.json'),
+    JSON.stringify(names.map((name) => ({ uuid: offlineUUID(name), name })), null, 2));
+  fs.writeFileSync(path.join(dir, 'ops.json'), JSON.stringify(config.players.map((name) => (
+    { uuid: offlineUUID(name), name, level: 4, bypassesPlayerLimit: false })), null, 2));
+}
+
 // ---------- start / stop ----------
 function sendServer(cmd) {
   if (serverProc?.stdin.writable) {
@@ -139,6 +160,7 @@ async function start() {
   }
 
   writeServerFiles(world, config);
+  writeAccessLists(world);
   const { cmd, args, cwd } = serverLaunch(world, config);
   setState({ phase: 'starting', progress: { label: 'Starting Minecraft server…', pct: null } });
   serverProc = spawn(cmd, args, { cwd, windowsHide: true });
@@ -164,10 +186,6 @@ async function start() {
 
 function onServerReady(world) {
   const bots = WORLDS[world].ai ? activeProfiles() : [];
-  if (config.familyOnly) {
-    for (const name of [...config.players, ...bots.map((b) => b.name)]) sendServer(`whitelist add ${name}`);
-  }
-  for (const name of config.players) sendServer(`op ${name}`);
   sendServer(`gamerule keepInventory ${config.keepInventory}`);
   setState({ phase: 'running', progress: null });
   if (bots.length) startBots(bots);
@@ -221,7 +239,8 @@ function restartBots() {
   stopBots();
   setTimeout(() => {
     const bots = activeProfiles();
-    if (config.familyOnly) for (const b of bots) sendServer(`whitelist add ${b.name}`);
+    writeAccessLists(state.world);
+    sendServer('whitelist reload');
     if (bots.length) startBots(bots);
   }, 2500);
 }
