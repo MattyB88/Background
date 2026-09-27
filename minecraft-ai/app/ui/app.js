@@ -157,13 +157,13 @@ function renderWorlds() {
 function renderKeys() {
   const list = $('#keysList');
   list.innerHTML = '';
-  for (const [id, p] of Object.entries(C.PROVIDERS)) {
+  for (const [id, p] of [...Object.entries(C.PROVIDERS), ['elevenlabs', C.VOICE]]) {
     if (!p.key) continue;
     const row = document.createElement('div');
     row.className = 'keyrow';
     const saved = config.keys[p.key];
     row.innerHTML = `
-      <div><b>${esc(p.label)}</b><br><a href="${esc(p.keyUrl)}" target="_blank" rel="noopener" class="small">Get a key ↗</a></div>
+      <div><b>${esc(p.label)}</b>${id === 'elevenlabs' ? `<br><span class="muted small">${esc(p.note)}</span>` : ''}<br><a href="${esc(p.keyUrl)}" target="_blank" rel="noopener" class="small">Get a key ↗</a></div>
       <input type="password" placeholder="${saved ? 'Saved ' + esc(saved) + ' - paste to replace' : 'Paste key here'}" autocomplete="off">
       <button class="btn small">Save & test</button>
       <span class="result">${saved ? '<span class="ok">✔ saved</span>' : ''}</span>`;
@@ -173,7 +173,7 @@ function renderKeys() {
       const out = $('.result', row);
       out.innerHTML = '…';
       const t = await api('/api/keys/test', { provider: id, key });
-      if (key && t.ok) { await api('/api/keys', { keys: { [p.key]: key } }); return toast(`${p.label} key saved`); }
+      if (key && t.ok) { await api('/api/keys', { keys: { [p.key]: key } }); voicesCache = null; return toast(`${p.label} key saved`); }
       out.innerHTML = `<span class="${t.ok ? 'ok' : 'bad'}">${t.ok ? '✔' : '✖'} ${esc(t.msg)}</span>`;
     };
     list.append(row);
@@ -219,6 +219,8 @@ function openEditor(p) {
   $('#edName').value = editing.name;
   $('#edPersonality').value = editing.personality;
   $('#edEnabled').checked = editing.enabled;
+  $('#edVoiceOn').checked = !!editing.voiceOn;
+  loadVoices(editing.voiceId);
   $('#edPresets').innerHTML = C.PRESETS.map((x) => `<button type="button" class="chip ${x.id === editing.preset ? 'active' : ''}" data-preset="${x.id}">${x.emoji} ${esc(x.label)}</button>`).join('');
   $$('#edPresets .chip').forEach((b) => (b.onclick = () => {
     const x = C.PRESETS.find((y) => y.id === b.dataset.preset);
@@ -257,6 +259,7 @@ $('#editorForm').onsubmit = async (e) => {
     ...editing, name: $('#edName').value.trim(), personality: $('#edPersonality').value.trim(),
     provider: $('#edProvider').value, model: $('#edModel').value.trim(), speed: $('#edSpeed').value,
     enabled: $('#edEnabled').checked,
+    voiceOn: $('#edVoiceOn').checked, voiceId: $('#edVoice').value || editing.voiceId,
     modes: Object.fromEntries($$('#edModes input').map((i) => [i.dataset.mode, i.checked])),
   };
   try {
@@ -268,6 +271,54 @@ $('#editorForm').onsubmit = async (e) => {
     $('#edError').classList.remove('hidden');
   }
 };
+
+// ---------- voices ----------
+let voicesCache = null;
+async function loadVoices(selected) {
+  const hasVoiceKey = !!config.keys[C.VOICE.key];
+  $('#edVoiceNote').innerHTML = hasVoiceKey ? 'Voices play through this computer\'s speakers while the panel is open.'
+    : `Add an ElevenLabs key on the AI Keys tab to give friends a voice. <a href="${esc(C.VOICE.keyUrl)}" target="_blank" rel="noopener">Get one ↗</a>`;
+  if (!voicesCache) voicesCache = (await api('/api/voices')).voices;
+  $('#edVoice').innerHTML = voicesCache.map((v) => `<option value="${esc(v.id)}" ${v.id === selected ? 'selected' : ''}>${esc(v.name)}</option>`).join('');
+}
+$('#edVoiceTest').onclick = async () => {
+  if (!config.keys[C.VOICE.key]) return toast('Add an ElevenLabs key first (AI Keys tab)');
+  const name = $('#edName').value.trim() || 'Buddy';
+  const saved = config.profiles.find((p) => p.name === name);
+  if (!saved || saved.voiceId !== $('#edVoice').value || !saved.voiceOn) {
+    if (!/^\w{3,16}$/.test(name)) return toast('Give your friend a name first');
+    $('#edVoiceOn').checked = true;
+    await api('/api/profiles', { profile: { ...editing, name, personality: $('#edPersonality').value.trim(), voiceOn: true, voiceId: $('#edVoice').value } });
+    editing = structuredClone(config.profiles.find((p) => p.name === name));
+  }
+  enableSound();
+  api('/api/speak-test', { name });
+};
+
+let soundOn = localStorage.getItem('voices') === 'on';
+const audioQueue = [];
+let playing = false;
+function renderSoundBtn() { $('#soundBtn').textContent = soundOn ? '🔊 Voices on' : '🔇 Voices off'; $('#soundBtn').classList.toggle('active', soundOn); }
+function enableSound() { soundOn = true; try { localStorage.setItem('voices', 'on'); } catch {} renderSoundBtn(); }
+$('#soundBtn').onclick = () => {
+  soundOn = !soundOn;
+  try { localStorage.setItem('voices', soundOn ? 'on' : 'off'); } catch {}
+  renderSoundBtn();
+  if (!soundOn) audioQueue.length = 0;
+};
+function playNext() {
+  if (playing || !audioQueue.length) return;
+  const ev = audioQueue.shift();
+  playing = true;
+  const bubble = document.createElement('div');
+  bubble.className = 'speaking';
+  bubble.innerHTML = `🔊 <b>${esc(ev.name)}:</b> ${esc(ev.text)}`;
+  document.body.append(bubble);
+  const audio = new Audio('data:audio/mpeg;base64,' + ev.audio);
+  const done = () => { bubble.remove(); playing = false; playNext(); };
+  audio.onended = done;
+  audio.play().catch(() => { toast('Click "Voices on" (top right) to let the browser play sound'); soundOn = false; renderSoundBtn(); done(); });
+}
 
 // ---------- first-run wizard ----------
 const wiz = { step: 0, provider: 'anthropic', key: '', keyOk: false, players: '', world: 'buddy', friendName: 'Buddy', preset: 'buddy' };
@@ -416,6 +467,7 @@ function connectEvents() {
   es.onmessage = (m) => {
     const ev = JSON.parse(m.data);
     if (ev.type === 'state') { state = ev.state; renderStatus(); }
+    if (ev.type === 'voice' && soundOn) { audioQueue.push(ev); playNext(); }
     if (ev.type === 'log') {
       logs[ev.src].push(ev.line);
       if (logs[ev.src].length > 800) logs[ev.src].shift();
@@ -429,6 +481,7 @@ function connectEvents() {
   const boot = await api('/api/bootstrap');
   C = boot.catalog; config = boot.config; state = boot.state; logs = boot.logs; lan = boot.lan;
   renderAll();
+  renderSoundBtn();
   connectEvents();
   if (!config.setupDone) openWizard();
 })();

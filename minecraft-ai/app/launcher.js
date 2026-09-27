@@ -7,7 +7,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { spawn, exec } from 'node:child_process';
 import * as catalog from './catalog.js';
-import { PROVIDERS, PRESETS, DEFAULT_MODES, SPEEDS, WORLDS, MC_VERSION } from './catalog.js';
+import { PROVIDERS, PRESETS, DEFAULT_MODES, SPEEDS, WORLDS, MC_VERSION, VOICE, DEFAULT_VOICES } from './catalog.js';
 import { DATA, MINDCRAFT_DIR, ensureAll, writeServerFiles, serverLaunch, serverDir } from './setup.js';
 
 const PORT = Number(process.env.PANEL_PORT) || 8765;
@@ -21,6 +21,7 @@ function defaultProfile(preset = PRESETS[0], name = 'Buddy') {
     id: crypto.randomUUID(), name, enabled: true, preset: preset.id, color: preset.color,
     provider: 'anthropic', model: PROVIDERS.anthropic.models[0], speed: 'fast',
     personality: preset.text, modes: { ...DEFAULT_MODES },
+    voiceOn: false, voiceId: DEFAULT_VOICES[0].id,
   };
 }
 
@@ -119,6 +120,41 @@ function activeProfiles() {
   return config.profiles.filter((p) => p.enabled && (!PROVIDERS[p.provider].key || config.keys[PROVIDERS[p.provider].key]));
 }
 
+// ---------- voices (ElevenLabs) ----------
+// The panel listens for AI friends' chat in the server log, turns it into speech and
+// sends the audio to the browser, which plays it. Mindcraft itself isn't involved.
+let voiceQueue = Promise.resolve();
+function speakChat(name, text) {
+  const key = config.keys[VOICE.key];
+  const p = config.profiles.find((x) => x.name === name && x.voiceOn && x.voiceId);
+  if (!key || !p || !clients.size) return;
+  const clean = text.replace(/!\w+(\([^)]*\))?/g, '').replace(/\s+/g, ' ').trim().slice(0, 400);
+  if (!/[a-z]/i.test(clean)) return;
+  voiceQueue = voiceQueue.then(async () => {
+    try {
+      const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(p.voiceId)}?output_format=mp3_44100_64`, {
+        method: 'POST', signal: AbortSignal.timeout(20000),
+        headers: { 'xi-api-key': key, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: clean, model_id: VOICE.model }),
+      });
+      if (!res.ok) return log('buddies', `[voice] ElevenLabs said ${res.status}: ${(await res.text()).slice(0, 200)}`);
+      emit({ type: 'voice', name, text: clean, audio: Buffer.from(await res.arrayBuffer()).toString('base64') });
+    } catch (e) { log('buddies', `[voice] ${e.message}`); }
+  });
+}
+
+async function listVoices() {
+  const key = config.keys[VOICE.key];
+  if (!key) return { voices: DEFAULT_VOICES, own: false };
+  try {
+    const res = await fetch('https://api.elevenlabs.io/v1/voices', { headers: { 'xi-api-key': key }, signal: AbortSignal.timeout(15000) });
+    if (!res.ok) return { voices: DEFAULT_VOICES, own: false };
+    const data = await res.json();
+    const labels = (v) => Object.values(v.labels || {}).filter(Boolean).slice(0, 2).join(', ');
+    return { voices: data.voices.map((v) => ({ id: v.voice_id, name: labels(v) ? `${v.name} (${labels(v)})` : v.name })), own: true };
+  } catch { return { voices: DEFAULT_VOICES, own: false }; }
+}
+
 // ---------- whitelist / ops ----------
 // In offline mode the server identifies players by an "offline UUID" derived from their name.
 // `whitelist add` would store the Mojang account UUID instead (e.g. a real account called "Buddy"),
@@ -168,6 +204,7 @@ async function start() {
     const text = d.toString();
     log('server', text);
     if (state.phase === 'starting' && /Done \([\d.,]+s\)!/.test(text)) onServerReady(world);
+    for (const m of text.matchAll(/INFO\]: (?:\[Not Secure\] )?<(\w+)> (.+)/g)) speakChat(m[1], m[2]);
     const join = text.match(/: (\w+) joined the game/);
     if (join) setState({ online: [...new Set([...state.online, join[1]])] });
     const left = text.match(/: (\w+) left the game/);
@@ -255,6 +292,15 @@ async function testKey(provider, key) {
     groq: 'https://api.groq.com/openai/v1/models', openrouter: 'https://openrouter.ai/api/v1/key',
   };
   let res;
+  if (provider === 'elevenlabs') {
+    res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${DEFAULT_VOICES[0].id}?output_format=mp3_22050_32`, {
+      method: 'POST', signal: AbortSignal.timeout(15000),
+      headers: { 'xi-api-key': key, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: 'Hi!', model_id: VOICE.model }),
+    });
+    if (res.ok) return { ok: true, msg: 'Key works - voices are ready!' };
+    return { ok: false, msg: res.status === 401 ? 'Rejected. Check the key, and that it has Access to Text to Speech.' : `ElevenLabs said ${res.status}.` };
+  }
   if (provider === 'anthropic') {
     res = await fetch('https://api.anthropic.com/v1/models', H({ 'x-api-key': key, 'anthropic-version': '2023-06-01' }));
   } else if (provider === 'google') {
@@ -284,7 +330,7 @@ function openFolder(p) {
 const routes = {
   'GET /api/bootstrap': () => ({
     config: publicConfig(), state, logs, lan: lanAddresses(), botsRunning: !!botsProc,
-    catalog: { PROVIDERS, PRESETS, MODES: catalog.MODES, SPEEDS, WORLDS, MC_VERSION, NEOFORGE_VERSION: catalog.NEOFORGE_VERSION },
+    catalog: { VOICE, PROVIDERS, PRESETS, MODES: catalog.MODES, SPEEDS, WORLDS, MC_VERSION, NEOFORGE_VERSION: catalog.NEOFORGE_VERSION },
   }),
   'POST /api/settings': (b) => {
     const allowed = ['players', 'world', 'difficulty', 'gamemode', 'memoryGB', 'familyOnly', 'keepInventory', 'autoStart', 'setupDone'];
@@ -295,14 +341,14 @@ const routes = {
   },
   'POST /api/keys': (b) => {
     for (const [name, val] of Object.entries(b.keys || {})) {
-      if (!Object.values(PROVIDERS).some((p) => p.key === name)) continue;
+      if (name !== VOICE.key && !Object.values(PROVIDERS).some((p) => p.key === name)) continue;
       config.keys[name] = String(val || '').trim();
     }
     saveConfig();
     return { config: publicConfig() };
   },
   'POST /api/keys/test': async (b) => {
-    const prov = PROVIDERS[b.provider];
+    const prov = b.provider === 'elevenlabs' ? VOICE : PROVIDERS[b.provider];
     const key = (b.key || '').trim() || config.keys[prov?.key];
     if (!prov || (prov.key && !key)) return { ok: false, msg: 'Paste a key first.' };
     try { return await testKey(b.provider, key); } catch (e) { return { ok: false, msg: `Couldn't reach the provider: ${e.message}` }; }
@@ -326,6 +372,8 @@ const routes = {
     restartBots();
     return { config: publicConfig() };
   },
+  'GET /api/voices': () => listVoices(),
+  'POST /api/speak-test': (b) => { speakChat(b.name, b.text || `Hi! I'm ${b.name}. Let's go on an adventure!`); return { ok: true }; },
   'POST /api/start': () => { start(); return { ok: true }; },
   'POST /api/stop': () => { stop(); return { ok: true }; },
   'POST /api/restart-bots': () => { restartBots(); return { ok: true }; },

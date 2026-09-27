@@ -11,7 +11,8 @@
 <body>
 <header class="topbar">
   <div class="brand"><span class="block-logo"></span><h1>AI Buddies</h1></div>
-  <div class="status" id="statusPill"><span class="dot"></span><span id="statusText">Offline</span></div>
+  <div class="row gap"><button class="chip" id="soundBtn" title="Play AI friends' voices on this computer">🔇 Voices off</button>
+  <div class="status" id="statusPill"><span class="dot"></span><span id="statusText">Offline</span></div></div>
 </header>
 
 <main>
@@ -117,6 +118,11 @@
       <label id="edSpeedWrap">Thinking <select id="edSpeed"></select></label>
     </div>
     <p class="muted small" id="edProviderNote"></p>
+    <div class="voicebox">
+      <label class="toggle"><input type="checkbox" id="edVoiceOn"><span></span> 🔊 Talks out loud (ElevenLabs)</label>
+      <div class="row gap" id="edVoiceRow"><select id="edVoice"></select><button type="button" class="btn small ghost" id="edVoiceTest">▶ Hear it</button></div>
+      <p class="muted small" id="edVoiceNote"></p>
+    </div>
     <details><summary>Behaviour</summary><div class="modes" id="edModes"></div></details>
     <label class="toggle"><input type="checkbox" id="edEnabled"><span></span> Joins the world</label>
     <p class="error hidden" id="edError"></p>

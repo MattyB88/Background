@@ -27,6 +27,7 @@ Mac/Linux: run `./start.sh`. Nothing needs installing beforehand; the app downlo
   - ✨ **Magic World**: your son's CurseForge "magic" modpack (NeoForge 21.1.252 + Ars Nouveau, Curios, GeckoLib, Jade, JEI),
     same versions as his CurseForge profile. **AI friends can't join this one**: Mindcraft bots can't connect to
     NeoForge servers that add new blocks and items.
+- **Voices**: add an ElevenLabs key (give it Access to *Text to Speech*, and Read for *Voices* to use your own voices), then switch on **Talks out loud** for a friend and pick a voice. Their chat is spoken through the speakers of the PC running the panel; click **Voices on** at the top once so the browser may play sound.
 - **AI Keys**: Anthropic, OpenAI, Google Gemini (has a free tier), xAI, DeepSeek, Mistral, Groq, OpenRouter, or Ollama (free, local, needs a good GPU).
 - **Quick magic** buttons while playing: make it day, clear weather, heal/feed everyone, teleport the AI friends to you.
 - **Logs** and a server command box.

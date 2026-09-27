@@ -88,3 +88,23 @@ export const WORLDS = {
     mods: ['ars-nouveau', 'curios', 'geckolib', 'jade', 'jei'],
   },
 };
+
+// Voices: the control panel speaks each AI friend's chat out loud with ElevenLabs.
+export const VOICE = {
+  label: 'ElevenLabs (voices)', key: 'ELEVENLABS_API_KEY', keyUrl: 'https://elevenlabs.io/app/developers/api-keys',
+  note: 'When creating the key, give it Access to "Text to Speech" (and Read for "Voices" to list your own voices).',
+  model: 'eleven_flash_v2_5',
+};
+
+// ElevenLabs premade voices, used when the key can't list the account's voices.
+export const DEFAULT_VOICES = [
+  { id: 'pNInz6obpgDQGcFmaJgB', name: 'Adam (deep, friendly)' },
+  { id: 'TxGEqnHWrfWFTfGW9XjX', name: 'Josh (young, upbeat)' },
+  { id: 'ErXwobaYiN019PkySvjV', name: 'Antoni (warm)' },
+  { id: 'VR6AewLTigWG4xSOukaG', name: 'Arnold (tough)' },
+  { id: 'yoZ06aMxZJJ28mfd3POQ', name: 'Sam (raspy)' },
+  { id: '21m00Tcm4TlvDq8ikWAM', name: 'Rachel (calm)' },
+  { id: 'EXAVITQu4vr4xnVAvJFX', name: 'Bella (soft)' },
+  { id: 'MF3mGyEYCl7XYWbV9V5O', name: 'Elli (bright)' },
+  { id: 'AZnzlk1XvdvUeBnXmlld', name: 'Domi (bold)' },
+];

@@ -133,3 +133,9 @@ details { margin-top: 14px; } summary { cursor: pointer; font-weight: 800; }
   .modes { grid-template-columns: 1fr; }
   .btn-play { width: 100%; }
 }
+
+.voicebox { margin-top: 14px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: #0002; }
+.voicebox select { margin: 0; }
+.voicebox .toggle { margin: 0 0 8px; }
+.speaking { position: fixed; bottom: 24px; right: 24px; background: #111; border: 1px solid var(--sky); padding: 10px 16px; border-radius: 12px; max-width: 360px; z-index: 20; font-size: 14px; }
+.btn { white-space: nowrap; }
