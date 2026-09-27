@@ -293,7 +293,7 @@ def run_report(name, run):
 def feedback(name):
     p = _prog(name)
     b = request.json
-    p.feedback(b["run"], b["ref"], b["verdict"])
+    p.feedback(b["run"], b["ref"], b["verdict"], b.get("reason", ""))
     return jsonify(ok=True)
 
 

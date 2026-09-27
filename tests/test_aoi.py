@@ -167,3 +167,10 @@ def test_photo_mode_no_csv(tmp_path, monkeypatch):
     import math
     hits = [any(math.hypot(c["cx"] - x, c["cy"] - y) < rad + 40 for c in r["components"] if not c["ok"]) for _, x, y, rad in faults]
     assert sum(hits) >= len(hits) - 1, faults
+
+
+def test_false_call_reason(prog):
+    r = prog.inspect(synth.render({"U2": "marking"}, seed=21))
+    prog.feedback(r["run"], "U2", "false_call", "lighting")
+    assert prog.stats()["false_call_reasons"] == [("lighting", 1)]
+    assert "lighting" in prog.export_csv()

@@ -490,9 +490,9 @@ class Program:
         with open(self.path("history.jsonl"), "a") as f:
             f.write(json.dumps(slim) + "\n")
 
-    def feedback(self, run_id, ref, verdict):
+    def feedback(self, run_id, ref, verdict, reason=""):
         with open(self.path("feedback.jsonl"), "a") as f:
-            f.write(json.dumps({"run": run_id, "ref": ref, "verdict": verdict, "time": time.time()}) + "\n")
+            f.write(json.dumps({"run": run_id, "ref": ref, "verdict": verdict, "reason": reason, "time": time.time()}) + "\n")
         if verdict == "false_call":
             if ref.startswith("Δ"):
                 self._learn_diff(run_id, ref)
@@ -507,19 +507,22 @@ class Program:
         """One row per board and per failed part - for Excel / management reports."""
         import csv
         import io
-        fb = {(f["run"], f["ref"]): f["verdict"] for f in self._read("feedback.jsonl")}
+        fbl = self._read("feedback.jsonl")
+        fb = {(f["run"], f["ref"]): f["verdict"] for f in fbl}
+        why = {(f["run"], f["ref"]): f.get("reason", "") for f in fbl}
         out = io.StringIO()
         w = csv.writer(out)
-        w.writerow(["date", "time", "run", "board", "result", "cycle_s", "ref", "package", "defect", "operator_verdict"])
+        w.writerow(["date", "time", "run", "board", "result", "cycle_s", "ref", "package", "defect", "operator_verdict", "reason"])
         for h in self._read("history.jsonl"):
             t = time.localtime(h["time"])
             base = [time.strftime("%Y-%m-%d", t), time.strftime("%H:%M:%S", t), h["run"], h.get("board", ""),
                     "PASS" if h["ok"] else "FAIL", h.get("cycle_s", "")]
             if not h["fails"]:
-                w.writerow(base + ["", "", "", ""])
+                w.writerow(base + ["", "", "", "", ""])
             for f in h["fails"]:
                 w.writerow(base + [f["ref"], f["package"], "/".join(f["type"]),
-                                   {"false_call": "false call", "defect": "real defect"}.get(fb.get((h["run"], f["ref"])), "")])
+                                   {"false_call": "false call", "defect": "real defect"}.get(fb.get((h["run"], f["ref"])), ""),
+                                   why.get((h["run"], f["ref"]), "")])
         return out.getvalue()
 
     def stats(self):
@@ -541,5 +544,7 @@ class Program:
                 "false_calls": fc, "confirmed_defects": real,
                 "false_call_rate": round(100 * fc / (fc + real), 1) if fc + real else None,
                 "avg_cycle_s": round(sum(cyc) / len(cyc), 2) if cyc else None,
+                "false_call_reasons": top({r: sum(1 for f in fb if f["verdict"] == "false_call" and (f.get("reason") or "other") == r)
+                                           for r in {f.get("reason") or "other" for f in fb if f["verdict"] == "false_call"}}),
                 "top_refs": top(by_ref), "by_type": top(by_type), "by_package": top(by_pkg),
                 "recent": [{"run": h["run"], "ok": h["ok"], "n": len(h["fails"])} for h in hist[-30:]]}

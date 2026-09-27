@@ -249,12 +249,13 @@ review(el,d){
    <div class="imgs"><div style="flex:1;text-align:center">GOOD<img src="${img("golden")}"></div><div style="font-size:30px">➜</div><div style="flex:1;text-align:center">THIS BOARD<img src="${img("test")}"></div></div>
    <div style="color:var(--dim);font-size:13px">present ${c.presence} ${c.polarity!=null?"· polarity "+c.polarity:""} ${c.ocv!=null?"· marking "+c.ocv:""} ${c.bridge!=null?"· bridge "+c.bridge:""} · offset ${c.offset_mm.join(", ")} mm</div></div>
    <button class="big bad" id="bDef"><span class="ico">✖</span>Real defect</button>
-   <button class="big ok" id="bFc"><span class="ico">✔</span>False call — learn it</button>
+   <div style="color:var(--dim);margin-top:8px">✔ False call — why? (learns it)</div>
+   <div class="chk">${[["lighting","💡 Lighting / glare"],["flux","🧴 Flux / residue"],["variant","🔁 OK variant part"],["position","↔ Position OK"],["program","🔲 Box wrong"],["other","❔ Other"]].map(([k,t])=>`<button class="ok" data-fc="${k}">${t}</button>`).join("")}</div>
    ${d.ai?`<button class="big" id="bAi">🤖 AI second opinion</button><div id="aiOut"></div>`:""}
    <div class="row"><button id="bPrev">◀ Prev</button><button id="bNx">Next ▶</button></div>`;
-  const fb=async v=>{await api(P()+"/feedback",{json:{run:r.run,ref:c.ref,verdict:v}});toast(v=="false_call"?"✔ Learned — similar images will pass":"✖ Logged as defect");
+  const fb=async(v,reason="")=>{await api(P()+"/feedback",{json:{run:r.run,ref:c.ref,verdict:v,reason}});toast(v=="false_call"?"✔ Learned — similar images will pass":"✖ Logged as defect");
     c._done=v;if(S.revIdx<f.length-1)S.revIdx++;side();draw();};
-  $("#bDef").onclick=()=>fb("defect");$("#bFc").onclick=()=>fb("false_call");
+  $("#bDef").onclick=()=>fb("defect");el.querySelectorAll("[data-fc]").forEach(b=>b.onclick=()=>fb("false_call",b.dataset.fc));
   $("#bPrev").onclick=()=>{S.revIdx=Math.max(0,S.revIdx-1);side();draw();};$("#bNx").onclick=()=>{S.revIdx++;side();draw();};
   if($("#bAi"))$("#bAi").onclick=async()=>{$("#aiOut").innerHTML='<div class="hint">Thinking…</div>';const a=await api(P()+"/ai/opinion",{json:{run:r.run,ref:c.ref}});$("#aiOut").innerHTML=`<div class="hint">${esc(a.text)}</div>`;};
   focus(c);
@@ -266,7 +267,7 @@ async stats(el,d){
    <div class="tiles"><div class="tile"><b>${s.boards}</b><span>boards</span></div><div class="tile"><b>${s.fpy??"–"}%</b><span>first pass yield</span></div>
    <div class="tile"><b>${s.false_call_rate??"–"}%</b><span>false call rate</span></div><div class="tile"><b>${s.avg_cycle_s??"–"}s</b><span>avg cycle</span></div></div>
    <div style="display:flex;gap:3px;margin:12px 0;height:30px">${s.recent.map(x=>`<div title="${x.run}" style="flex:1;border-radius:3px;background:${x.ok?"var(--ok)":"var(--bad)"}"></div>`).join("")}</div>
-   <a class="big" href="${P()}/export.csv" download style="display:flex;justify-content:center;gap:12px;text-decoration:none;color:var(--txt);background:var(--panel2);border-radius:12px;padding:16px;font-size:20px;font-weight:700">⬇ Export results (Excel CSV)</a><h3>Defect type</h3>${bars(s.by_type)}<h3>Worst parts</h3>${bars(s.top_refs)}<h3>By package</h3>${bars(s.by_package)}
+   <a class="big" href="${P()}/export.csv" download style="display:flex;justify-content:center;gap:12px;text-decoration:none;color:var(--txt);background:var(--panel2);border-radius:12px;padding:16px;font-size:20px;font-weight:700">⬇ Export results (Excel CSV)</a><h3>False call causes</h3>${bars(s.false_call_reasons||[])}<h3>Defect type</h3>${bars(s.by_type)}<h3>Worst parts</h3>${bars(s.top_refs)}<h3>By package</h3>${bars(s.by_package)}
    ${d.ai?`<button class="big pri" id="bSum">🤖 AI summary & next actions</button><div id="aiOut"></div>`:`<div style="color:var(--dim)">🤖 Add an AI key in ⚙ for automatic summaries</div>`}`;
   if($("#bSum"))$("#bSum").onclick=async()=>{$("#aiOut").innerHTML='<div class="hint">Thinking…</div>';const a=await api(P()+"/ai/summary",{method:"POST"});$("#aiOut").innerHTML=`<div class="hint" style="white-space:pre-wrap">${esc(a.text)}</div>`;};
 },
@@ -336,7 +337,7 @@ window.onmouseup=async e=>{const d=drag;drag=null;if(!d||d.moved||e.target!==cv|
     if(S.step=="review"&&S.result){const f=S.result.components.filter(c=>!c.ok);const i=f.findIndex(c=>c.ref==best.ref);if(i>=0){S.revIdx=i;side();draw();return;}}
     S.sel=best.ref;if(S.step!="rois")go("rois");else{side();draw();}}};
 cv.ondblclick=()=>{fit();draw();};
-document.addEventListener("keydown",e=>{if(S.step=="review"&&S.result){if(e.key=="d")$("#bDef")?.click();if(e.key=="f")$("#bFc")?.click();}
+document.addEventListener("keydown",e=>{if(S.step=="review"&&S.result){if(e.key=="d")$("#bDef")?.click();if(e.key=="f")document.querySelector("[data-fc=other]")?.click();}
   if(e.key==" "&&S.step=="inspect"){e.preventDefault();$("#bIn")?.click();}});
 resize();loadPrograms().then(()=>{renderSteps();side();});
 </script>
