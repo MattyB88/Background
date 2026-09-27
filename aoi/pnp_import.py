@@ -206,3 +206,60 @@ def header_signature(text, fmt):
     rows = rows[int(fmt.get("skip_rows", 0)):]
     hr = int(fmt.get("header_row", 0))
     return "|".join(_norm(c) for c in rows[hr]) if 0 <= hr < len(rows) else ""
+
+
+# ---------------------------------------------------------------- BOM (IPN + designators, no XY)
+TH_REF = re.compile(r"^(J|JS|JT|JP|P|SW|X|GDT|PCB|H|MH|TP|BT|F|K|CN|CON|T)\d*$", re.I)
+TH_IPN = re.compile(r"^(CCO|CSW|CPCB|CPC\d|CGA|CCR|CBAT|CRL)", re.I)
+
+
+def expand_refs(cell):
+    """'R24 , R53 ,R60 - R66, J2 (ICSP)' -> [R24, R53, R60..R66, J2]"""
+    out = []
+    cell = re.sub(r"\([^)]*\)", "", cell)
+    for part in re.split(r"[,;/]+|\s{2,}", cell):
+        part = part.strip()
+        if not part:
+            continue
+        m = re.match(r"^([A-Za-z]+)(\d+)\s*[-–~]\s*([A-Za-z]*)(\d+)$", part.replace(" ", ""))
+        if m and (not m.group(3) or m.group(3).upper() == m.group(1).upper()) and int(m.group(4)) - int(m.group(2)) < 500:
+            out += [f"{m.group(1)}{i}" for i in range(int(m.group(2)), int(m.group(4)) + 1)]
+        else:
+            out += [p for p in part.split() if p]
+    return out
+
+
+def parse_bom(text):
+    """Returns {'items': [{ipn, qty, refs, th}], 'refs': {ref: {ipn, th}}, 'warnings': []}"""
+    rows, _ = raw_rows(text, "auto")
+    hi, cols = 0, {}
+    for i, r in enumerate(rows[:15]):
+        cells = [_norm(c) for c in r]
+        ipn = next((j for j, c in enumerate(cells) if c in ("item code", "ipn", "part number", "stock code", "item", "part", "code")), None)
+        des = next((j for j, c in enumerate(cells) if c in ("designator", "designators", "refdes", "reference", "references", "ref", "u1", "location", "locations")), None)
+        if ipn is not None and des is not None:
+            hi, cols = i, {"ipn": ipn, "des": des}
+            qty = next((j for j, c in enumerate(cells) if "qty" in c or "quantity" in c), None)
+            cols["qty"] = qty
+            # extra designator columns (U2..Un in Accentis exports)
+            cols["more"] = [j for j, c in enumerate(cells) if re.fullmatch(r"u\d+", c) and j != des]
+            break
+    if not cols:
+        raise ValueError("BOM needs an item/IPN column and a designator column")
+    items, refs, warn = [], {}, []
+    for r in rows[hi + 1:]:
+        if len(r) <= max(cols["ipn"], cols["des"]):
+            continue
+        ipn = r[cols["ipn"]].strip()
+        cells = [r[cols["des"]]] + [r[j] for j in cols["more"] if j < len(r)]
+        rl = [x for c in cells for x in expand_refs(c)]
+        if not ipn or not rl:
+            continue
+        qty = _num(r[cols["qty"]]) if cols["qty"] is not None and cols["qty"] < len(r) else None
+        if qty and int(round(qty)) != len(rl):
+            warn.append(f"{ipn}: qty {qty:g} but {len(rl)} designators")
+        th = bool(TH_IPN.match(ipn)) or all(TH_REF.match(x) for x in rl)
+        items.append({"ipn": ipn, "qty": qty, "refs": rl, "th": th})
+        for x in rl:
+            refs[x] = {"ipn": ipn, "th": th}
+    return {"items": items, "refs": refs, "warnings": warn}

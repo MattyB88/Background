@@ -57,6 +57,7 @@ label.sl{display:block;margin:10px 0 2px;color:var(--dim)}input[type=range]{widt
   <h1>🔍 AOI</h1>
   <select id="prog" title="Program"></select>
   <nav class="steps" id="steps"></nav>
+  <button id="bList" title="Parts list">📋</button>
   <button id="bLib" title="Parts library">📚</button>
   <button id="bStats" title="Statistics">📊</button>
   <button id="bSet" title="Advanced settings">⚙</button>
@@ -109,7 +110,7 @@ function renderSteps(){
   document.querySelectorAll(".step").forEach(b=>b.onclick=()=>go(b.dataset.k));
 }
 function go(k){S.step=k;if(k!=="align")S.teach=[];renderSteps();side();draw();}
-$("#bStats").onclick=()=>go("stats");$("#bLib").onclick=()=>{S.libPkg=null;go("library");};$("#bSet").onclick=()=>go("settings");
+$("#bStats").onclick=()=>go("stats");$("#bLib").onclick=()=>{S.libPkg=null;go("library");};$("#bList").onclick=()=>go("list");$("#bSet").onclick=()=>go("settings");
 
 /* ---------- side panels ---------- */
 function side(){
@@ -130,6 +131,7 @@ program(el,d){
    <div class="hint">Load the PnP / MYData export (CSV, TXT, .pos). Packages are made automatically.</div>
    <button class="big pri" id="bImp"><span class="ico">📂</span>Import file</button>
    <button class="big" id="bWiz"><span class="ico">🧩</span>Odd file? Map columns (wizard)</button>
+   <button class="big" id="bBom"><span class="ico">📦</span>Load BOM (IPN + designators, no XY)</button>
    <button class="big" id="bPhoto"><span class="ico">📷</span>No placement file? Build from photo</button>
    <div class="row"><span>Units</span><select id="units"><option value="auto">Auto</option><option>mm</option><option value="um">µm (MYData)</option><option>mil</option></select></div>
    ${d.components.length?`<div class="tiles"><div class="tile"><b>${d.components.length}</b><span>placements</span></div>
@@ -141,6 +143,9 @@ program(el,d){
     const fd=new FormData();fd.append("file",f);fd.append("units",$("#units").value);
     const r=await api(P()+"/import",{method:"POST",body:fd});
     toast(`✔ ${r.count} parts, ${r.packages} packages`+(r.warnings.length?" — "+r.warnings.join("; "):""),5000);await refresh();side();};
+  $("#bBom").onclick=async()=>{const f=await pickFile(".csv,.txt,*");if(!f)return;const fd=new FormData();fd.append("file",f);
+    const r=await api(P()+"/bom",{method:"POST",body:fd});await refresh();
+    toast(`📦 BOM: ${r.refs} refs, ${r.smd} SMD to inspect, ${r.placed} already boxed`+(r.warnings.length?" · ⚠ "+r.warnings.join("; "):""),7000);go("list");};
   $("#bWiz").onclick=async()=>{const f=await pickFile(".csv,.txt,.pos,.tsv,.xy,*");if(!f)return;S.wiz={file:f,fmt:{}};go("wizard");};
   $("#bPhoto").onclick=async()=>{const f=await pickFile("image/*");if(!f)return;const bm=prompt("Board length in mm (optional - makes tolerances real mm)","");const fd=new FormData();fd.append("image",f);toast("Finding parts…");
     const r=await api(P()+"/from_photo"+(bm?`?board_mm=${encodeURIComponent(bm)}`:""),{method:"POST",body:fd});toast(`✔ ${r.parts} parts, ${r.holes} holes · ${r.ppm} px/mm — now train with good boards`,6000);
@@ -187,11 +192,14 @@ rois(el,d){
   const c=S.sel&&d.components.find(c=>c.ref==S.sel);
   if(!c){el.innerHTML=`<h2>🔲 ROIs</h2><div class="hint big">👆 Click a part on the image to adjust it</div>
     <button class="big ${S.teachMode?"ok":""}" id="bTeachMode"><span class="ico">➕</span>${S.teachMode?"Teaching: click parts to add":"Teach parts (click to add)"}</button>
+    ${S.teachMode&&d.bom?`<div class="hint big">👆 Click <span style="color:var(--warn)">${esc(S.teachRef2||d.next_ref||"—")}</span> ${d.bom[S.teachRef2||d.next_ref]?`<small style="font-size:14px">${esc(d.bom[S.teachRef2||d.next_ref].ipn)}</small>`:""}</div>
+      <div class="row"><span>or pick</span><select id="tRef"><option value="">next in BOM</option>${Object.keys(d.bom).filter(r=>!d.bom[r].th&&!d.components.some(c=>c.ref==r)).map(r=>`<option ${r==S.teachRef2?"selected":""}>${esc(r)}</option>`).join("")}</select></div>`:""}
     <div class="tiles"><div class="tile"><b>${d.components.filter(c=>c.enabled).length}</b><span>inspected</span></div><div class="tile"><b>${Object.keys(d.packages).length}</b><span>packages</span></div></div>
     <button class="big pri" id="bFitAll"><span class="ico">✨</span>Auto-fit ALL package sizes</button>
     <div id="fitOut"></div>
     <button class="big ok" id="bNext">Next ➜ Inspect</button>`;$("#bNext").onclick=()=>go("inspect");
     $("#bTeachMode").onclick=()=>{S.teachMode=!S.teachMode;side();};
+    if($("#tRef"))$("#tRef").onchange=e=>{S.teachRef2=e.target.value||null;side();};
     $("#bFitAll").onclick=async()=>{$("#fitOut").innerHTML='<div class="hint">Measuring…</div>';
       const r=await api(P()+"/autofit_all",{method:"POST"});await refresh();draw();
       $("#fitOut").innerHTML=`<div class="tiles"><div class="tile"><b style="color:var(--ok)">${r.fitted.length}</b><span>fitted ✔</span></div><div class="tile"><b style="color:var(--warn)">${r.failed.length}</b><span>check by hand</span></div></div>`+
@@ -271,6 +279,37 @@ review(el,d){
   $("#bPrev").onclick=()=>{S.revIdx=Math.max(0,S.revIdx-1);side();draw();};$("#bNx").onclick=()=>{S.revIdx++;side();draw();};
   if($("#bAi"))$("#bAi").onclick=async()=>{$("#aiOut").innerHTML='<div class="hint">Thinking…</div>';const a=await api(P()+"/ai/opinion",{json:{run:r.run,ref:c.ref}});$("#aiOut").innerHTML=`<div class="hint">${esc(a.text)}</div>`;};
   focus(c);
+},
+list(el,d){
+  const bom=d.bom||{};const q=(S.listQ||"").toUpperCase();
+  const comps=d.components.filter(c=>!c.fiducial);
+  const placed=new Set(comps.map(c=>c.ref));
+  const todo=Object.keys(bom).filter(r=>!bom[r].th&&!placed.has(r));
+  const rows=comps.filter(c=>!q||(c.ref+" "+(c.ipn||"")+" "+c.package).toUpperCase().includes(q));
+  const tag=c=>!Object.keys(bom).length?"":bom[c.ref]?(bom[c.ref].th?'<span class="tag w">TH</span>':''):'<span class="tag">not in BOM</span>';
+  el.innerHTML=`<h2>📋 Parts (${comps.length})</h2>
+   ${Object.keys(bom).length?`<div class="tiles"><div class="tile"><b>${Object.keys(bom).length}</b><span>BOM refs</span></div><div class="tile"><b style="color:var(--warn)">${todo.length}</b><span>SMD still to box</span></div></div>`:""}
+   <div class="row"><button id="lAuto">🧹 Delete auto-found</button><button id="lNot">✂ Delete not in BOM</button></div>
+   <div class="row"><button id="lTh">⏭ Skip through-hole</button><button id="lSel">🗑 Delete ticked</button><button id="lClr" class="bad">✖ Clear all</button></div>
+   <input id="lQ" placeholder="🔍 filter (ref, IPN, package)" value="${esc(S.listQ||"")}" style="width:100%;margin:6px 0">
+   <div style="max-height:52vh;overflow:auto"><table style="width:100%;font-size:14px;border-collapse:collapse">
+   ${rows.map(c=>`<tr style="border-bottom:1px solid var(--line);${c.enabled?"":"opacity:.45"}"><td><input type="checkbox" data-t="${esc(c.ref)}"></td>
+     <td><a data-go="${esc(c.ref)}" style="cursor:pointer;font-weight:700;color:var(--acc)">${esc(c.ref)}</a></td><td style="font-size:12px">${esc(c.ipn||"")}</td>
+     <td style="font-size:12px;color:var(--dim)">${esc(c.package)}</td><td>${tag(c)}</td>
+     <td><button data-en="${esc(c.ref)}" style="padding:4px 8px">${c.enabled?"✔":"✖"}</button></td><td><button data-del="${esc(c.ref)}" style="padding:4px 8px">🗑</button></td></tr>`).join("")}</table></div>
+   ${todo.length?`<div style="margin-top:10px;color:var(--dim)">Still to box (SMD): ${todo.slice(0,40).map(esc).join(", ")}${todo.length>40?"…":""}</div>
+   <button class="big pri" id="lTeach">➕ Teach them — click parts on the board</button>`:""}`;
+  const bulk=async(action,refs)=>{const r=await api(P()+"/parts/bulk",{json:{action,refs}});toast(`🗑 ${r.removed} removed`);await refresh();side();draw();};
+  $("#lAuto").onclick=()=>bulk("auto");$("#lNot").onclick=()=>bulk("not_in_bom");$("#lTh").onclick=()=>bulk("skip_th");
+  $("#lClr").onclick=()=>{if(confirm("Delete ALL part boxes? (fiducials kept)"))bulk("clear_all");};
+  $("#lSel").onclick=()=>{const t=[...el.querySelectorAll("[data-t]:checked")].map(x=>x.dataset.t);if(t.length)bulk("delete",t);};
+  $("#lQ").oninput=e=>{S.listQ=e.target.value;clearTimeout(S.lqT);S.lqT=setTimeout(()=>{side();const i=$("#lQ");i.focus();i.setSelectionRange(i.value.length,i.value.length);},250);};
+  el.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>bulk("delete",[b.dataset.del]));
+  el.querySelectorAll("[data-en]").forEach(b=>b.onclick=async()=>{const c=d.components.find(x=>x.ref==b.dataset.en);
+    if(bom[c.ref])await api(P()+"/bom/"+encodeURIComponent(c.ref),{method:"PUT",json:{th:c.enabled}});
+    else await api(P()+"/component/"+encodeURIComponent(c.ref),{method:"PUT",json:{enabled:!c.enabled}});await refresh();side();draw();});
+  el.querySelectorAll("[data-go]").forEach(a=>a.onclick=()=>{S.sel=a.dataset.go;const o=S.data.overlay.find(o=>o.ref==S.sel);if(o)focus(o);go("rois");});
+  if($("#lTeach"))$("#lTeach").onclick=()=>{S.teachMode=true;S.sel=null;go("rois");};
 },
 async wizard(el,d){
   const W=S.wiz;if(!W){go("program");return;}
@@ -459,7 +498,8 @@ window.onmousemove=e=>{if(!drag)return;const dx=e.clientX-drag.x,dy=e.clientY-dr
 window.onmouseup=async e=>{const d=drag;drag=null;if(!d||d.moved||e.target!==cv||!S.data)return;const[x,y]=toImg(e);
   if(S.step=="align"&&S.teachRef){S.teach.push({ref:S.teachRef,px:x,py:y});S.teachRef=null;draw();
     if(S.teach.length>=2){await api(P()+"/teach",{json:{points:S.teach}});toast("✔ Aligned");S.teach=[];await refresh();draw();}side();return;}
-  if(S.step=="rois"&&S.teachMode){const r=await api(P()+"/parts",{json:{px:x,py:y}});S.sel=r.ref;await refresh();side();draw();toast("➕ "+r.ref+" added — adjust size/position if needed");return;}
+  if(S.step=="rois"&&S.teachMode){const r=await api(P()+"/parts",{json:{px:x,py:y,ref:S.teachRef2||undefined}});S.teachRef2=null;S.sel=null;await refresh();side();draw();toast("➕ "+r.ref+" added — next: "+(S.data.next_ref||"done"));return;
+    S.sel=r.ref;await refresh();side();draw();toast("➕ "+r.ref+" added — adjust size/position if needed");return;}
   let best=null,bd=1e9;(S.data.overlay||[]).forEach(o=>{const dd=Math.hypot(o.cx-x,o.cy-y);if(dd<bd){bd=dd;best=o;}});
   if(best&&bd<Math.max(best.body[0],best.body[1])*best.ppm+20/S.view.s){
     if(S.step=="review"&&S.result){const f=S.result.components.filter(c=>!c.ok);const i=f.findIndex(c=>c.ref==best.ref);if(i>=0){S.revIdx=i;side();draw();return;}}

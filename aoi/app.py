@@ -132,7 +132,7 @@ def _prog(name):
 def get_program(name):
     p = _prog(name)
     return jsonify({**p.data, "overlay": p.overlay(), "has_golden": (p.dir / "golden.png").exists(),
-                    "has_bare": (p.dir / "bare.png").exists(),
+                    "has_bare": (p.dir / "bare.png").exists(), "next_ref": p.next_bom_ref(),
                     "ai": ai.available()})
 
 
@@ -209,6 +209,26 @@ def backup(name):
 def restore():
     f = request.files["file"]
     return jsonify(name=Program.restore_zip(f.read(), request.form.get("name") or None))
+
+
+@app.post("/api/programs/<name>/bom")
+def bom(name):
+    p = _prog(name)
+    return jsonify(p.set_bom(pnp_import.parse_bom(_decode(request.files["file"].read()))))
+
+
+@app.put("/api/programs/<name>/bom/<ref>")
+def bom_th(name, ref):
+    p = _prog(name)
+    p.set_bom_th(ref, request.json["th"])
+    return jsonify(ok=True)
+
+
+@app.post("/api/programs/<name>/parts/bulk")
+def parts_bulk(name):
+    p = _prog(name)
+    n = p.bulk(request.json["action"], request.json.get("refs", []))
+    return jsonify(removed=n, overlay=p.overlay())
 
 
 @app.post("/api/programs/<name>/parts")

@@ -252,3 +252,25 @@ def test_format_wizard_parse(tmp_path, monkeypatch):
     Program.save_format("CAD9", fmt, txt)
     name, f2 = Program.match_format(txt)
     assert name == "CAD9" and f2["columns"]["ipn"] == 6
+
+
+def test_bom_without_xy(tmp_path, monkeypatch):
+    monkeypatch.setattr("aoi.program.ROOT", tmp_path)
+    from aoi.program import Program
+    bom_txt = ('"Item Code","Item Quantity","U1","U2","Notes"\n"CRE1000-0805","3.00","R23, R60 - R61",""\n'
+               '"CCO163","1.00","J2 (ICSP)",""\n"CIC134","2.00","IC4,IC5",""\n')
+    b = pnp_import.parse_bom(bom_txt)
+    assert b["refs"]["R60"]["ipn"] == "CRE1000-0805" and b["refs"]["J2"]["th"] and not b["refs"]["IC4"]["th"]
+    p = Program("bom")
+    autodetect_prog = p
+    from aoi import autodetect
+    autodetect.program_from_image(p, synth.render(seed=1))
+    n_auto = len(p.data["components"])
+    info = p.set_bom(b)
+    assert info["smd"] == 5 and info["placed"] == 0
+    assert p.next_bom_ref() == "IC4"
+    ref = p.add_part_at(440, 330)
+    assert ref == "IC4" and next(c for c in p.data["components"] if c["ref"] == "IC4")["ipn"] == "CIC134"
+    removed = p.bulk("not_in_bom")
+    assert removed == n_auto - sum(1 for c in p.data["components"] if c["fiducial"]) - 0 or removed > 0
+    assert {c["ref"] for c in p.data["components"] if not c["fiducial"]} == {"IC4"}

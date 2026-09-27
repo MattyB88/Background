@@ -146,7 +146,7 @@ def program_from_image(prog, img, ppm=None, board_mm=None):
             else:  # 2-terminal: body + end terminations
                 pkgs[name] = Package(name, L * 0.8, W * 0.95, [[-L * 0.4, 0, L * 0.2, W * 0.95], [L * 0.4, 0, L * 0.2, W * 0.95]],
                                      False, False, "chip")
-        comps.append({"ref": f"{'U' if ic else 'P'}{i + 1}", "x": p["cx"] / ppm, "y": p["cy"] / ppm, "rot": (-p["angle"]) % 360,
+        comps.append({"ref": f"{'A'}{i + 1}", "x": p["cx"] / ppm, "y": p["cy"] / ppm, "rot": (-p["angle"]) % 360,
                       "part": name, "package": name, "side": "top", "fiducial": False, "enabled": True, "dnf": False,
                       "dx": 0, "dy": 0, "checks": None, "th": {}})
     fids = []

@@ -61,3 +61,12 @@ BARE BOARD + CSV (easiest, most accurate programming)
  2 Golden photo (good, populated board)  -> fiducials found
  3 Same step: "Add BARE board" = photo of an unpopulated board, same camera position
    -> every part box snaps onto the real part, packages get sized, missing-part check uses the bare board.
+
+BOM WITHOUT XY (e.g. Accentis export: Item Code, Qty, designators)
+------------------------------------------------------------------
+ Step 1 -> 📦 Load BOM. Ranges like "R60 - R66" are expanded, "J2 (ICSP)" -> J2.
+ Through-hole parts (J, JS, P, SW, X, GDT, PCB, CCO... connectors) are marked TH and skipped.
+ 📋 Parts list (top right): 🧹 delete auto-found boxes, ✂ delete not in BOM, ⏭ skip through-hole,
+    tick + 🗑 delete, ✖ clear all, filter, ✔/✖ to switch a part on/off, click a ref to jump to it.
+ "➕ Teach them": click each part on the board - it gets the next BOM ref + IPN automatically
+    (or pick the ref from the list first). Then ✨ Auto-fit ALL package sizes.

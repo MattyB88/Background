@@ -351,15 +351,67 @@ class Program:
         x, y = vision.apply(inv, [(r["cx"], r["cy"])])[0]
         yu = self.data["y_up"]
         n = len(self.data["components"]) + 1
-        ref = ref or f"T{n}"
+        ref = ref or self.next_bom_ref() or f"T{n}"
         while any(c["ref"] == ref for c in self.data["components"]):
             n += 1
             ref = f"T{n}"
         self.data["components"].append({"ref": ref, "x": float(x), "y": float(-y if yu else y), "rot": (-r["angle"]) % 360,
                                         "part": name, "package": name, "side": "top", "fiducial": False, "enabled": True,
-                                        "dnf": False, "dx": 0, "dy": 0, "checks": None, "th": {}, "mode": "presence"})
+                                        "dnf": False, "dx": 0, "dy": 0, "checks": None, "th": {}, "mode": "presence",
+                                        "ipn": self.data.get("bom", {}).get(ref, {}).get("ipn", "")})
         self.save()
         return ref
+
+    # ------------------------------------------------ BOM without XY (IPN + designators)
+    def set_bom(self, bom):
+        self.data["bom"] = bom["refs"]
+        for c in self.data["components"]:
+            b = bom["refs"].get(c["ref"])
+            if b:
+                c["ipn"] = b["ipn"]
+                if b["th"]:
+                    c["enabled"] = False
+        self.save()
+        refs = bom["refs"]
+        placed = {c["ref"] for c in self.data["components"]}
+        return {"refs": len(refs), "smd": sum(not v["th"] for v in refs.values()),
+                "placed": sum(1 for r in refs if r in placed), "warnings": bom["warnings"],
+                "not_in_bom": [c["ref"] for c in self.data["components"] if not c["fiducial"] and c["ref"] not in refs]}
+
+    def set_bom_th(self, ref, th):
+        if ref in self.data.get("bom", {}):
+            self.data["bom"][ref]["th"] = bool(th)
+        for c in self.data["components"]:
+            if c["ref"] == ref:
+                c["enabled"] = not th
+        self.save()
+
+    def next_bom_ref(self):
+        placed = {c["ref"] for c in self.data["components"]}
+        key = lambda r: (re.sub(r"\d+", "", r), int(re.sub(r"\D", "", r) or 0))
+        todo = sorted((r for r, v in self.data.get("bom", {}).items() if not v["th"] and r not in placed), key=key)
+        return todo[0] if todo else None
+
+    def bulk(self, action, refs=()):
+        bom = self.data.get("bom", {})
+        before = len(self.data["components"])
+        keep_fid = lambda c: c["fiducial"]
+        if action == "delete":
+            s = set(refs)
+            self.data["components"] = [c for c in self.data["components"] if c["ref"] not in s]
+        elif action == "not_in_bom":
+            self.data["components"] = [c for c in self.data["components"] if keep_fid(c) or c["ref"] in bom]
+        elif action == "clear_all":
+            self.data["components"] = [c for c in self.data["components"] if keep_fid(c)]
+        elif action == "auto":  # boxes the AOI guessed (P#, T#, B#, U# from photo mode)
+            self.data["components"] = [c for c in self.data["components"] if keep_fid(c)
+                                       or not str(c["package"]).startswith(("AUTO_", "BARE_"))]
+        elif action == "skip_th":
+            for c in self.data["components"]:
+                if bom.get(c["ref"], {}).get("th"):
+                    c["enabled"] = False
+        self.save()
+        return before - len(self.data["components"])
 
     def remove_part(self, ref):
         self.data["components"] = [c for c in self.data["components"] if c["ref"] != ref]
@@ -371,6 +423,7 @@ class Program:
         for c in self.data["components"]:
             if c["ref"] == ref:
                 c["ref"] = new
+                c["ipn"] = self.data.get("bom", {}).get(new, {}).get("ipn", c.get("ipn", ""))
         self.save()
 
     @property
