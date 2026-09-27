@@ -13,6 +13,8 @@ ALIASES = {
     "part": ["part", "val", "value", "component", "comp name", "partnumber", "part number", "comment", "article", "device"],
     "package": ["package", "footprint", "pkg", "case", "package name", "pattern", "shape"],
     "side": ["side", "layer", "tb", "mount side"],
+    "ipn": ["ipn", "internal part number", "internal pn", "stock code", "part code", "item", "item number", "sku"],
+    "z": ["z", "rot z", "rz"],
 }
 
 
@@ -71,10 +73,10 @@ def parse(text: str, units: str = "auto", y_up: bool = True) -> dict:
         if x is None or y is None:
             continue
         get = lambda k, d="": cells[cols[k]].strip() if k in cols and cols[k] < len(cells) else d
-        rot = _num(get("rot", "0")) or 0.0
+        rot = _num(get("rot", "") or get("z", "0")) or 0.0  # no rotation column: Z = rotation
         comps.append({"ref": get("ref"), "x": x, "y": y, "rot": rot % 360,
                       "part": get("part"), "package": get("package") or get("part"),
-                      "side": get("side", "top").lower()})
+                      "side": get("side", "top").lower(), "ipn": get("ipn")})
     if not comps:
         raise ValueError("No placements recognised - check the file has Ref/X/Y columns")
     scale = None

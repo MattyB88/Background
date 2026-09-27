@@ -12,6 +12,8 @@ Eagle (mountsmd), or MYData/TPSys. Any of these header names are recognised (cas
   Rotation     : Rotation, Rot, Angle, Theta       (degrees, counter-clockwise, 0-360)
   Package      : Package, Footprint, Pattern, Case  (0603, SOIC-8, SOT-23, TQFP-64 ... drives box size + checks)
   Value/Part   : Comment, Value, Part Number, Device (shown in reports; "DNF"/"DNP" = part not inspected)
+  IPN          : IPN, Internal Part Number, Stock Code, Item  (shown in review + CSV export)
+  (Layout "IPN, Comment, Designator, Package, X, Y, Z" works as-is: Z is used as rotation)
  OPTIONAL
   Side         : Layer, Side, TB   (Bottom rows are skipped)
 

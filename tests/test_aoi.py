@@ -215,3 +215,10 @@ def test_bare_board_autoprogram(tmp_path, monkeypatch):
     assert p.inspect(synth.render(light=1.2, angle=-1, offset=(30, 40), seed=8))["ok"]
     r = p.inspect(synth.render({"R1": "missing", "U2": "missing"}, light=0.8, angle=1, offset=(50, 25), seed=9))
     assert {c["ref"]: c["fails"][0] for c in r["components"] if not c["ok"]} == {"R1": "MISSING", "U2": "MISSING"}
+
+
+def test_ipn_layout():
+    txt = "IPN,Comment,Designator,Package,X,Y,Z\nRES-0603-10K,10K,R1,0603,10.0,30.0,90\nIC-SOIC8,LM358,U1,SOIC-8,20,25,180\n"
+    r = pnp_import.parse(txt)
+    c = r["components"][0]
+    assert (c["ref"], c["ipn"], c["part"], c["package"], c["x"], c["rot"]) == ("R1", "RES-0603-10K", "10K", "0603", 10.0, 90)

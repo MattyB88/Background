@@ -428,7 +428,7 @@ class Program:
                 r["fails"], r["ok"] = ["WRONG PART"], False  # something is there, but not the golden part
             cv2.imwrite(str(rdir / f"{_safe(c['ref'])}_golden.png"), r.pop("_golden"))
             cv2.imwrite(str(rdir / f"{_safe(c['ref'])}_test.png"), r.pop("_test"))
-            result["components"].append({"ref": c["ref"], "package": c["package"], "part": c["part"],
+            result["components"].append({"ref": c["ref"], "package": c["package"], "part": c["part"], "ipn": c.get("ipn", ""),
                                          "cx": ctr[0], "cy": ctr[1], "angle": ang, **r})
         if self.data.get("compare", {}).get("enabled"):
             self._compare(gold, warped, rdir, result)
@@ -679,19 +679,20 @@ class Program:
         import csv
         import io
         fbl = self._read("feedback.jsonl")
+        ipns = {c["ref"]: c.get("ipn", "") for c in self.data["components"]}
         fb = {(f["run"], f["ref"]): f["verdict"] for f in fbl}
         why = {(f["run"], f["ref"]): f.get("reason", "") for f in fbl}
         out = io.StringIO()
         w = csv.writer(out)
-        w.writerow(["date", "time", "run", "board", "result", "cycle_s", "ref", "package", "defect", "operator_verdict", "reason"])
+        w.writerow(["date", "time", "run", "board", "result", "cycle_s", "ref", "ipn", "package", "defect", "operator_verdict", "reason"])
         for h in self._read("history.jsonl"):
             t = time.localtime(h["time"])
             base = [time.strftime("%Y-%m-%d", t), time.strftime("%H:%M:%S", t), h["run"], h.get("board", ""),
                     "PASS" if h["ok"] else "FAIL", h.get("cycle_s", "")]
             if not h["fails"]:
-                w.writerow(base + ["", "", "", "", ""])
+                w.writerow(base + ["", "", "", "", "", ""])
             for f in h["fails"]:
-                w.writerow(base + [f["ref"], f["package"], "/".join(f["type"]),
+                w.writerow(base + [f["ref"], ipns.get(f["ref"], ""), f["package"], "/".join(f["type"]),
                                    {"false_call": "false call", "defect": "real defect"}.get(fb.get((h["run"], f["ref"])), ""),
                                    why.get((h["run"], f["ref"]), "")])
         return out.getvalue()

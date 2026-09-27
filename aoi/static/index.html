@@ -196,7 +196,7 @@ rois(el,d){
         (r.failed.length?`<div style="color:var(--dim);font-size:13px">Tap a part to set by hand: ${r.failed.map(esc).join(", ")}</div>`:"");};
     return;}
   const pk=d.packages[c.package];const ch={presence:true,polarity:pk.polarized,ocv:pk.marking,offset:true,bridge:pk.pads.length>=4,...(c.checks||{})};
-  el.innerHTML=`<h2>${c.ref} <small style="color:var(--dim);font-size:15px">${c.part}</small></h2>
+  el.innerHTML=`<h2>${c.ref} <small style="color:var(--dim);font-size:15px">${c.ipn?esc(c.ipn)+" · ":""}${c.part}</small></h2>
    <div class="row"><span>Package</span><select id="pk">${Object.keys(d.packages).map(p=>`<option ${p==c.package?"selected":""}>${p}</option>`).join("")}</select></div>
    <div style="text-align:center;color:var(--dim)">Move ROI (0.05 mm)</div>
    <div class="pad"><span></span><button data-m="0,1">▲</button><span></span><button data-m="-1,0">◀</button><button id="bRot" title="Rotate 90°">⟳</button><button data-m="1,0">▶</button><span></span><button data-m="0,-1">▼</button><span></span></div>
@@ -255,7 +255,7 @@ review(el,d){
   const img=k=>`${P()}/runs/${r.run}/${encodeURIComponent(c.ref)}_${k}.png`;
   el.innerHTML=`<h2>✔ Review <small style="color:var(--dim)">${S.revIdx+1} / ${f.length}</small></h2>
    <div class="card cur"><div style="font-size:26px;font-weight:800">${c.ref} ${c.fails.map(t=>`<span class="tag">${t}</span>`).join("")}</div>
-   <div style="color:var(--dim)">${c.part} · ${c.package}</div>
+   <div style="color:var(--dim)">${c.ipn?`<b>${esc(c.ipn)}</b> · `:""}${c.part} · ${c.package}</div>
    <div class="imgs"><div style="flex:1;text-align:center">GOOD<img src="${img("golden")}"></div><div style="font-size:30px">➜</div><div style="flex:1;text-align:center">THIS BOARD<img src="${img("test")}"></div></div>
    <div style="color:var(--dim);font-size:13px">present ${c.presence} ${c.polarity!=null?"· polarity "+c.polarity:""} ${c.ocv!=null?"· marking "+c.ocv:""} ${c.bridge!=null?"· bridge "+c.bridge:""} · offset ${c.offset_mm.join(", ")} mm</div></div>
    <button class="big bad" id="bDef"><span class="ico">✖</span>Real defect</button>
