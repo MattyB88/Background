@@ -244,6 +244,8 @@ function startBots(bots) {
     minecraft_version: MC_VERSION, host: '127.0.0.1', port: 25565, auth: 'offline',
     mindserver_port: 8080, auto_open_ui: false, base_profile: 'assistant', profiles: files,
     load_memory: true, only_chat_with: [], chat_ingame: true, allow_insecure_coding: false,
+    // Keep code-writing actions out of the prompt so the model sticks to the built-in commands.
+    blocked_actions: ["!newAction", "!checkBlueprint", "!checkBlueprintLevel", "!getBlueprint", "!getBlueprintLevel"],
     narrate_behavior: true, chat_bot_messages: true,
     init_message: 'You just joined the world. Say a short hello to the players, then go to the nearest player and ask what they are up to. If nobody answers, set yourself a useful goal with !goal.',
   };
