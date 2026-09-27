@@ -222,3 +222,14 @@ def test_ipn_layout():
     r = pnp_import.parse(txt)
     c = r["components"][0]
     assert (c["ref"], c["ipn"], c["part"], c["package"], c["x"], c["rot"]) == ("R1", "RES-0603-10K", "10K", "0603", 10.0, 90)
+
+
+def test_only_bom_parts_inspected(tmp_path, monkeypatch):
+    monkeypatch.setattr("aoi.program.ROOT", tmp_path)
+    from aoi.program import Program
+    txt = ("IPN,Comment,Designator,Package,X,Y,Z\nRES-0603-10K,10K,R1,0603,10,30,0\n,,H1,3MM_HOLE,5,5,0\n"
+           ",,TP4,TP2,8,8,0\nIC-SOIC8,LM358,U1,SOIC-8,20,25,0\n,spare,R99,0603,1,1,0\n")
+    p = Program("bom")
+    p.import_placements(pnp_import.parse(txt))
+    on = {c["ref"] for c in p.data["components"] if c["enabled"]}
+    assert on == {"R1", "U1"}

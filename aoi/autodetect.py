@@ -21,6 +21,27 @@ def board_colour(lab):
     return centers[np.bincount(lbl.ravel()).argmax()]
 
 
+def is_hole(lab, cx, cy, r, bg):
+    """Centre of the round blob looks like background seen THROUGH the board (not board colour, not
+    part-black): i.e. differs from the ring around it, which is plated copper / pad."""
+    h, w = lab.shape[:2]
+    ri = max(2, int(r * 0.35))
+    x, y = int(cx), int(cy)
+    if x - ri < 0 or y - ri < 0 or x + ri >= w or y + ri >= h:
+        return False
+    ctr = lab[y - ri:y + ri + 1, x - ri:x + ri + 1].reshape(-1, 3).astype(np.float32).mean(0)
+    ring = []
+    for t in np.linspace(0, 2 * np.pi, 16, endpoint=False):
+        px, py = int(cx + 0.85 * r * np.cos(t)), int(cy + 0.85 * r * np.sin(t))
+        if 0 <= px < w and 0 <= py < h:
+            ring.append(lab[py, px].astype(np.float32))
+    if not ring:
+        return False
+    ring = np.mean(ring, 0)
+    chroma_c = abs(ctr[1] - 128) + abs(ctr[2] - 128)
+    return float(np.linalg.norm(ctr - ring)) > 25 and (chroma_c > 12 or ctr[0] > 150 or ctr[0] < 50)
+
+
 def detect(img, min_mm=0.6, ppm=20.0):
     """Return (parts, holes). parts: dicts cx, cy, angle, l, w (px), dark(bool); holes: (x, y, r)."""
     h, w = img.shape[:2]
@@ -84,6 +105,11 @@ def detect(img, min_mm=0.6, ppm=20.0):
         if a < b:
             a, b, ang = b, a, ang + 90
         ang = ((ang + 45) % 90) - 45 + (0 if a >= b else 90)
+        # empty through-hole / via: round blob whose centre shows whatever is under the board (not a part)
+        per = cv2.arcLength(cn, True)
+        circ = 4 * np.pi * area / max(per * per, 1)
+        if circ > 0.72 and a / max(b, 1) < 1.3 and is_hole(lab, cx, cy, min(a, b) / 2, bg):
+            continue
         m = np.zeros(mask.shape, np.uint8)
         cv2.drawContours(m, [cn], -1, 1, -1)
         dark = cv2.mean(gray, m)[0] < 80

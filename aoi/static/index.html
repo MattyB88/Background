@@ -40,7 +40,7 @@ canvas{width:100%;height:100%;display:block;cursor:crosshair}
 .pad button{height:64px;font-size:28px;padding:0}
 .card{background:var(--panel2);border-radius:14px;padding:10px;margin:10px 0;border:3px solid transparent}
 .card.cur{border-color:var(--sel)}
-.card .imgs{display:flex;gap:6px;align-items:center}.card .imgs>div{flex:1;min-width:0}.card .imgs img{width:100%}.card img{flex:1;min-width:0;image-rendering:pixelated;border-radius:8px;background:#000;max-height:160px;object-fit:contain}
+.card .imgs{display:flex;gap:6px;align-items:center}.card .imgs>div{flex:1;min-width:0}.card .imgs img{width:100%}.card img{flex:1;min-width:0;border-radius:8px;background:#000;max-height:220px;object-fit:contain}
 .tag{display:inline-block;padding:3px 10px;border-radius:20px;font-weight:800;background:var(--bad);margin:2px}
 .tag.w{background:var(--warn);color:#000}
 .bar{height:22px;background:var(--bad);border-radius:6px;margin:3px 0;display:flex;align-items:center;padding:0 8px;font-size:13px;white-space:nowrap}
@@ -367,22 +367,38 @@ function draw(){
   const v=S.view,dp=devicePixelRatio;ctx.setTransform(v.s*dp,0,0,v.s*dp,v.x*dp,v.y*dp);ctx.drawImage(S.img,0,0);
   const res={};const showRes=S.result&&(S.step=="inspect"||S.step=="review");
   if(showRes)S.result.components.forEach(c=>res[c.ref]=c);
+  const halo=(x,y,w,h,sel)=>{ // big, unmissable fault marker: glow + thick outline
+    ctx.save();ctx.shadowColor=sel?"#c77dff":"#ff2020";ctx.shadowBlur=18;ctx.lineWidth=(sel?6:4)/v.s;ctx.strokeStyle=sel?"#c77dff":"#ff3030";
+    ctx.strokeRect(x,y,w,h);ctx.restore();ctx.lineWidth=1.5/v.s;ctx.strokeStyle="#fff";ctx.strokeRect(x-3/v.s,y-3/v.s,w+6/v.s,h+6/v.s);};
+  const label=(txt,x,y,sel)=>{const fs=Math.max(11,15/v.s);ctx.font=`800 ${fs}px system-ui`;const tw=ctx.measureText(txt).width;
+    ctx.fillStyle=sel?"#c77dff":"#e0181b";ctx.fillRect(x,y-fs-6/v.s,tw+10/v.s,fs+6/v.s);ctx.fillStyle="#fff";ctx.fillText(txt,x+5/v.s,y-5/v.s);};
+  const fails=[];
   (S.data.overlay||[]).forEach(o=>{
-    const r=res[o.ref];let col=o.fiducial?"#ffb020":!o.enabled?"#666":"#3aa0ff";
-    if(r)col=r.ok?"#2ecc71":"#ff4d4d";if(o.ref==S.sel)col="#c77dff";
+    const r=res[o.ref];
+    if(showRes&&r&&!r.ok){fails.push([o,r]);return;}
+    if(showRes&&(!o.enabled||o.fiducial))return;           // results view: only what matters
+    let col=o.fiducial?"#ffb020":!o.enabled?"#666":"#3aa0ff";
+    if(r)col="#2ecc71";if(o.ref==S.sel)col="#c77dff";
     ctx.save();ctx.translate(o.cx,o.cy);ctx.rotate(o.angle*Math.PI/180);const k=o.ppm;
-    ctx.lineWidth=Math.max(1,(r&&!r.ok?3:1.5)/v.s);ctx.strokeStyle=col;
+    ctx.globalAlpha=showRes?.45:1;ctx.lineWidth=Math.max(1,1.5/v.s);ctx.strokeStyle=col;
     if(o.fiducial){ctx.beginPath();ctx.arc(0,0,k*.9,0,7);ctx.stroke();}
     else{ctx.strokeRect(-o.body[0]/2*k,-o.body[1]/2*k,o.body[0]*k,o.body[1]*k);
-      ctx.globalAlpha=.6;o.pads.forEach(([x,y,l,w])=>ctx.strokeRect((x-l/2)*k,(-y-w/2)*k,l*k,w*k));ctx.globalAlpha=1;
-      if(r&&!r.ok){ctx.fillStyle="#ff4d4d33";ctx.fillRect(-o.body[0]/2*k,-o.body[1]/2*k,o.body[0]*k,o.body[1]*k);}}
+      if(!showRes){ctx.globalAlpha=.6;o.pads.forEach(([x,y,l,w])=>ctx.strokeRect((x-l/2)*k,(-y-w/2)*k,l*k,w*k));}}
     ctx.restore();
-    const fs=Math.max(10,13/v.s);ctx.font=`bold ${fs}px system-ui`;ctx.fillStyle=col;
-    if(v.s>0.6||o.ref==S.sel||(r&&!r.ok)||o.fiducial)ctx.fillText(o.ref+(r&&!r.ok?" "+r.fails.join("/"):""),o.cx+o.body[0]*o.ppm/2+3/v.s,o.cy-o.body[1]*o.ppm/2);
+    if(!showRes&&(v.s>0.6||o.ref==S.sel||o.fiducial)){ctx.font=`bold ${Math.max(10,13/v.s)}px system-ui`;ctx.fillStyle=col;
+      ctx.fillText(o.ref,o.cx+o.body[0]*o.ppm/2+3/v.s,o.cy-o.body[1]*o.ppm/2);}
   });
+  // dim the board a little so red faults pop, then draw faults on top
+  if(showRes&&(fails.length||S.result.components.some(c=>c.box&&!c.ok))){ctx.save();ctx.setTransform(1,0,0,1,0,0);ctx.fillStyle="#0006";ctx.fillRect(0,0,cv.width,cv.height);ctx.restore();
+}
+  fails.forEach(([o,r])=>{const k=o.ppm,m=1.2*k,sel=o.ref==S.sel;
+    const hx=Math.max(o.body[0]/2,...o.pads.map(p=>Math.abs(p[0])+p[2]/2))*k+m,hy=Math.max(o.body[1]/2,...o.pads.map(p=>Math.abs(p[1])+p[3]/2))*k+m;
+    const R=Math.max(hx,hy);
+    ctx.save();ctx.beginPath();ctx.rect(o.cx-R,o.cy-R,2*R,2*R);ctx.clip();ctx.drawImage(S.img,0,0);ctx.restore(); // undimmed window on the fault
+    halo(o.cx-R,o.cy-R,2*R,2*R,sel);label(`${o.ref} ${r.fails.join("/")}`,o.cx-R,o.cy-R-4/v.s,sel);});
   if(showRes)S.result.components.filter(c=>c.box&&!c.ok).forEach(c=>{const[x,y,w,h]=c.box;const sel=c.ref==S.sel;
-    ctx.lineWidth=(sel?4:3)/v.s;ctx.strokeStyle=sel?"#c77dff":"#ff4d4d";ctx.setLineDash([8/v.s,5/v.s]);ctx.strokeRect(x,y,w,h);ctx.setLineDash([]);
-    ctx.font=`bold ${Math.max(10,13/v.s)}px system-ui`;ctx.fillStyle=ctx.strokeStyle;ctx.fillText(c.ref.split(" ")[0]+" FOD?",x,y-4/v.s);});
+    ctx.save();ctx.beginPath();ctx.rect(x,y,w,h);ctx.clip();ctx.drawImage(S.img,0,0);ctx.restore();
+    halo(x,y,w,h,sel);label(c.ref.split(" ")[0]+" FOREIGN OBJECT?",x,y-4/v.s,sel);});
   S.teach.forEach(t=>{ctx.strokeStyle="#ffb020";ctx.lineWidth=3/v.s;ctx.beginPath();ctx.arc(t.px,t.py,12/v.s,0,7);ctx.moveTo(t.px-20/v.s,t.py);ctx.lineTo(t.px+20/v.s,t.py);ctx.moveTo(t.px,t.py-20/v.s);ctx.lineTo(t.px,t.py+20/v.s);ctx.stroke();});
 }
 function toImg(e){const r=cv.getBoundingClientRect();return[(e.clientX-r.left-S.view.x)/S.view.s,(e.clientY-r.top-S.view.y)/S.view.s];}

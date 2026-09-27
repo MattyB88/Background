@@ -63,7 +63,10 @@ class Program:
             fid = self.data["packages"][pkg_name]["kind"] == "fiducial" or c["ref"].upper().startswith("FID")
             kind = self.data["packages"][pkg_name]["kind"]
             dnf = bool(re.search(r"\bDNF\b|\bDNP\b|\bNF\b", c["part"].upper()))
-            comps.append({**c, "package": pkg_name, "fiducial": fid, "enabled": not (fid or dnf or kind == "generic"),
+            has_ipn_col = any(x.get("ipn") for x in parsed["components"])
+            nonpart = bool(re.match(r"^(H|MH|HOLE|TP|TEST|MTG|MT)\d", c["ref"].upper())) or kind == "fiducial"
+            skip = dnf or nonpart or (has_ipn_col and not c.get("ipn"))
+            comps.append({**c, "package": pkg_name, "fiducial": fid, "enabled": not (fid or skip or kind == "generic"),
                           "dnf": dnf, "dx": 0, "dy": 0,
                           "checks": None, "th": {}})
         self.data["components"] = comps
@@ -370,7 +373,9 @@ class Program:
         return [cv2.imread(str(p), cv2.IMREAD_GRAYSCALE) for p in sorted(d.glob("*.png"))] if d.exists() else []
 
     def learn(self, run_id, ref):
-        src = self.dir / "runs" / run_id / f"{_safe(ref)}_test.png"
+        src = self.dir / "runs" / run_id / f"{_safe(ref)}_learn.png"
+        if not src.exists():
+            src = self.dir / "runs" / run_id / f"{_safe(ref)}_test.png"
         if not src.exists():
             raise FileNotFoundError(ref)
         d = self.path("learn", _safe(ref), "x").parent
@@ -426,8 +431,13 @@ class Program:
                 r["ok"] = False
             elif pb is not None and not pb["fails"] and r["fails"] and set(r["fails"]) <= {"MISSING"}:
                 r["fails"], r["ok"] = ["WRONG PART"], False  # something is there, but not the golden part
-            cv2.imwrite(str(rdir / f"{_safe(c['ref'])}_golden.png"), r.pop("_golden"))
-            cv2.imwrite(str(rdir / f"{_safe(c['ref'])}_test.png"), r.pop("_test"))
+            gt, tt = r.pop("_golden"), r.pop("_test")
+            if not r["ok"]:
+                cv2.imwrite(str(rdir / f"{_safe(c['ref'])}_golden.png"), vision.review_crop(gold, ctr, ang, pkg, ppm))
+                cv2.imwrite(str(rdir / f"{_safe(c['ref'])}_test.png"), vision.review_crop(warped, ctr, ang, pkg, ppm))
+                cv2.imwrite(str(rdir / f"{_safe(c['ref'])}_learn.png"), tt)  # grey crop used by false-call learning
+            else:
+                cv2.imwrite(str(rdir / f"{_safe(c['ref'])}_learn.png"), tt)
             result["components"].append({"ref": c["ref"], "package": c["package"], "part": c["part"], "ipn": c.get("ipn", ""),
                                          "cx": ctr[0], "cy": ctr[1], "angle": ang, **r})
         if self.data.get("compare", {}).get("enabled"):

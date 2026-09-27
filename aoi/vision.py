@@ -749,3 +749,15 @@ def presence_vs_bare(test, gold, bare, center, angle, pkg, ppm):
     db = float(np.linalg.norm(t - b, axis=2).mean())
     score = db / max(dg + db, 1e-3)  # 1 = like golden, 0 = like bare
     return {"presence": round(score, 3), "fails": [] if score >= 0.5 else ["MISSING"]}
+
+
+def review_crop(img, center, angle, pkg, ppm, out=260):
+    """Colour zoom for the operator: part + 2 mm of surroundings, upright, with the ROI outlined."""
+    hx, hy = pkg.extent()
+    side = 2 * (max(hx, hy) + 2.0) * ppm
+    crop = crop_rot(img, center, angle, (side, side))
+    k = out / crop.shape[1]
+    crop = cv2.resize(crop, (out, out), interpolation=cv2.INTER_CUBIC if k > 1 else cv2.INTER_AREA)
+    c, s = out / 2, ppm * k
+    cv2.rectangle(crop, (int(c - hx * s), int(c - hy * s)), (int(c + hx * s), int(c + hy * s)), (255, 200, 0), 1, cv2.LINE_AA)
+    return crop
