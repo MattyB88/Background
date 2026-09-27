@@ -297,6 +297,7 @@ class Program:
         big[1:] = st[1:, 4] > (1.2 * ppm) ** 2
         glare = cv2.dilate(big[lbl], np.ones((int(ppm * 0.4) | 1,) * 2, np.uint8))
         valid = np.where(glare > 0, 0, valid)
+        valid = np.where(self.part_mask(gold) > 0, 0, valid)  # FOD = bare board only, not parts / connector pins / shadows
         tol = np.full(gold.shape[:2], 0, np.float32) if tol is None else tol
         tol = np.where(valid > 0, tol, 1e6).astype(np.float32)
         # FOD-style compare: compact, strong changes only (large diffuse ones are flux / shine / texture)
@@ -379,6 +380,43 @@ class Program:
         cv2.putText(hdr, f"{self.name}  {res['board'] or run_id}:  {'PASS' if res['ok'] else str(len(calls)) + ' calls'}   (left = golden, right = this board)",
                     (10, 34), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
         return cv2.imencode(".jpg", np.vstack([hdr, ov, grid]), [cv2.IMWRITE_JPEG_QUALITY, 88])[1].tobytes()
+
+    def part_mask(self, gold):
+        """Areas the FOD check must ignore: every part box (+margin) and big dark bodies (connectors, headers)
+        found on the golden, grown to cover their pins and shadows. Cached per golden image."""
+        p = self.dir / "partmask.png"
+        g = self.dir / "golden.png"
+        if p.exists() and p.stat().st_mtime >= g.stat().st_mtime and p.stat().st_mtime >= self.file.stat().st_mtime - 1:
+            return cv2.imread(str(p), cv2.IMREAD_GRAYSCALE)
+        ppm = vision.px_per_mm(self.M)
+        m = np.zeros(gold.shape[:2], np.uint8)
+        for o in self.overlay():
+            if o["fiducial"]:
+                continue
+            hx = max(o["body"][0] / 2, *(abs(x) + l / 2 for x, y, l, w in o["pads"])) if o["pads"] else o["body"][0] / 2
+            hy = max(o["body"][1] / 2, *(abs(y) + w / 2 for x, y, l, w in o["pads"])) if o["pads"] else o["body"][1] / 2
+            box = cv2.boxPoints(((o["cx"], o["cy"]), (2 * (hx + 0.6) * ppm, 2 * (hy + 0.6) * ppm), o["angle"]))
+            cv2.fillPoly(m, [np.int32(box)], 255)
+        # big dark bodies (connector housings) with their pin rows and shadows
+        lab = cv2.GaussianBlur(cv2.cvtColor(gold, cv2.COLOR_BGR2LAB), (5, 5), 0).astype(np.float32)
+        bo = vision.board_outline(gold)
+        on = bo[1] > 0 if bo is not None else np.ones(gold.shape[:2], bool)
+        boardL = float(np.median(lab[..., 0][on]))
+        chroma = np.abs(lab[..., 1] - 128) + np.abs(lab[..., 2] - 128)
+        boardC = float(np.median(chroma[on]))
+        # black plastic: clearly darker than the solder mask AND less coloured than it
+        dark = (on & (lab[..., 0] < 0.6 * boardL) & (chroma < 0.6 * boardC + 4)).astype(np.uint8)
+        dark = cv2.morphologyEx(dark, cv2.MORPH_CLOSE, np.ones((int(ppm * 0.8) | 1,) * 2, np.uint8))
+        n, lbl, st, _ = cv2.connectedComponentsWithStats(dark)
+        big = np.zeros(n, np.uint8)
+        big[1:] = (st[1:, 4] > 25 * ppm * ppm) & (st[1:, 4] < 0.3 * dark.size)
+        body = big[lbl]
+        for i in np.nonzero(big)[0]:  # whole bounding box: pins sit between the dark latches
+            x, y, w, h = st[i, :4]
+            body[y:y + h, x:x + w] = 1
+        m |= cv2.dilate(body, np.ones((int(ppm * 1.5) | 1,) * 2, np.uint8)) * 255
+        cv2.imwrite(str(p), m)
+        return m
 
     def train_good(self, img):
         """Learn normal variation from a known-good capture (lighting, focus, placement spread)."""
