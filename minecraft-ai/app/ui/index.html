@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Minecraft AI Buddies</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Nunito:wght@400;600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><span class="block-logo"></span><h1>AI Buddies</h1></div>
+  <div class="status" id="statusPill"><span class="dot"></span><span id="statusText">Offline</span></div>
+</header>
+
+<main>
+  <section class="hero card">
+    <div class="hero-left">
+      <div class="world-badge" id="worldBadge"></div>
+      <h2 id="heroTitle">Ready when you are</h2>
+      <p id="heroSub" class="muted"></p>
+      <div class="progress hidden" id="progress"><div class="bar" id="progressBar"></div><span id="progressLabel"></span></div>
+      <div class="error hidden" id="errorBox"></div>
+      <div class="hero-actions">
+        <button class="btn-play" id="playBtn">▶ PLAY</button>
+        <button class="btn ghost hidden" id="stopBtn">■ Stop</button>
+      </div>
+    </div>
+    <div class="hero-right">
+      <h3>How to join</h3>
+      <ol class="join-steps">
+        <li>Open Minecraft <b>Java <span class="mcv"></span></b> <span id="joinProfileHint"></span></li>
+        <li>Multiplayer → Add Server → type:</li>
+      </ol>
+      <div id="addresses"></div>
+      <div class="online"><span class="muted">Online now:</span> <span id="onlineList">nobody yet</span></div>
+    </div>
+  </section>
+
+  <section class="quick card hidden" id="quickActions">
+    <span class="quick-title">Quick magic</span>
+    <button class="chip" data-cmd="time set day">☀️ Make it day</button>
+    <button class="chip" data-cmd="weather clear">🌤️ Clear skies</button>
+    <button class="chip" data-cmd="effect give @a minecraft:instant_health 1 5">❤️ Heal everyone</button>
+    <button class="chip" data-cmd="effect give @a minecraft:saturation 1 10">🍗 Feed everyone</button>
+    <button class="chip" id="bringBtn">📍 Bring friends to me</button>
+    <button class="chip" id="restartBotsBtn">🔄 Restart AI friends</button>
+  </section>
+
+  <nav class="tabs" id="tabs">
+    <button data-tab="friends" class="active">🤖 AI Friends</button>
+    <button data-tab="worlds">🌍 Worlds</button>
+    <button data-tab="keys">🔑 AI Keys</button>
+    <button data-tab="settings">⚙️ Settings</button>
+    <button data-tab="logs">📜 Logs</button>
+  </nav>
+
+  <section class="tab" id="tab-friends">
+    <p class="muted">Each friend is an AI player that joins your world. Talk to them in chat: <i>"Buddy, come here"</i>, <i>"can you get us wood?"</i>, <i>"help me build a house"</i>. With more than one friend, say their name so they know who you mean.</p>
+    <div class="grid" id="friendsGrid"></div>
+  </section>
+
+  <section class="tab hidden" id="tab-worlds">
+    <div class="grid worlds" id="worldsGrid"></div>
+    <div class="row gap">
+      <button class="btn ghost" data-open="world">📁 Open world folder</button>
+      <button class="btn ghost" data-open="mods">🧩 Open mods folder</button>
+    </div>
+    <p class="muted small">Drop extra mod .jar files into the mods folder, then press Stop and Play. Each world has its own save.</p>
+  </section>
+
+  <section class="tab hidden" id="tab-keys">
+    <p class="muted">Your keys are saved only on this computer (in <code>data/config.json</code>). You only need a key for the AI companies your friends use.</p>
+    <div id="keysList"></div>
+  </section>
+
+  <section class="tab hidden" id="tab-settings">
+    <div class="card form">
+      <label>Our Minecraft names <span class="muted small">(comma separated - they become server admins)</span>
+        <input id="setPlayers" placeholder="Dad, Steve123"></label>
+      <div class="row gap wrap">
+        <label>Difficulty <select id="setDifficulty"><option>peaceful</option><option>easy</option><option>normal</option><option>hard</option></select></label>
+        <label>Game mode <select id="setGamemode"><option>survival</option><option>creative</option><option>adventure</option></select></label>
+        <label>Server memory <select id="setMemory"><option value="2">2 GB</option><option value="3">3 GB</option><option value="4">4 GB</option><option value="6">6 GB</option><option value="8">8 GB</option></select></label>
+      </div>
+      <label class="toggle"><input type="checkbox" id="setFamily"><span></span> Family only (only our names + AI friends can join)</label>
+      <label class="toggle"><input type="checkbox" id="setKeepInv"><span></span> Keep inventory when you die</label>
+      <label class="toggle"><input type="checkbox" id="setAuto"><span></span> Start the world automatically when this app opens</label>
+      <div class="row gap"><button class="btn" id="saveSettings">Save settings</button><button class="btn ghost" id="rerunWizard">Run setup wizard again</button></div>
+      <p class="muted small">Changes to difficulty, memory and family-only apply the next time you press Play.</p>
+    </div>
+  </section>
+
+  <section class="tab hidden" id="tab-logs">
+    <div class="row gap">
+      <button class="chip active" data-log="server">Server</button>
+      <button class="chip" data-log="buddies">AI friends</button>
+      <button class="chip" data-log="setup">Setup</button>
+    </div>
+    <pre class="log" id="logView"></pre>
+    <form class="row gap" id="cmdForm"><input id="cmdInput" placeholder="Server command, e.g. give Steve diamond 5"><button class="btn">Send</button></form>
+  </section>
+</main>
+
+<!-- Friend editor -->
+<dialog id="editor" class="modal">
+  <form method="dialog" id="editorForm">
+    <div class="modal-head"><canvas class="face big" id="edFace" width="8" height="8"></canvas><h2 id="edTitle">New AI friend</h2></div>
+    <label>Name <span class="muted small">(3-16 letters/numbers, this is their Minecraft name)</span><input id="edName" required pattern="\w{3,16}" maxlength="16"></label>
+    <div class="label">Personality</div>
+    <div class="presets" id="edPresets"></div>
+    <textarea id="edPersonality" rows="4"></textarea>
+    <div class="row gap wrap">
+      <label>AI brain <select id="edProvider"></select></label>
+      <label>Model <input id="edModel" list="edModels"><datalist id="edModels"></datalist></label>
+      <label id="edSpeedWrap">Thinking <select id="edSpeed"></select></label>
+    </div>
+    <p class="muted small" id="edProviderNote"></p>
+    <details><summary>Behaviour</summary><div class="modes" id="edModes"></div></details>
+    <label class="toggle"><input type="checkbox" id="edEnabled"><span></span> Joins the world</label>
+    <p class="error hidden" id="edError"></p>
+    <div class="row gap end"><button class="btn ghost" value="cancel" formnovalidate>Cancel</button><button class="btn" id="edSave" value="save">Save friend</button></div>
+  </form>
+</dialog>
+
+<!-- First-run wizard -->
+<dialog id="wizard" class="modal wide">
+  <div class="wiz-steps" id="wizDots"></div>
+  <div class="wiz-body" id="wizBody"></div>
+  <div class="row gap end"><button class="btn ghost" id="wizBack">Back</button><button class="btn" id="wizNext">Next</button></div>
+</dialog>
+
+<div class="toast hidden" id="toast"></div>
+<script type="module" src="app.js"></script>
+</body>
+</html>

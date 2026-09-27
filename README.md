@@ -34,4 +34,4 @@ Press `Esc` to quit.
 - Current environment here may not display GUI unless running on a Windows desktop session.
 
 ## Minecraft AI server
-See [minecraft-ai/README.md](minecraft-ai/README.md) for a family Minecraft server with a Mindcraft AI companion.
+One-click family Minecraft server with Mindcraft AI friends and a control panel. See [minecraft-ai/README.md](minecraft-ai/README.md).

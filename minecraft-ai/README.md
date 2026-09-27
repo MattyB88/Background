@@ -1,38 +1,49 @@
-# Family Minecraft server with an AI buddy
+# ⛏️🤖 Minecraft AI Buddies
 
-A Fabric Minecraft server plus [Mindcraft](https://github.com/mindcraft-bots/mindcraft) (by Emergent Garden) running an AI
-player named **Buddy** who follows you, helps, fights mobs, and sets its own goals when you're busy.
+A one-click family Minecraft server where AI friends
+([Mindcraft](https://github.com/mindcraft-bots/mindcraft) by Emergent Garden) play alongside you.
+They follow you, fight mobs, gather stuff, build, and remember you between games.
 
-## What you need
-- A PC that stays on (Windows/Mac/Linux), 8 GB+ RAM, with [Docker Desktop](https://www.docker.com/products/docker-desktop/).
-- An API key for the AI (default: Anthropic — https://console.anthropic.com). Budget a few dollars per long session.
-- Minecraft **Java Edition** 1.21.1 for you and your son (no client mods needed).
+## Start (Windows)
+1. Download this folder (GitHub → **Code → Download ZIP**, then unzip it somewhere like `Documents`).
+2. Double-click **`Start Minecraft AI.bat`**.
+3. Your browser opens the control panel and a setup wizard walks you through it:
+   your Minecraft names → paste an AI key (with a **Test** button) → name your first AI friend → pick a world.
+4. Press **Let's play**. The first start downloads Java, the Minecraft server, mods and Mindcraft (5-10 min).
+   If Windows asks about the firewall, click **Allow**.
+5. In Minecraft Java **1.21.1**: Multiplayer → Add Server → the address shown in the panel (`localhost` on the same PC).
 
-## Start it
-```bash
-cd minecraft-ai
-cp .env.example .env      # paste your API key, add your usernames to MC_OPS
-docker compose up -d --build
-docker compose logs -f    # first start downloads the server + mods, ~2-5 min
-```
-In Minecraft: **Multiplayer → Add Server →** the host PC's IP (e.g. `192.168.1.20`), or `localhost` on that PC.
-Buddy joins automatically. Dashboard: `http://<host-ip>:8080`.
+After that it's just the double-click: the world and your AI friends start by themselves.
+Close the black window to save and shut everything down.
 
-## Talking to Buddy
-Just chat normally: "Buddy, come here", "can you get us some wood?", "help me build a house", "stay here".
-Buddy remembers things between sessions (saved in `bot-memory/`).
+Mac/Linux: run `./start.sh`. Nothing needs installing beforehand; the app downloads its own Node.js and Java into `data/`.
 
-## Customize
-- **Personality/model:** `profiles/buddy.json` (e.g. `claude-haiku-4-5-20251001` for cheaper, or `{"api":"openai","model":"gpt-..."}`).
-  Restart with `docker compose restart mindcraft`.
-- **More bots:** copy the profile, change `name`, add it to `profiles` in `docker-compose.yml`.
-- **Mods:** edit `MODRINTH_PROJECTS`. Server-side mods only unless you also install them on your clients.
-  Mindcraft works best near vanilla — avoid mods that add lots of new blocks.
+## What's in the panel
+- **AI Friends**: make as many as you like. Pick a personality (Helpful Buddy, Brave Knight, Master Builder, Happy Farmer,
+  Explorer, Wise Wizard, Funny Joker) or write your own. Choose the AI company and model per friend, how fast it thinks,
+  and what it does (fight, hunt, pick up items, place torches…). Changes apply straight away, even mid-game.
+- **Worlds**
+  - 🤖 **Buddy World**: survival world the AI friends can join (Fabric server with speed-up mods).
+  - ✨ **Magic World**: your son's CurseForge "magic" modpack (NeoForge 21.1.252 + Ars Nouveau, Curios, GeckoLib, Jade, JEI),
+    same versions as his CurseForge profile. **AI friends can't join this one**: Mindcraft bots can't connect to
+    NeoForge servers that add new blocks and items.
+- **AI Keys**: Anthropic, OpenAI, Google Gemini (has a free tier), xAI, DeepSeek, Mistral, Groq, OpenRouter, or Ollama (free, local, needs a good GPU).
+- **Quick magic** buttons while playing: make it day, clear weather, heal/feed everyone, teleport the AI friends to you.
+- **Logs** and a server command box.
 
-## Safety notes
-- The server runs in **offline mode** (required for the bot to log in). Keep it on your home network; do **not**
-  port-forward 25565. To play with friends remotely, use a private VPN like Tailscale.
-- `allow_insecure_coding` is off, so the AI can only use Mindcraft's built-in commands, not run arbitrary code.
+## Joining Buddy World with the CurseForge "magic" profile
+JEI, Jade, Just Zoom and Durability Tooltip work on Buddy World. If Minecraft refuses to connect because of the magic mods,
+switch **Ars Nouveau**, **Curios API** and **GeckoLib** off in CurseForge (the orange toggles) or make a copy of the profile
+without them. Plain, unmodded Minecraft 1.21.1 always works.
 
-## Stop / back up
-`docker compose down` stops everything. Your world lives in `data/world` — copy that folder to back it up.
+## Safety
+- The server accepts offline logins because the AI players don't have Microsoft accounts. **Family only** (on by default)
+  limits it to your names plus the AI friends. Keep it on your home network and don't port-forward it. To play with friends
+  elsewhere, use a private VPN like Tailscale.
+- API keys are stored only on this computer in `data/config.json`. The panel only accepts connections from this computer.
+- The AI can only use Mindcraft's built-in game commands. It can't write or run code on your PC.
+
+## Files
+- `data/servers/buddy/world`, `data/servers/magic/world`: your worlds. Copy them to back up.
+- `data/mindcraft/bots/<name>`: each AI friend's memories.
+- Extra mods: Worlds tab → **Open mods folder**, drop in `.jar` files, then press Stop and Play.
