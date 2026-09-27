@@ -30,3 +30,12 @@ WHY ADD A BARE BOARD PHOTO TOO?
   The AOI compares bare vs golden to find every part exactly, snaps each CSV position
   onto it, sizes the package, and uses "looks like bare board" as the missing-part test.
   Parts it can't match are listed to check by hand.
+
+ODD OR CHANGING FILE LAYOUTS -> 🧩 MAP COLUMNS WIZARD (step 1)
+  - Split by: auto / comma / semicolon / tab / space / pipe
+  - Skip top rows (title lines), pick the header row (or none)
+  - Pick which column is Designator, X, Y, Rotation, Package, Value, IPN, Side
+  - Clean up: units, rotation offset (+90/180/270), flip X/Y, skip bottom side
+  - Drop rows where <column> is empty / equals / contains / matches regex (holes, test points, notes...)
+  - Live preview of the raw file and the result, then name it and import.
+  The format is saved; next time a file with the same header is imported it is applied automatically.

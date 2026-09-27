@@ -129,6 +129,7 @@ program(el,d){
   el.innerHTML=`<h2>📄 Placement data</h2>
    <div class="hint">Load the PnP / MYData export (CSV, TXT, .pos). Packages are made automatically.</div>
    <button class="big pri" id="bImp"><span class="ico">📂</span>Import file</button>
+   <button class="big" id="bWiz"><span class="ico">🧩</span>Odd file? Map columns (wizard)</button>
    <button class="big" id="bPhoto"><span class="ico">📷</span>No placement file? Build from photo</button>
    <div class="row"><span>Units</span><select id="units"><option value="auto">Auto</option><option>mm</option><option value="um">µm (MYData)</option><option>mil</option></select></div>
    ${d.components.length?`<div class="tiles"><div class="tile"><b>${d.components.length}</b><span>placements</span></div>
@@ -140,6 +141,7 @@ program(el,d){
     const fd=new FormData();fd.append("file",f);fd.append("units",$("#units").value);
     const r=await api(P()+"/import",{method:"POST",body:fd});
     toast(`✔ ${r.count} parts, ${r.packages} packages`+(r.warnings.length?" — "+r.warnings.join("; "):""),5000);await refresh();side();};
+  $("#bWiz").onclick=async()=>{const f=await pickFile(".csv,.txt,.pos,.tsv,.xy,*");if(!f)return;S.wiz={file:f,fmt:{}};go("wizard");};
   $("#bPhoto").onclick=async()=>{const f=await pickFile("image/*");if(!f)return;const bm=prompt("Board length in mm (optional - makes tolerances real mm)","");const fd=new FormData();fd.append("image",f);toast("Finding parts…");
     const r=await api(P()+"/from_photo"+(bm?`?board_mm=${encodeURIComponent(bm)}`:""),{method:"POST",body:fd});toast(`✔ ${r.parts} parts, ${r.holes} holes · ${r.ppm} px/mm — now train with good boards`,6000);
     await refresh();go("inspect");};
@@ -269,6 +271,53 @@ review(el,d){
   $("#bPrev").onclick=()=>{S.revIdx=Math.max(0,S.revIdx-1);side();draw();};$("#bNx").onclick=()=>{S.revIdx++;side();draw();};
   if($("#bAi"))$("#bAi").onclick=async()=>{$("#aiOut").innerHTML='<div class="hint">Thinking…</div>';const a=await api(P()+"/ai/opinion",{json:{run:r.run,ref:c.ref}});$("#aiOut").innerHTML=`<div class="hint">${esc(a.text)}</div>`;};
   focus(c);
+},
+async wizard(el,d){
+  const W=S.wiz;if(!W){go("program");return;}
+  document.getElementById("side").style.width="640px";
+  const fd=new FormData();fd.append("file",W.file);fd.append("fmt",JSON.stringify(W.fmt));
+  const p=await api("/api/bom/preview",{method:"POST",body:fd});
+  if(p.fmt&&p.fmt._matched&&!W.seen){W.fmt={...p.fmt};delete W.fmt._matched;W.seen=1;toast("🧩 Saved format '"+p.fmt._matched+"' recognised");}
+  const f=W.fmt,cols=f.columns||p.guess,skip=+(f.skip_rows||0),hr=f.header_row==null?0:+f.header_row;
+  const opt=(sel)=>`<option value="">—</option>`+p.header.map((h,i)=>`<option value="${i}" ${sel===i?"selected":""}>${i+1}: ${esc(h||"(blank)")}</option>`).join("");
+  const FL=[["ref","Designator *"],["x","X *"],["y","Y *"],["rot","Rotation"],["package","Package"],["part","Value / Comment"],["ipn","IPN"],["side","Side / Layer"]];
+  const raw=p.raw.slice(0,12).map((r,i)=>{const cls=i<skip?"opacity:.35;text-decoration:line-through":i==skip+hr?"background:#1d3550;font-weight:700":"";
+    return `<tr style="${cls}"><td style="color:var(--dim)">${i+1}</td>${r.slice(0,9).map(c=>`<td>${esc(c)}</td>`).join("")}</tr>`}).join("");
+  el.innerHTML=`<h2>🧩 Map placement file <small style="color:var(--dim);font-size:14px">${esc(W.file.name)}</small></h2>
+   <div class="row"><span>Split by</span><select id="wDel">${["auto","comma","semicolon","tab","space","pipe"].map(k=>`<option ${k==(f.delimiter||"auto")?"selected":""}>${k}</option>`).join("")}</select>
+     <span style="color:var(--dim);font-size:13px">using: ${p.delimiter_used}</span></div>
+   <div class="row"><span>Skip top rows</span><button data-n="skip_rows,-1">−</button><b style="text-align:center">${skip}</b><button data-n="skip_rows,1">＋</button></div>
+   <div class="row"><span>Header row</span><button data-n="header_row,-1">−</button><b style="text-align:center">${hr<0?"none":skip+hr+1}</b><button data-n="header_row,1">＋</button></div>
+   <div style="overflow:auto;max-height:230px;background:#0b0e12;border-radius:8px;font-size:12px"><table style="border-collapse:collapse;white-space:nowrap">${raw}</table></div>
+   <h3>Columns</h3><div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">${FL.map(([k,t])=>`<label style="font-size:13px;color:var(--dim)">${t}<select data-col="${k}" style="width:100%">${opt(cols[k])}</select></label>`).join("")}</div>
+   <h3>Clean up</h3>
+   <div class="row"><span>Units</span><select id="wUnits">${["auto","mm","mil","um","inch","cm"].map(u=>`<option ${u==(f.units||"auto")?"selected":""}>${u}</option>`).join("")}</select>
+     <span>Rot +</span><select id="wRot">${[0,90,180,270].map(a=>`<option ${a==(+f.rot_offset||0)?"selected":""}>${a}</option>`).join("")}</select></div>
+   <div class="row"><label><input type="checkbox" id="wFx" ${f.flip_x?"checked":""}> Flip X</label><label><input type="checkbox" id="wFy" ${f.flip_y?"checked":""}> Flip Y</label><label><input type="checkbox" id="wBot" ${f.bottom_skip!==false?"checked":""}> Skip bottom side</label></div>
+   <div style="color:var(--dim);font-size:13px">Drop rows where…</div>
+   ${(f.drop||[]).map((r,i)=>`<div class="row" style="font-size:13px"><span>${esc(p.header[r.col]||"col "+(r.col+1))} ${r.op} ${esc(r.value||"")}</span><button data-del="${i}">✖</button></div>`).join("")}
+   <div class="row"><select id="dCol">${p.header.map((h,i)=>`<option value="${i}">${esc(h||"col "+(i+1))}</option>`).join("")}</select>
+     <select id="dOp"><option>empty</option><option>equals</option><option>contains</option><option>regex</option></select><input id="dVal" placeholder="value" style="width:90px"><button id="dAdd">＋</button></div>
+   <h3>Result: ${p.count} parts ${p.units?`· ${p.units}`:""}</h3>
+   ${p.error?`<div class="hint" style="border-color:var(--bad)">⚠ ${esc(p.error)}</div>`:`<div style="font-size:12px;color:var(--dim)">${(p.warnings||[]).join(" · ")}</div>
+   <div style="overflow:auto;max-height:170px;font-size:12px;background:#0b0e12;border-radius:8px"><table style="white-space:nowrap">${p.parsed.slice(0,10).map(c=>`<tr><td><b>${esc(c.ref)}</b></td><td>${c.x}</td><td>${c.y}</td><td>${c.rot}°</td><td>${esc(c.package)}</td><td>${esc(c.part)}</td><td>${esc(c.ipn||"")}</td></tr>`).join("")}</table></div>`}
+   <div class="row"><input id="wName" placeholder="Format name (e.g. Altium CAS)" value="${esc(W.name||"")}"></div>
+   <button class="big ok" id="wGo" ${p.error?"disabled":""}>✔ Import ${p.count} parts + save format</button>
+   <button class="big" id="wBack">◀ Back</button>`;
+  const upd=(k,v)=>{W.fmt={...W.fmt,[k]:v};side();};
+  $("#wDel").onchange=e=>upd("delimiter",e.target.value);
+  el.querySelectorAll("[data-n]").forEach(b=>b.onclick=()=>{const[k,dn]=b.dataset.n.split(",");const cur=k=="header_row"?hr:skip;upd(k,Math.max(k=="header_row"?-1:0,cur+ +dn));});
+  el.querySelectorAll("[data-col]").forEach(sel=>sel.onchange=()=>{const c={...cols};if(sel.value==="")delete c[sel.dataset.col];else c[sel.dataset.col]=+sel.value;upd("columns",c);});
+  $("#wUnits").onchange=e=>upd("units",e.target.value);$("#wRot").onchange=e=>upd("rot_offset",+e.target.value);
+  $("#wFx").onchange=e=>upd("flip_x",e.target.checked);$("#wFy").onchange=e=>upd("flip_y",e.target.checked);$("#wBot").onchange=e=>upd("bottom_skip",e.target.checked);
+  el.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>upd("drop",(f.drop||[]).filter((_,i)=>i!=b.dataset.del)));
+  $("#dAdd").onclick=()=>upd("drop",[...(f.drop||[]),{col:+$("#dCol").value,op:$("#dOp").value,value:$("#dVal").value}]);
+  $("#wName").oninput=e=>W.name=e.target.value;
+  $("#wBack").onclick=()=>{document.getElementById("side").style.width="";S.wiz=null;go("program");};
+  $("#wGo").onclick=async()=>{const fd=new FormData();fd.append("file",W.file);fd.append("fmt",JSON.stringify({...W.fmt,columns:cols}));
+    if(W.name)fd.append("format",W.name);const r=await api(P()+"/import",{method:"POST",body:fd});
+    toast(`✔ ${r.count} parts imported${W.name?" · format '"+W.name+"' saved — used automatically next time":""}`,5000);
+    document.getElementById("side").style.width="";S.wiz=null;await refresh();go("program");};
 },
 async library(el,d){
   const lib=await api("/api/library");

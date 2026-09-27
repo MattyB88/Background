@@ -116,3 +116,93 @@ def parse_file(data: bytes, **kw) -> dict:
         except UnicodeDecodeError:
             continue
     raise ValueError("Cannot decode file")
+
+
+# ---------------------------------------------------------------- user-defined formats (BOM / placement templates)
+FIELDS = ["ref", "x", "y", "rot", "part", "package", "ipn", "side"]
+DELIMS = {"auto": None, "comma": ",", "semicolon": ";", "tab": "\t", "space": "ws", "pipe": "|"}
+
+
+def raw_rows(text, delim="auto", max_rows=None):
+    """Split text into rows of cells using the chosen delimiter (no header logic)."""
+    lines = [l for l in text.splitlines() if l.strip()]
+    if delim == "auto" or delim is None:
+        sample = "\n".join(lines[:30])
+        d = max([",", ";", "\t", "|"], key=sample.count)
+        delim = d if sample.count(d) >= len(lines[:30]) else "ws"
+    else:
+        delim = DELIMS.get(delim, delim)
+    rows = [_split(l, delim) for l in (lines if max_rows is None else lines[:max_rows])]
+    return rows, delim
+
+
+def guess_mapping(header):
+    cells = [_norm(c) for c in header]
+    m = {}
+    for key, names in {**ALIASES, "z": ["z"]}.items():
+        for j, c in enumerate(cells):
+            if c in names and j not in m.values():
+                m["rot" if key == "z" and "rot" not in m else key] = j
+                break
+    m.pop("z", None)
+    return m
+
+
+def parse_with_format(text, fmt):
+    """fmt = {delimiter, skip_rows, header_row (index after skip, -1 = none), columns {field: col index},
+              units, rot_offset, flip_x, flip_y, drop: [{col, op: empty|equals|contains|regex, value}],
+              bottom_skip (bool)}"""
+    rows, _ = raw_rows(text, fmt.get("delimiter", "auto"))
+    rows = rows[int(fmt.get("skip_rows", 0)):]
+    hr = int(fmt.get("header_row", 0))
+    header = rows[hr] if hr >= 0 and hr < len(rows) else []
+    body = rows[hr + 1:] if hr >= 0 else rows
+    cols = {k: int(v) for k, v in (fmt.get("columns") or guess_mapping(header)).items() if v not in (None, "", -1)}
+    if not {"ref", "x", "y"} <= cols.keys():
+        raise ValueError("Map at least Designator, X and Y")
+    drops = fmt.get("drop", [])
+    comps, dropped = [], 0
+
+    def cell(r, k, d=""):
+        return r[cols[k]].strip() if k in cols and cols[k] < len(r) else d
+    for r in body:
+        bad = False
+        for rule in drops:
+            c = int(rule.get("col", -1))
+            v = r[c].strip() if 0 <= c < len(r) else ""
+            op, val = rule.get("op", "empty"), str(rule.get("value", ""))
+            if (op == "empty" and not v) or (op == "equals" and v.lower() == val.lower()) or \
+               (op == "contains" and val.lower() in v.lower()) or (op == "regex" and re.search(val, v, re.I)):
+                bad = True
+                break
+        x, y = _num(cell(r, "x")), _num(cell(r, "y"))
+        if bad or x is None or y is None or not cell(r, "ref"):
+            dropped += 1
+            continue
+        rot = (_num(cell(r, "rot", "0")) or 0.0) + float(fmt.get("rot_offset", 0))
+        comps.append({"ref": cell(r, "ref"), "x": -x if fmt.get("flip_x") else x, "y": -y if fmt.get("flip_y") else y,
+                      "rot": rot % 360, "part": cell(r, "part"), "package": cell(r, "package") or cell(r, "part"),
+                      "side": cell(r, "side", "top").lower(), "ipn": cell(r, "ipn")})
+    if not comps:
+        raise ValueError("No rows left - check delimiter / header row / mapping / drop rules")
+    units = fmt.get("units", "auto")
+    warnings = [f"{dropped} rows dropped"] if dropped else []
+    if units == "auto":
+        big = max(max(abs(c["x"]), abs(c["y"])) for c in comps)
+        units = "um" if big > 5000 else "mm"
+    scale = {"mm": 1.0, "um": 0.001, "mil": 0.0254, "inch": 25.4, "cm": 10.0}[units]
+    for c in comps:
+        c["x"], c["y"] = round(c["x"] * scale, 4), round(c["y"] * scale, 4)
+    if fmt.get("bottom_skip", True):
+        n = len(comps)
+        comps = [c for c in comps if not c["side"].startswith("b")]
+        if n - len(comps):
+            warnings.append(f"{n - len(comps)} bottom-side placements skipped")
+    return {"components": comps, "units": units, "warnings": warnings, "header": header, "columns": cols}
+
+
+def header_signature(text, fmt):
+    rows, _ = raw_rows(text, fmt.get("delimiter", "auto"), 40)
+    rows = rows[int(fmt.get("skip_rows", 0)):]
+    hr = int(fmt.get("header_row", 0))
+    return "|".join(_norm(c) for c in rows[hr]) if 0 <= hr < len(rows) else ""

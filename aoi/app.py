@@ -140,7 +140,20 @@ def get_program(name):
 def import_file(name):
     p = Program(name)
     f = request.files["file"]
-    parsed = pnp_import.parse_file(f.read(), units=request.form.get("units", "auto"))
+    data = f.read()
+    text = _decode(data)
+    fmt_name = request.form.get("format") or ""
+    if request.form.get("fmt"):
+        parsed = pnp_import.parse_with_format(text, json.loads(request.form["fmt"]))
+        if fmt_name:
+            Program.save_format(fmt_name, json.loads(request.form["fmt"]), text)
+    else:
+        name, fmt = (fmt_name, Program.formats().get(fmt_name)) if fmt_name else Program.match_format(text)
+        if fmt:
+            parsed = pnp_import.parse_with_format(text, fmt)
+            parsed["warnings"].insert(0, f"Format '{name}' used")
+        else:
+            parsed = pnp_import.parse(text, units=request.form.get("units", "auto"))
     p.import_placements(parsed)
     return jsonify(count=len(parsed["components"]), warnings=parsed["warnings"],
                    packages=len(p.data["packages"]), fiducials=sum(c["fiducial"] for c in p.data["components"]))
@@ -231,6 +244,45 @@ def train(name):
     p = _prog(name)
     img = _capture(request.args.get("cam", 0)) if request.args.get("camera") else _img_from_request()
     return jsonify(p.train_good(img))
+
+
+def _decode(data):
+    for enc in ("utf-8-sig", "utf-16", "latin-1"):
+        try:
+            return data.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    raise ValueError("Cannot decode file")
+
+
+@app.post("/api/bom/preview")
+def bom_preview():
+    """Wizard preview: raw rows with the chosen delimiter + the parsed result with the given format."""
+    text = _decode(request.files["file"].read())
+    fmt = json.loads(request.form.get("fmt") or "{}")
+    if not fmt:
+        name, saved = Program.match_format(text)
+        if saved:
+            fmt = {**saved, "_matched": name}
+    rows, used = pnp_import.raw_rows(text, fmt.get("delimiter", "auto"), 60)
+    skip = int(fmt.get("skip_rows", 0))
+    hr = int(fmt.get("header_row", 0))
+    rows_s = rows[skip:]
+    header = rows_s[hr] if 0 <= hr < len(rows_s) else []
+    out = {"raw": rows, "delimiter_used": {v: k for k, v in pnp_import.DELIMS.items() if v}.get(used, used),
+           "header": header, "guess": pnp_import.guess_mapping(header), "fmt": fmt}
+    try:
+        fmt2 = {**fmt, "columns": fmt.get("columns") or out["guess"]}
+        parsed = pnp_import.parse_with_format(text, fmt2)
+        out.update(parsed=parsed["components"][:25], count=len(parsed["components"]), warnings=parsed["warnings"], units=parsed["units"])
+    except ValueError as e:
+        out.update(error=str(e), parsed=[], count=0)
+    return jsonify(out)
+
+
+@app.get("/api/formats")
+def formats():
+    return jsonify(Program.formats())
 
 
 @app.post("/api/programs/<name>/golden")

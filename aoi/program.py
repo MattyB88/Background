@@ -255,6 +255,36 @@ class Program:
         self.save()
 
     # ------------------------------------------------ shared parts library (all programs)
+    # ------------------------------------------------ saved placement-file formats (shared)
+    @staticmethod
+    def formats():
+        p = ROOT / "formats.json"
+        return json.loads(p.read_text()) if p.exists() else {}
+
+    @staticmethod
+    def save_format(name, fmt, text=None):
+        from . import pnp_import
+        fs = Program.formats()
+        fmt = dict(fmt)
+        if text:
+            fmt["signature"] = pnp_import.header_signature(text, fmt)
+        fs[name] = fmt
+        ROOT.mkdir(parents=True, exist_ok=True)
+        (ROOT / "formats.json").write_text(json.dumps(fs, indent=1))
+        return fs
+
+    @staticmethod
+    def match_format(text):
+        """A saved format whose header line matches this file, or None."""
+        from . import pnp_import
+        for name, fmt in Program.formats().items():
+            try:
+                if fmt.get("signature") and pnp_import.header_signature(text, fmt) == fmt["signature"]:
+                    return name, fmt
+            except Exception:
+                continue
+        return None, None
+
     @staticmethod
     def library():
         p = ROOT / "library.json"

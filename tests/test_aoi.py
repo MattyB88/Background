@@ -233,3 +233,22 @@ def test_only_bom_parts_inspected(tmp_path, monkeypatch):
     p.import_placements(pnp_import.parse(txt))
     on = {c["ref"] for c in p.data["components"] if c["enabled"]}
     assert on == {"R1", "U1"}
+
+
+def test_format_wizard_parse(tmp_path, monkeypatch):
+    monkeypatch.setattr("aoi.program.ROOT", tmp_path)
+    from aoi.program import Program
+    txt = ("Exported by CAD v9\nJob: CAS157\n\n"
+           "Item  Ref   PosX   PosY  Angle  Footprint   Stock\n"
+           "1     R1    10.0   30.0  90     0603        RES-10K\n"
+           "2     H1    5.0    5.0   0      HOLE        \n"
+           "3     U1    20.0   25.0  180    SOIC-8      IC-LM358\n"
+           "---- end ----\n")
+    fmt = {"delimiter": "space", "skip_rows": 2, "header_row": 0,
+           "columns": {"ref": 1, "x": 2, "y": 3, "rot": 4, "package": 5, "ipn": 6},
+           "drop": [{"col": 5, "op": "equals", "value": "HOLE"}], "rot_offset": 90}
+    r = pnp_import.parse_with_format(txt, fmt)
+    assert [(c["ref"], c["rot"], c["ipn"]) for c in r["components"]] == [("R1", 180.0, "RES-10K"), ("U1", 270.0, "IC-LM358")]
+    Program.save_format("CAD9", fmt, txt)
+    name, f2 = Program.match_format(txt)
+    assert name == "CAD9" and f2["columns"]["ipn"] == 6
