@@ -220,6 +220,7 @@ function openEditor(p) {
   $('#edPersonality').value = editing.personality;
   $('#edEnabled').checked = editing.enabled;
   $('#edVoiceOn').checked = !!editing.voiceOn;
+  $('#edHearOn').checked = !!editing.hearOn;
   loadVoices(editing.voiceId);
   $('#edPresets').innerHTML = C.PRESETS.map((x) => `<button type="button" class="chip ${x.id === editing.preset ? 'active' : ''}" data-preset="${x.id}">${x.emoji} ${esc(x.label)}</button>`).join('');
   $$('#edPresets .chip').forEach((b) => (b.onclick = () => {
@@ -259,7 +260,7 @@ $('#editorForm').onsubmit = async (e) => {
     ...editing, name: $('#edName').value.trim(), personality: $('#edPersonality').value.trim(),
     provider: $('#edProvider').value, model: $('#edModel').value.trim(), speed: $('#edSpeed').value,
     enabled: $('#edEnabled').checked,
-    voiceOn: $('#edVoiceOn').checked, voiceId: $('#edVoice').value || editing.voiceId,
+    voiceOn: $('#edVoiceOn').checked, hearOn: $('#edHearOn').checked, voiceId: $('#edVoice').value || editing.voiceId,
     modes: Object.fromEntries($$('#edModes input').map((i) => [i.dataset.mode, i.checked])),
   };
   try {
@@ -276,7 +277,7 @@ $('#editorForm').onsubmit = async (e) => {
 let voicesCache = null;
 async function loadVoices(selected) {
   const hasVoiceKey = !!config.keys[C.VOICE.key];
-  $('#edVoiceNote').innerHTML = hasVoiceKey ? 'Voices play through this computer\'s speakers while the panel is open.'
+  $('#edVoiceNote').innerHTML = hasVoiceKey ? `Uses the <b>Simple Voice Chat</b> mod: everyone playing needs version <b>${esc(C.SVC_VERSION)}</b> for 1.21.1 in their game. Your friend speaks from its body in the world, and hears whoever talks nearby (when several people are online, say its name).`
     : `Add an ElevenLabs key on the AI Keys tab to give friends a voice. <a href="${esc(C.VOICE.keyUrl)}" target="_blank" rel="noopener">Get one ↗</a>`;
   if (!voicesCache) voicesCache = (await api('/api/voices')).voices;
   $('#edVoice').innerHTML = voicesCache.map((v) => `<option value="${esc(v.id)}" ${v.id === selected ? 'selected' : ''}>${esc(v.name)}</option>`).join('');
@@ -295,12 +296,12 @@ $('#edVoiceTest').onclick = async () => {
   api('/api/speak-test', { name });
 };
 
-let soundOn = localStorage.getItem('voices') === 'on';
+let soundOn = true; // only used for the "Hear it" preview now
 const audioQueue = [];
 let playing = false;
-function renderSoundBtn() { $('#soundBtn').textContent = soundOn ? '🔊 Voices on' : '🔇 Voices off'; $('#soundBtn').classList.toggle('active', soundOn); }
+function renderSoundBtn() { if (!$('#soundBtn')) return; $('#soundBtn').textContent = soundOn ? '🔊 Voices on' : '🔇 Voices off'; $('#soundBtn').classList.toggle('active', soundOn); }
 function enableSound() { soundOn = true; try { localStorage.setItem('voices', 'on'); } catch {} renderSoundBtn(); }
-$('#soundBtn').onclick = () => {
+if ($('#soundBtn')) $('#soundBtn').onclick = () => {
   soundOn = !soundOn;
   try { localStorage.setItem('voices', soundOn ? 'on' : 'off'); } catch {}
   renderSoundBtn();
@@ -317,7 +318,7 @@ function playNext() {
   const audio = new Audio('data:audio/mpeg;base64,' + ev.audio);
   const done = () => { bubble.remove(); playing = false; playNext(); };
   audio.onended = done;
-  audio.play().catch(() => { toast('Click "Voices on" (top right) to let the browser play sound'); soundOn = false; renderSoundBtn(); done(); });
+  audio.play().catch(() => { toast('Click anywhere on the page, then press Hear it again'); done(); });
 }
 
 // ---------- first-run wizard ----------

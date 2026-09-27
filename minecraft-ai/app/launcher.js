@@ -8,7 +8,7 @@ import crypto from 'node:crypto';
 import { spawn, exec } from 'node:child_process';
 import * as catalog from './catalog.js';
 import { PROVIDERS, PRESETS, DEFAULT_MODES, SPEEDS, WORLDS, MC_VERSION, VOICE, DEFAULT_VOICES } from './catalog.js';
-import { DATA, MINDCRAFT_DIR, ensureAll, writeServerFiles, serverLaunch, serverDir } from './setup.js';
+import { DATA, MINDCRAFT_DIR, installVoiceFiles, ensureAll, writeServerFiles, serverLaunch, serverDir } from './setup.js';
 
 const PORT = Number(process.env.PANEL_PORT) || 8765;
 const UI_DIR = path.join(import.meta.dirname, 'ui');
@@ -21,7 +21,7 @@ function defaultProfile(preset = PRESETS[0], name = 'Buddy') {
     id: crypto.randomUUID(), name, enabled: true, preset: preset.id, color: preset.color,
     provider: 'anthropic', model: PROVIDERS.anthropic.models[0], speed: 'fast',
     personality: preset.text, modes: { ...DEFAULT_MODES },
-    voiceOn: false, voiceId: DEFAULT_VOICES[0].id,
+    voiceOn: false, hearOn: false, voiceId: DEFAULT_VOICES[0].id,
   };
 }
 
@@ -90,7 +90,7 @@ function lanAddresses() {
 function buildConversing(p) {
   return `You are ${p.name}, an AI Minecraft player who is a real friend to the players - a parent and their kid. ${p.personality}
 Keep every message short, friendly and kid-appropriate. Be genuinely useful: when someone asks for something, do it right away with commands. Never grief, never break things players built, never take from their chests unless asked.
-When nobody needs you, give yourself a useful long-term goal that fits your personality with !goal, and check back in with the players now and then.
+Act like a real player with your own mind: notice what's happening (night falling, someone hurt or low on food, a cool cave, a creeper) and react to it, make your own plans, and when nobody needs you give yourself a useful long-term goal that fits your personality with !goal. Check back in with the players now and then and tell them what you're up to. Players may talk to you on voice chat; their words arrive marked "(said out loud on voice chat)" and your replies are spoken aloud, so talk naturally like a friend, in short sentences.
 $SELF_PROMPT Don't pretend to act, use commands immediately when requested. Do NOT say 'Sure, I've stopped. *stops*', instead say 'Sure, I'll stop. !stop'. Respond only as $NAME, never output '(FROM OTHER BOT)' or pretend to be someone else. If you have nothing to say or do, respond with just a tab '\t'.
 Summarized memory:'$MEMORY'
 $STATS
@@ -108,6 +108,13 @@ function mindcraftProfile(p) {
     model.params = { output_config: { effort } };
   }
   const profile = { name: p.name, model, conversing: buildConversing(p), modes: { ...DEFAULT_MODES, ...p.modes } };
+  const voiceKey = !!config.keys[VOICE.key];
+  if (voiceKey && (p.voiceOn || p.hearOn)) {
+    profile.ingame_voice = {
+      speak: !!p.voiceOn, listen: !!p.hearOn, voiceId: p.voiceId, ttsModel: VOICE.model,
+      otherBots: config.profiles.filter((x) => x.id !== p.id).map((x) => x.name),
+    };
+  }
   // Examples are picked with embeddings; borrow a provider that has them when the chat one doesn't.
   if (!['openai', 'google', 'ollama'].includes(p.provider)) {
     if (config.keys.OPENAI_API_KEY) profile.embedding = 'openai';
@@ -204,7 +211,6 @@ async function start() {
     const text = d.toString();
     log('server', text);
     if (state.phase === 'starting' && /Done \([\d.,]+s\)!/.test(text)) onServerReady(world);
-    for (const m of text.matchAll(/INFO\]: (?:\[Not Secure\] )?<(\w+)> (.+)/g)) speakChat(m[1], m[2]);
     const join = text.match(/: (\w+) joined the game/);
     if (join) setState({ online: [...new Set([...state.online, join[1]])] });
     const denied = text.match(/Disconnecting (\w+) \(.*not white-listed/);
@@ -240,6 +246,7 @@ function startBots(bots) {
     fs.writeFileSync(file, JSON.stringify(mindcraftProfile(b), null, 2));
     return file;
   });
+  try { installVoiceFiles(); } catch (e) { log('buddies', `[voice] could not install voice files: ${e.message}`); }
   const keys = Object.fromEntries(Object.entries(config.keys).filter(([, v]) => v));
   fs.writeFileSync(path.join(MINDCRAFT_DIR, 'keys.json'), JSON.stringify(keys, null, 2));
   const settings = {
@@ -249,6 +256,7 @@ function startBots(bots) {
     // Keep code-writing actions out of the prompt so the model sticks to the built-in commands.
     blocked_actions: ["!newAction", "!checkBlueprint", "!checkBlueprintLevel", "!getBlueprint", "!getBlueprintLevel"],
     narrate_behavior: true, chat_bot_messages: true,
+    speak: true, // spoken through Simple Voice Chat by ingame_voice.js (only for friends with a voice)
     init_message: 'You just joined the world. Say a short hello to the players, then go to the nearest player and ask what they are up to. If nobody answers, set yourself a useful goal with !goal.',
   };
   log('buddies', `Starting AI friends: ${bots.map((b) => b.name).join(', ')}`);
@@ -334,7 +342,7 @@ function openFolder(p) {
 const routes = {
   'GET /api/bootstrap': () => ({
     config: publicConfig(), state, logs, lan: lanAddresses(), botsRunning: !!botsProc,
-    catalog: { VOICE, PROVIDERS, PRESETS, MODES: catalog.MODES, SPEEDS, WORLDS, MC_VERSION, NEOFORGE_VERSION: catalog.NEOFORGE_VERSION },
+    catalog: { SVC_VERSION: catalog.SVC_VERSION, VOICE, PROVIDERS, PRESETS, MODES: catalog.MODES, SPEEDS, WORLDS, MC_VERSION, NEOFORGE_VERSION: catalog.NEOFORGE_VERSION },
   }),
   'POST /api/settings': (b) => {
     const allowed = ['players', 'world', 'difficulty', 'gamemode', 'memoryGB', 'familyOnly', 'keepInventory', 'autoStart', 'setupDone'];

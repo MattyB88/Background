@@ -27,12 +27,16 @@ Mac/Linux: run `./start.sh`. Nothing needs installing beforehand; the app downlo
   - ✨ **Magic World**: your son's CurseForge "magic" modpack (NeoForge 21.1.252 + Ars Nouveau, Curios, GeckoLib, Jade, JEI),
     same versions as his CurseForge profile. **AI friends can't join this one**: Mindcraft bots can't connect to
     NeoForge servers that add new blocks and items.
-- **Voices**: add an ElevenLabs key (give it Access to *Text to Speech*, and Read for *Voices* to use your own voices), then switch on **Talks out loud** for a friend and pick a voice. Their chat is spoken through the speakers of the PC running the panel; click **Voices on** at the top once so the browser may play sound.
+- **Voice chat**: AI friends talk and listen on [Simple Voice Chat](https://modrinth.com/plugin/simple-voice-chat), like a real player.
+  1. Everyone playing adds **Simple Voice Chat 2.6.24** (NeoForge, 1.21.1) to their CurseForge profile and joins with that profile.
+  2. Add an ElevenLabs key on the AI Keys tab (give it Access to *Text to Speech* and *Speech to Text*; Read for *Voices* lists your own voices).
+  3. Edit a friend: switch on **Talks on voice chat** and **Hears you on voice chat**, pick a voice, press **Hear it** to preview.
+  Your friend's voice comes from its body in the world (quieter further away). With more than one person online, say its name so it knows you're talking to it.
 - **AI Keys**: Anthropic, OpenAI, Google Gemini (has a free tier), xAI, DeepSeek, Mistral, Groq, OpenRouter, or Ollama (free, local, needs a good GPU).
 - **Quick magic** buttons while playing: make it day, clear weather, heal/feed everyone, teleport the AI friends to you.
 - **Logs** and a server command box.
 
-## Joining Buddy World with the CurseForge "magic" profile
+## Joining Buddy World with CurseForge
 JEI, Jade, Just Zoom and Durability Tooltip work on Buddy World. If Minecraft refuses to connect because of the magic mods,
 switch **Ars Nouveau**, **Curios API** and **GeckoLib** off in CurseForge (the orange toggles) or make a copy of the profile
 without them. Plain, unmodded Minecraft 1.21.1 always works.

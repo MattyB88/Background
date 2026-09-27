@@ -3,6 +3,8 @@
 export const MC_VERSION = '1.21.1';
 export const NEOFORGE_VERSION = '21.1.252';
 // Pinned so an upstream change can't break a working setup. Bump deliberately.
+// Players install the same Simple Voice Chat version in their game (CurseForge/Modrinth).
+export const SVC_VERSION = '2.6.24';
 export const MINDCRAFT_REF = '5f3acc87b479864124173de444f31fa5538f94a6';
 
 export const PROVIDERS = {
@@ -75,24 +77,24 @@ export const SPEEDS = {
 export const WORLDS = {
   buddy: {
     label: 'Buddy World', emoji: '🤖',
-    blurb: 'Survival world where your AI friends can join. Vanilla-compatible with speed-up mods. JEI, Jade, Just Zoom and Durability Tooltip still work from your CurseForge "magic" profile.',
+    blurb: 'Survival world where your AI friends can join and talk with you on Simple Voice Chat. Join with a CurseForge 1.21.1 profile that has Simple Voice Chat 2.6.24 (JEI, Jade, Just Zoom and Durability Tooltip work too).',
     ai: true,
     // Server-side only Fabric mods: they make the server faster without clients needing them.
-    mods: ['fabric-api', 'lithium', 'ferrite-core'],
+    mods: ['fabric-api', 'lithium', 'ferrite-core', `simple-voice-chat@fabric-${'1.21.1'}-${'2.6.24'}`],
   },
   magic: {
     label: 'Magic World', emoji: '✨',
     blurb: `Your son's "magic" modpack (NeoForge ${NEOFORGE_VERSION}) with Ars Nouveau. Join with the CurseForge "magic" profile. AI friends cannot join modded worlds yet (a Mindcraft limit).`,
     ai: false,
     // Mods that must also exist on the server. Just Zoom and Durability Tooltip are client-only.
-    mods: ['ars-nouveau', 'curios', 'geckolib', 'jade', 'jei'],
+    mods: ['ars-nouveau', 'curios', 'geckolib', 'jade', 'jei', `simple-voice-chat@neoforge-${'1.21.1'}-${'2.6.24'}`],
   },
 };
 
 // Voices: the control panel speaks each AI friend's chat out loud with ElevenLabs.
 export const VOICE = {
   label: 'ElevenLabs (voices)', key: 'ELEVENLABS_API_KEY', keyUrl: 'https://elevenlabs.io/app/developers/api-keys',
-  note: 'When creating the key, give it Access to "Text to Speech" (and Read for "Voices" to list your own voices).',
+  note: 'When creating the key, give it Access to "Text to Speech" and "Speech to Text" (and Read for "Voices" to list your own voices).',
   model: 'eleven_flash_v2_5',
 };
 

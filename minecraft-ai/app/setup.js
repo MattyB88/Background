@@ -90,12 +90,15 @@ async function ensureMods(world, loader, progress) {
   fs.mkdirSync(modsDir, { recursive: true });
   const manifestPath = path.join(modsDir, '.managed.json');
   const managed = fs.existsSync(manifestPath) ? JSON.parse(fs.readFileSync(manifestPath, 'utf8')) : {};
-  for (const slug of WORLDS[world].mods) {
-    if (managed[slug] && fs.existsSync(path.join(modsDir, managed[slug]))) continue;
+  for (const entry of WORLDS[world].mods) {
+    // "slug@version" pins an exact Modrinth version (needed when clients must match it).
+    const [slug, pinned] = entry.split('@');
+    if (managed[slug] && (!pinned || managed[slug].includes(pinned.replace(/^\w+-/, ''))) && fs.existsSync(path.join(modsDir, managed[slug]))) continue;
+    if (managed[slug]) fs.rmSync(path.join(modsDir, managed[slug]), { force: true });
     progress?.({ label: `Finding mod: ${slug}`, pct: null });
     const q = new URLSearchParams({ loaders: JSON.stringify([loader]), game_versions: JSON.stringify([MC_VERSION]) });
     const versions = await getJSON(`https://api.modrinth.com/v2/project/${slug}/version?${q}`);
-    const v = versions.find((x) => x.version_type === 'release') || versions[0];
+    const v = pinned ? versions.find((x) => x.version_number === pinned) : (versions.find((x) => x.version_type === 'release') || versions[0]);
     if (!v) throw new Error(`No ${loader} ${MC_VERSION} version of "${slug}" on Modrinth.`);
     const file = v.files.find((f) => f.primary) || v.files[0];
     await download(file.url, path.join(modsDir, file.filename), progress, `Downloading ${file.filename}`);
@@ -148,8 +151,44 @@ export function mindcraftReady() {
   return fs.existsSync(path.join(MINDCRAFT_DIR, `.installed-${MINDCRAFT_REF}`));
 }
 
+function npmRunner() {
+  const cli = npmCli();
+  const nodeDir = path.dirname(process.execPath);
+  const env = { ...process.env, PATH: nodeDir + path.delimiter + process.env.PATH };
+  const [cmd, base] = cli ? [process.execPath, [cli]] : [IS_WIN ? 'npm.cmd' : 'npm', []];
+  return (args, log) => run(cmd, [...base, ...args], { cwd: MINDCRAFT_DIR, env, onLine: log, shell: !cli && IS_WIN });
+}
+
+// In-game voice add-on: needs the pure-JS Opus codec, plus our module wired into Mindcraft.
+const VOICE_ADDON_VERSION = 1;
+async function ensureVoiceAddon(progress, log) {
+  const marker = path.join(MINDCRAFT_DIR, `.voice-addon-${VOICE_ADDON_VERSION}`);
+  if (!fs.existsSync(marker)) {
+    progress?.({ label: 'Installing the voice add-on', pct: null });
+    await npmRunner()(['install', 'opusscript@0.1.1', '--no-save', '--no-audit', '--no-fund'], log);
+    fs.writeFileSync(marker, new Date().toISOString());
+  }
+  installVoiceFiles();
+}
+
+export function installVoiceFiles() {
+  const agentDir = path.join(MINDCRAFT_DIR, 'src', 'agent');
+  fs.copyFileSync(path.join(import.meta.dirname, 'mindcraft-addons', 'ingame_voice.js'), path.join(agentDir, 'ingame_voice.js'));
+  // Mindcraft calls speak() for every chat line when settings.speak is on; route it into voice chat.
+  fs.writeFileSync(path.join(agentDir, 'speak.js'),
+    '// Replaced by AI Buddies: speech goes into Simple Voice Chat (see ingame_voice.js).\n' +
+    'export function speak(text) { globalThis.__ingameVoice?.say(text); }\n');
+  const agentFile = path.join(agentDir, 'agent.js');
+  const src = fs.readFileSync(agentFile, 'utf8');
+  const anchor = 'this.bot = initBot(this.name);';
+  if (!src.includes('ingame_voice.js') && src.includes(anchor)) {
+    fs.writeFileSync(agentFile, src.replace(anchor,
+      `${anchor}\n        import('./ingame_voice.js').then((m) => m.attach(this)).catch((e) => console.error('[voice] failed to start:', e));`));
+  }
+}
+
 async function ensureMindcraft(progress, log) {
-  if (mindcraftReady()) return;
+  if (mindcraftReady()) return ensureVoiceAddon(progress, log);
   if (!fs.existsSync(path.join(MINDCRAFT_DIR, 'main.js'))) {
     const archive = path.join(DATA, 'mindcraft.tar.gz');
     await download(`https://github.com/mindcraft-bots/mindcraft/archive/${MINDCRAFT_REF}.tar.gz`,
@@ -160,12 +199,9 @@ async function ensureMindcraft(progress, log) {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
   progress?.({ label: 'Installing Mindcraft packages (a few minutes the first time)', pct: null });
-  const cli = npmCli();
-  const nodeDir = path.dirname(process.execPath);
-  const env = { ...process.env, PATH: nodeDir + path.delimiter + process.env.PATH };
-  const [cmd, base] = cli ? [process.execPath, [cli]] : [IS_WIN ? 'npm.cmd' : 'npm', []];
-  await run(cmd, [...base, 'install', '--no-audit', '--no-fund'], { cwd: MINDCRAFT_DIR, env, onLine: log, shell: !cli && IS_WIN });
+  await npmRunner()(['install', '--no-audit', '--no-fund'], log);
   fs.writeFileSync(path.join(MINDCRAFT_DIR, `.installed-${MINDCRAFT_REF}`), new Date().toISOString());
+  await ensureVoiceAddon(progress, log);
 }
 
 export async function ensureAll(world, { progress, log }) {
