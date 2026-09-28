@@ -137,6 +137,60 @@ function side(){
     $("#bDemo").onclick=demo;return;}
   (PANELS[S.step]||(()=>{}))(el,d);
 }
+function verifyHtml(v){return `<div class="card" style="border-color:${v.ok?"var(--ok)":"var(--bad)"};font-size:12px">
+  <b style="color:${v.ok?"var(--ok)":"var(--bad)"}">${v.ok?"✔ Fiducials verified":"✖ Fiducials NOT verified"}</b> on ${v.source}
+  ${v.registration?` · ${esc(v.registration.method||"")} · match ${v.registration.match??"—"} · residual ${v.registration.fid_residual_px??"—"} px${v.registration.msg?"<br>"+esc(v.registration.msg):""}`:""}
+  <table style="width:100%">${v.fids.map(f=>`<tr><td><b>${esc(f.ref||"")}</b></td><td>${f.found?"✔":"✖"}</td><td>${f.score!=null?"score "+Math.round(f.score*100)+"%":esc(f.why||"")}</td><td>${f.match!=null?"match "+f.match:""}</td><td>${f.r?"r "+f.r+"px":""}</td></tr>`).join("")}</table></div>`;}
+function fidTeach(ref,px,py){
+  const m=document.createElement("div");m.style.cssText="position:fixed;inset:0;background:#000b;z-index:60;display:flex;align-items:center;justify-content:center";
+  let st={px,py,view:"binary",par:null,res:null,busy:false,again:false};
+  const sl=(id,lab,min,max,step)=>`<div class="row" style="margin:3px 0"><span style="flex:0 0 130px">${lab}: <b id="${id}v"></b></span><input type="range" id="${id}" min="${min}" max="${max}" step="${step}"></div>`;
+  m.innerHTML=`<div style="background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;width:min(900px,96vw);max-height:94vh;overflow:auto">
+   <h2>🎯 Teach fiducial ${esc(ref)}</h2>
+   <div style="display:flex;gap:14px;flex-wrap:wrap">
+    <div style="flex:1 1 380px;min-width:300px">
+     <div class="row"><span style="flex:0">View</span><select id="ftV"><option value="binary">Binary (what it thresholds)</option><option value="image">Image</option></select></div>
+     <img id="ftI" style="width:100%;image-rendering:pixelated;border:1px solid var(--line);border-radius:6px;cursor:crosshair;background:#000">
+     <div id="ftS" style="text-align:center;font-weight:800;margin-top:6px"></div>
+     <div style="font-size:11px;color:var(--dim);text-align:center">Click in the view to re-centre on the mark · blue ring = search area</div>
+    </div>
+    <div style="flex:1 1 300px">
+     <button class="big pri" id="ftSug">✨ Suggest settings from this mark</button>
+     <label style="display:flex;gap:6px;margin:4px 0"><input type="checkbox" id="ftA"> Auto threshold (Otsu)</label>
+     <label style="display:flex;gap:6px;margin:4px 0"><input type="checkbox" id="ftD"> Mark is darker than surround (invert)</label>
+     ${sl("ftT","Threshold",0,255,1)}${sl("ftB","Blur",1,15,2)}${sl("ftR0","Min radius px",1,80,0.5)}${sl("ftR1","Max radius px",2,120,0.5)}
+     ${sl("ftQ","Roundness ×100",20,95,1)}${sl("ftSr","Search ± mm",0.5,15,0.5)}${sl("ftM","Template match ≥",0,0.95,0.05)}
+     <div id="ftInfo" style="font-size:12px;color:var(--dim);margin-top:6px"></div>
+    </div></div>
+   <div class="row" style="justify-content:flex-end;margin-top:10px"><button id="ftOK" class="pri" style="flex:0 0 120px">OK</button><button id="ftX" style="flex:0 0 120px">Cancel</button></div></div>`;
+  document.body.appendChild(m);const q=x=>m.querySelector(x);const U=P()+"/fiducials/"+encodeURIComponent(ref);
+  const read=()=>({polarity:q("#ftD").checked?"dark":(st.par&&st.par.polarity=="auto"?"auto":"bright"),threshold:q("#ftA").checked?null:+q("#ftT").value,blur:+q("#ftB").value,
+    rmin_px:+q("#ftR0").value,rmax_px:+q("#ftR1").value,roundness:+q("#ftQ").value/100,search_mm:+q("#ftSr").value,min_match:+q("#ftM").value});
+  const fill=p=>{st.par=p;q("#ftA").checked=p.threshold==null;q("#ftD").checked=p.polarity=="dark";q("#ftT").value=p.threshold??(st.res?st.res.otsu:128);q("#ftT").disabled=p.threshold==null;
+    q("#ftB").value=p.blur;q("#ftR0").value=p.rmin_px??Math.max(1,(st.res?st.res.expected_r_px:8)*.6);q("#ftR1").value=p.rmax_px??(st.res?st.res.expected_r_px:8)*1.5;
+    q("#ftQ").value=Math.round(p.roundness*100);q("#ftSr").value=p.search_mm;q("#ftM").value=p.min_match;lab();};
+  const lab=()=>["ftT","ftB","ftR0","ftR1","ftQ","ftSr","ftM"].forEach(i=>q("#"+i+"v").textContent=q("#"+i).value);
+  const run=async(params)=>{if(st.busy){st.again=true;return;}st.busy=true;
+    try{const r=await api(U+"/try",{json:{px:st.px,py:st.py,params}});st.res=r;if(!params)fill(r.params);
+      q("#ftI").src=r.views[st.view];const h=r.hit;
+      q("#ftS").innerHTML=r.found?`<span style="color:var(--ok)">FOUND ✓ (${h.px.toFixed(1)}, ${h.py.toFixed(1)}) r=${h.r}px · score ${Math.round(h.score*100)}%${h.match!=null?" · match "+h.match:""}</span>`:
+        h?`<span style="color:var(--warn)">WEAK ${Math.round(h.score*100)}% — adjust settings</span>`:`<span style="color:var(--bad)">NOT FOUND ✖</span>`;
+      q("#ftInfo").textContent=`Expected radius ≈ ${r.expected_r_px}px (from .gen size) · Otsu ≈ ${r.otsu}${h?` · roundness ${h.roundness} · ${h.polarity} mark`:""}${r.template?" · checked against taught template":""}`;
+      q("#ftOK").disabled=!r.found;}
+    finally{st.busy=false;if(st.again){st.again=false;run(read());}}};
+  let tm;const live=()=>{lab();q("#ftT").disabled=q("#ftA").checked;clearTimeout(tm);tm=setTimeout(()=>run(read()),120);};
+  m.querySelectorAll("input").forEach(i=>i.oninput=live);
+  q("#ftV").onchange=e=>{st.view=e.target.value;if(st.res)q("#ftI").src=st.res.views[st.view];};
+  q("#ftI").onclick=e=>{const b=e.target.getBoundingClientRect(),R=Math.max(st.res.params.search_mm*(S.data.overlay[0]?.ppm||10),st.res.expected_r_px*3,20);
+    const k=(e.clientX-b.left)/b.width,l=(e.clientY-b.top)/b.height;st.px=st.px-R+k*2*R;st.py=st.py-R+l*2*R;run(read());};
+  q("#ftSug").onclick=async()=>{const h=st.res&&st.res.hit;const s=await api(U+"/suggest",{json:{px:h?h.px:st.px,py:h?h.py:st.py}});
+    fill({...read(),...s,threshold:null});q("#ftInfo").textContent=`Measured mark: radius ${s.measured.r_px}px · ${s.measured.polarity} on its surround · Otsu ≈ ${s.measured.threshold}. Radius window set to ${s.rmin_px}–${s.rmax_px}px.`;run(read());};
+  q("#ftX").onclick=()=>m.remove();
+  q("#ftOK").onclick=async()=>{const h=st.res.hit;const r=await api(U+"/teach",{json:{px:h.px,py:h.py,params:read()}});m.remove();
+    toast(r.fit?`✔ ${ref} taught · max error ${r.fit.max_mm} mm`:`✔ ${ref} taught — teach one more`,3500);
+    const next=S.data.components.filter(c=>c.fiducial).map(c=>c.ref).find(f=>f!=ref&&!(S.data.fid_teach||{})[f]);await refresh();side();draw();
+    if(next&&!r.fit){S.fidPick=next;side();}};
+  run(null);}
 function libConflict(cf,c){const m=document.createElement("div");
   m.style.cssText="position:fixed;inset:0;background:#000a;z-index:50;display:flex;align-items:center;justify-content:center";
   const f=o=>Object.entries(o).filter(([k])=>!["th","checks"].includes(k)).map(([k,v])=>`${k}: ${Array.isArray(v)?(Array.isArray(v[0])?v.length+" pads":v.map(x=>+(+x).toFixed(2)).join(", ")):v}`).join("<br>");
@@ -228,7 +282,7 @@ align(el,d){
   const a={dx:0,dy:0,rot:0,scale:1,...(d.adjust||{})};S.step_mm=S.step_mm||0.2;S.step_deg=S.step_deg||0.5;
   const st=f=>{const m=marks[f.ref];if(!m)return`<span class="tag" style="background:#555">not set</span>`;
     const res=fit&&fit.residual_mm?fit.residual_mm[f.ref]:null;
-    return `<span class="tag" style="background:${m.source=="manual"?"var(--warn)":"var(--ok)"};color:#000">${m.source=="manual"?"manual":"auto "+Math.round((m.score||0)*100)+"%"}</span>${res!=null?`<small style="color:${res>.15?"var(--bad)":"var(--dim)"}">${res.toFixed(3)} mm</small>`:""}`;};
+    return `<span class="tag" style="background:${m.source=="taught"?"#2ecc71":m.source=="manual"?"var(--warn)":"#8fd3a0"};color:#000">${m.source=="taught"?"taught ✓":m.source=="manual"?"manual":"auto "+Math.round((m.score||0)*100)+"%"}</span>${res!=null?`<small style="color:${res>.15?"var(--bad)":"var(--dim)"}">${res.toFixed(3)} mm</small>`:""}`;};
   el.innerHTML=`<h2>🎯 Align</h2>
    ${!d.has_golden?`<div class="hint">Load the golden image first (Board step)</div>`:""}
    <div class="hint">1 Rough-place the layout · 2 Snap / click fiducials · 3 Fine-tune</div>
@@ -240,11 +294,15 @@ align(el,d){
    <div class="row"><button id="aSnap" class="pri">🎯 Snap near overlay</button><button id="aAuto">✨ Search whole image</button></div>
    <table style="width:100%;font-size:12px;border-collapse:collapse">${fids.map(f=>`<tr style="border-top:1px solid var(--line);${S.fidSel==f.ref?"background:var(--panel2)":""}">
      <td><b>${f.ref}</b><br><small style="color:var(--dim)">${f.x.toFixed(2)}, ${f.y.toFixed(2)}</small></td><td>${st(f)}</td>
-     <td style="text-align:right;white-space:nowrap"><button data-fp="${f.ref}" class="${S.fidPick==f.ref?"ok":""}" title="Click it on the image">👆 Pick</button><button data-fs="${f.ref}" title="Select to nudge">✥</button><button data-fx="${f.ref}" title="Clear">✕</button></td></tr>`).join("")||`<tr><td class="hint">No fiducials in the layout — click 2 part centres below</td></tr>`}</table>
-   ${S.fidPick?`<div class="hint big">👆 Click the centre of <span style="color:var(--warn)">${S.fidPick}</span> (it snaps to the dot) — Alt+click = no snap</div>`:""}
+     <td style="text-align:right;white-space:nowrap"><button data-fp="${f.ref}" class="${S.fidPick==f.ref?"ok":""}" title="Click it on the image, then teach">👆 Pick</button><button data-ft="${f.ref}" title="Teach / tune finder settings">🔧</button><button data-fs="${f.ref}" title="Select to nudge">✥</button><button data-fx="${f.ref}" title="Clear">✕</button></td></tr>`).join("")||`<tr><td class="hint">No fiducials in the layout — click 2 part centres below</td></tr>`}</table>
+   ${S.fidPick?`<div class="hint big">👆 Click <span style="color:var(--warn)">${S.fidPick}</span> on the image → teach dialog opens (Alt+click = place exactly, no teach)</div>`:""}
    ${S.fidSel&&marks[S.fidSel]?`<div style="text-align:center;color:var(--dim)">Nudge ${S.fidSel} (1 px)</div><div class="pad"><span></span><button data-fn="0,-1">▲</button><span></span><button data-fn="-1,0">◀</button><button id="fSnap" title="Snap to blob">◎</button><button data-fn="1,0">▶</button><span></span><button data-fn="0,1">▼</button><span></span></div>`:""}
    ${fit?`<div class="tiles"><div class="tile"><b style="color:${fit.max_mm>.15?"var(--warn)":"var(--ok)"}">${fit.max_mm.toFixed(3)}</b><span>max error mm</span></div><div class="tile"><b>${fit.ppm}</b><span>px / mm</span></div><div class="tile"><b>${fit.rotation}°</b><span>rotation</span></div></div>`:""}
-   <details ${S.fidOpen?"open":""} id="fDet"><summary style="cursor:pointer">🔧 Finder settings</summary>
+   <b style="display:block;margin-top:8px">✅ Verify fiducials</b>
+   <div class="row"><button id="vGold">Verify on golden</button><button id="vBoard">Verify on a board…</button></div>
+   <label style="font-size:12px;display:flex;gap:6px;align-items:center"><input type="checkbox" id="vReq" ${d.fid_required!==false?"checked":""}> Stop inspection if taught fiducials aren't found</label>
+   <div id="vOut">${S.verify?verifyHtml(S.verify):""}</div>
+   <details ${S.fidOpen?"open":""} id="fDet"><summary style="cursor:pointer">🔧 Finder settings (auto-find)</summary>
     <div class="row"><span>Dot</span><select id="fPol">${["auto","bright","dark"].map(v=>`<option ${par.polarity==v?"selected":""}>${v}</option>`).join("")}</select><select id="fShape">${["auto","circle","square"].map(v=>`<option ${par.shape==v?"selected":""}>${v}</option>`).join("")}</select></div>
     <div class="row"><span>Threshold</span><label style="flex:0"><input type="checkbox" id="fTa" ${par.threshold==null?"checked":""}>auto</label><input type="range" id="fT" min="0" max="255" value="${par.threshold??128}" ${par.threshold==null?"disabled":""}><b id="fTv" style="flex:0;min-width:28px">${par.threshold??"—"}</b></div>
     <div class="row"><span>Dot size mm</span><input type="number" id="fSz" step="0.1" min="0.2" placeholder="from .gen" value="${par.size_mm??""}"></div>
@@ -273,6 +331,12 @@ align(el,d){
   $("#fT").oninput=e=>$("#fTv").textContent=e.target.value;$("#fSr").oninput=e=>$("#fSrv").textContent=e.target.value;$("#fMs").oninput=e=>$("#fMsv").textContent=e.target.value;
   el.querySelectorAll("[data-fp]").forEach(b=>b.onclick=()=>{S.fidPick=S.fidPick==b.dataset.fp?null:b.dataset.fp;S.fidSel=b.dataset.fp;side();});
   el.querySelectorAll("[data-fs]").forEach(b=>b.onclick=()=>{S.fidSel=b.dataset.fs;side();draw();});
+  el.querySelectorAll("[data-ft]").forEach(b=>b.onclick=()=>{const r=b.dataset.ft,m=marks[r];
+    if(m)fidTeach(r,m.px,m.py);else{S.fidPick=r;side();toast("Click "+r+" on the image first");}});
+  $("#vGold").onclick=async()=>{S.verify=await api(P()+"/fiducials/verify",{method:"POST"});side();};
+  $("#vBoard").onclick=async()=>{const f=await pickFile("image/*");if(!f)return;const fd=new FormData();fd.append("image",f);toast("Verifying…");
+    S.verify=await api(P()+"/fiducials/verify",{method:"POST",body:fd});side();};
+  $("#vReq").onchange=e=>api(P()+"/settings",{method:"PUT",json:{fid_required:e.target.checked}}).then(refresh);
   el.querySelectorAll("[data-fx]").forEach(b=>b.onclick=async()=>{await api(P()+"/fiducials/mark",{json:{ref:b.dataset.fx,remove:true}});await refresh();side();draw();});
   el.querySelectorAll("[data-fn]").forEach(b=>b.onclick=async()=>{const m=marks[S.fidSel];const[x,y]=b.dataset.fn.split(",").map(Number);
     await api(P()+"/fiducials/mark",{json:{ref:S.fidSel,px:m.px+x,py:m.py+y,snap:false}});await refresh();side();draw();});
@@ -401,7 +465,10 @@ inspect(el,d){
    <div class="row"><button id="bCam">📷 Camera</button><button id="bAuto" class="${S.watch?"on":""}">${S.watch?"⏸ Stop auto":"🔁 Auto folder"}</button></div>
    <button class="big ok" id="bTrain"><span class="ico">✔</span>Train with GOOD board${d.compare&&d.compare.trained?` (${d.compare.trained})`:""}</button>
    ${r?`<div class="banner ${r.ok?"pass":"fail"}">${r.ok?"PASS ✔":"FAIL ✖ "+(r.n_fail||"")}</div>
-   <div class="tiles"><div class="tile"><b>${r.cycle_s}s</b><span>cycle</span></div><div class="tile"><b>${(r.registration.angle||0).toFixed(2)}°</b><span>board angle</span></div></div>
+   ${r.registration&&!r.registration.ok?`<div class="hint" style="border-color:var(--bad)">⚠ ${esc(r.registration.msg||"Board not aligned")}<br><small>No parts were judged — fix alignment first (Align → Verify on a board).</small></div>`:""}
+   ${r.warning?`<div class="hint" style="border-color:var(--warn)">⚠ ${esc(r.warning)}</div>`:""}
+   <div class="tiles"><div class="tile"><b>${r.cycle_s}s</b><span>cycle</span></div><div class="tile"><b>${(r.registration.angle||0).toFixed(2)}°</b><span>board angle</span></div>
+   <div class="tile"><b>${r.registration.match??"—"}</b><span>align match</span></div><div class="tile"><b>${(r.registration.fids||[]).filter(f=>f.found).length}/${(r.registration.fids||[]).length}</b><span>fiducials</span></div></div>
    ${r.ok?"":`<button class="big bad" id="bRev">Review ${r.n_fail||""} fails ➜</button>`}
    ${r.run?`<a class="big" href="${P()}/runs/${r.run}/report.jpg" target="_blank" style="display:flex;justify-content:center;gap:12px;text-decoration:none;color:var(--txt);background:var(--panel2);border-radius:8px;padding:10px 14px;font-size:14px;font-weight:600;margin:5px 0">📋 Report sheet (zoomed golden vs board)</a>`:""}`:""}
    ${S.data.demo_hint?"":`<div style="color:var(--dim);margin-top:14px;font-size:13px">Demo images: <a style="color:var(--acc)" href="/api/demo/image/good_1" download>good</a> · <a style="color:var(--acc)" href="/api/demo/image/defects_1" download>defects</a></div>`}`;
@@ -722,7 +789,8 @@ window.onmouseup=async e=>{const d=drag;drag=null;
   if(d&&d.geo&&d.moved){await geoCommit(d.geo);return;}
   if(d&&d.lay&&d.moved&&S.layDrag){const k=ppmNow(),o=S.layDrag;await S.adj({ddx:o.x/k,ddy:o.y/k});S.layDrag=null;draw();return;}
   if(!d||d.moved||e.target!==cv||!S.data)return;const[x,y]=toImg(e);
-  if(S.step=="align"&&S.fidPick){const ref=S.fidPick;S.fidPick=null;S.fidSel=ref;const r=await api(P()+"/fiducials/mark",{json:{ref,px:x,py:y,snap:!e.altKey}});
+  if(S.step=="align"&&S.fidPick&&!e.altKey){const ref=S.fidPick;S.fidPick=null;S.fidSel=ref;side();fidTeach(ref,x,y);return;}
+  if(S.step=="align"&&S.fidPick){const ref=S.fidPick;S.fidPick=null;S.fidSel=ref;const r=await api(P()+"/fiducials/mark",{json:{ref,px:x,py:y,snap:false}});
     const n=Object.keys(r.marks||{}).length;toast(r.fit?`✔ ${ref} set · max error ${r.fit.max_mm} mm`:`✔ ${ref} set — pick ${Math.max(0,2-n)} more`,3000);
     const next=S.data.components.filter(c=>c.fiducial).map(c=>c.ref).find(f=>!(r.marks||{})[f]);if(!r.fit&&next)S.fidPick=next;
     await refresh();side();draw();return;}

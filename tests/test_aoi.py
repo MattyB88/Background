@@ -445,3 +445,27 @@ def test_scope_levels_and_library(prog):
     prog.promote_ipn(a)
     assert prog.geom(a)[0].get("rot_off") == 90 and not prog.data["packages"][a["package"]].get("rot_off")
     assert "IPN-A" in prog.ipn_library()
+
+
+def test_fid_teach_verify_and_tilted_board(prog):
+    import cv2
+    import numpy as np
+    for f in prog.fid_list():
+        m = prog.data["fid_marks"][f["ref"]]
+        r = prog.fid_try(f["ref"], m["px"] + 2, m["py"] - 2)
+        assert r["found"] and r["views"]["binary"].startswith("data:image/png")
+        prog.fid_teach_save(f["ref"], r["hit"]["px"], r["hit"]["py"], r["params"])
+    assert prog.fid_verify()["ok"]
+    g = synth.render()
+    h, w = g.shape[:2]
+    H = np.vstack([cv2.getRotationMatrix2D((w / 2, h / 2), 3, 0.95), [0, 0, 1]])
+    H[2, 0] = 0.02 / w  # camera tilt (keystone)
+    t = cv2.warpPerspective(g, H, (w, h), borderValue=(40, 40, 40))
+    v = prog.fid_verify(t)
+    assert v["ok"] and v["registration"]["match"] > 0.6
+    r = prog.inspect(t, log=False)
+    assert r["registration"]["ok"] and r["ok"], [c for c in r["components"] if not c["ok"]]
+    # an unrelated image must not produce a pile of fake defects
+    junk = np.random.default_rng(0).integers(0, 255, g.shape, dtype=np.uint8)
+    r = prog.inspect(junk, log=False)
+    assert r.get("fails") == ["ALIGN"]

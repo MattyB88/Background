@@ -212,6 +212,34 @@ def fid_mark(name):
     return jsonify(fit=fit, marks=p.data.get("fid_marks"), overlay=p.overlay())
 
 
+@app.post("/api/programs/<name>/fiducials/<ref>/try")
+def fid_try(name, ref):
+    p = _prog(name)
+    j = request.json or {}
+    return jsonify(p.fid_try(ref, j["px"], j["py"], j.get("params")))
+
+
+@app.post("/api/programs/<name>/fiducials/<ref>/suggest")
+def fid_suggest(name, ref):
+    p = _prog(name)
+    j = request.json or {}
+    return jsonify(p.fid_suggest(ref, j["px"], j["py"]))
+
+
+@app.post("/api/programs/<name>/fiducials/<ref>/teach")
+def fid_teach(name, ref):
+    p = _prog(name)
+    j = request.json or {}
+    return jsonify(**p.fid_teach_save(ref, j["px"], j["py"], j.get("params") or {}), overlay=p.overlay())
+
+
+@app.post("/api/programs/<name>/fiducials/verify")
+def fid_verify(name):
+    p = _prog(name)
+    img = _img_from_request() if request.files else (_capture(request.args.get("cam", 0)) if request.args.get("camera") else None)
+    return jsonify(p.fid_verify(img))
+
+
 @app.put("/api/programs/<name>/adjust")
 def adjust(name):
     p = _prog(name)
@@ -428,6 +456,8 @@ def prog_settings(name):
         p.data["y_up"] = bool(body["y_up"])
     if "compare" in body:
         p.data.setdefault("compare", {}).update(body["compare"])
+    if "fid_required" in body:
+        p.data["fid_required"] = bool(body["fid_required"])
     if "auto_lib" in body:
         p.data["auto_lib"] = bool(body["auto_lib"])
     p.save()

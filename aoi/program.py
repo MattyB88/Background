@@ -785,6 +785,135 @@ class Program:
         fit = self.fit_fiducials() if sum(1 for f in fids if f["ref"] in marks) >= 2 else None
         return {"marks": out, "fit": fit, "params": par}
 
+    TEACH_DEFAULTS = {"polarity": "auto", "threshold": None, "blur": 3, "rmin_px": None, "rmax_px": None,
+                      "roundness": 0.55, "search_mm": 2.5, "min_match": 0.5, "min_score": 0.4}
+
+    def fid_teach(self, ref):
+        return {**self.TEACH_DEFAULTS, **(self.data.get("fid_teach") or {}).get(ref, {})}
+
+    def _fid_r_px(self, f):
+        M = self.M
+        d, _ = self._fid_geom(f, self.fid_params())
+        return d / 2 * vision.px_per_mm(M) if M is not None else 8.0
+
+    def fid_try(self, ref, px, py, params=None, image=None, zoom=None):
+        """Run the finder for one fiducial with *params* around (px, py). Returns result + image/binary previews
+        (PNG data URLs) of the search window, for the teach dialog."""
+        import base64
+        f = next(c for c in self.fid_list() if c["ref"] == ref)
+        par = {**self.fid_teach(ref), **(params or {})}
+        gray = vision.prep(image if image is not None else self.golden())
+        ppm = vision.px_per_mm(self.M) if self.M is not None else 10.0
+        r = self._fid_r_px(f)
+        _, shape = self._fid_geom(f, self.fid_params())
+        sr = par["search_mm"] * ppm
+        tpl = self._fid_template(ref) if par.get("use_template", True) else None
+        hit = vision.find_fiducial(gray, (px, py), r, sr, par["polarity"], par["threshold"], shape, blur=par["blur"],
+                                   rmin=par["rmin_px"], rmax=par["rmax_px"], roundness=par["roundness"],
+                                   template=tpl, min_match=par["min_match"] if tpl is not None else 0.0)
+        if hit and hit["score"] < par["min_score"]:
+            hit = {**hit, "weak": True}
+        R = int(max(sr, r * 3, 20))
+        H, W = gray.shape
+        x0, y0 = max(0, int(px) - R), max(0, int(py) - R)
+        win = gray[y0:min(H, int(py) + R + 1), x0:min(W, int(px) + R + 1)]
+        pol = hit["polarity"] if hit else (par["polarity"] if par["polarity"] != "auto" else "bright")
+        bw, t_used = vision.fid_binary(win, pol, par["threshold"], par["blur"])
+        k = max(1, int(round(300 / max(1, win.shape[1]))))
+        views = {}
+        for name, im in (("image", cv2.cvtColor(win, cv2.COLOR_GRAY2BGR)), ("binary", cv2.cvtColor(bw, cv2.COLOR_GRAY2BGR))):
+            im = cv2.resize(im, None, fx=k, fy=k, interpolation=cv2.INTER_NEAREST)
+            cv2.circle(im, (int((px - x0) * k), int((py - y0) * k)), max(3, int(sr * k)), (80, 80, 255), 1)
+            if hit:
+                c = (int((hit["px"] - x0) * k), int((hit["py"] - y0) * k))
+                col = (0, 200, 255) if hit.get("weak") else (60, 220, 60)
+                cv2.circle(im, c, max(2, int(hit["r"] * k)), col, 2)
+                cv2.drawMarker(im, c, col, cv2.MARKER_CROSS, max(8, int(hit["r"] * k)), 1)
+            views[name] = "data:image/png;base64," + base64.b64encode(cv2.imencode(".png", im)[1]).decode()
+        return {"found": bool(hit) and not hit.get("weak"), "hit": hit, "params": par, "expected_r_px": round(r, 1),
+                "otsu": t_used, "views": views, "template": tpl is not None}
+
+    def _fid_template(self, ref):
+        p = self.dir / f"fid_{_safe(ref)}.png"
+        return cv2.imread(str(p), cv2.IMREAD_GRAYSCALE) if p.exists() else None
+
+    def fid_suggest(self, ref, px, py):
+        f = next(c for c in self.fid_list() if c["ref"] == ref)
+        s = vision.suggest_fid(vision.prep(self.golden()), (px, py), self._fid_r_px(f))
+        if not s:
+            raise ValueError("No mark found there - click right on the fiducial")
+        return {"polarity": s["polarity"], "threshold": None, "rmin_px": s["rmin_px"], "rmax_px": s["rmax_px"], "measured": s}
+
+    def fid_teach_save(self, ref, px, py, params):
+        """OK in the teach dialog: must actually find the mark. Stores settings + a template of the mark."""
+        r = self.fid_try(ref, px, py, {**params, "use_template": False})
+        if not r["found"]:
+            raise ValueError("Not found with these settings - adjust until FOUND ✓")
+        h = r["hit"]
+        g = vision.prep(self.golden())
+        s = int(max(6, h["r"] * 2.4))
+        x0, y0 = int(round(h["px"])) - s // 2, int(round(h["py"])) - s // 2
+        tpl = g[max(0, y0):y0 + s, max(0, x0):x0 + s]
+        if tpl.shape == (s, s):
+            cv2.imwrite(str(self.path(f"fid_{_safe(ref)}.png")), tpl)
+        par = {k: params.get(k, v) for k, v in self.TEACH_DEFAULTS.items()}
+        par.update(polarity=h["polarity"], r_px=h["r"])
+        self.data.setdefault("fid_teach", {})[ref] = par
+        self.data.setdefault("fid_marks", {})[ref] = {"px": h["px"], "py": h["py"], "score": h["score"], "r": h["r"],
+                                                     "polarity": h["polarity"], "source": "taught"}
+        self.save()
+        have = [f for f in self.fid_list() if f["ref"] in self.data["fid_marks"]]
+        return {"hit": h, "fit": self.fit_fiducials() if len(have) >= 2 else None}
+
+    def fid_verify(self, image=None):
+        """Verify every fiducial with its taught settings - on the golden, or on a board image (full registration)."""
+        if image is None:
+            marks = self.data.get("fid_marks") or {}
+            out = []
+            for f in self.fid_list():
+                m = marks.get(f["ref"])
+                if not m:
+                    out.append({"ref": f["ref"], "found": False, "why": "not taught"})
+                    continue
+                r = self.fid_try(f["ref"], m["px"], m["py"])
+                h = r["hit"] or {}
+                out.append({"ref": f["ref"], "found": r["found"], "score": h.get("score"), "match": h.get("match"),
+                            "r": h.get("r"), "shift_px": round(math.dist((h["px"], h["py"]), (m["px"], m["py"])), 2) if h else None})
+            ok = sum(o["found"] for o in out) >= min(2, len(out)) and all(o["found"] for o in out)
+            return {"source": "golden", "fids": out, "ok": ok, "fit": self.data.get("fid_fit")}
+        _, reg = vision.register(self.golden(), image, self.anchors(), patch=int(vision.px_per_mm(self.M) * 1.5),
+                                 prefer=self.data.get("align"), fids=self.fid_targets(), min_score=self.data.get("min_align", 0.25))
+        refs = [f["ref"] for f in self.fid_list()]
+        fl = reg.get("fids") or []
+        for i, d in enumerate(fl):
+            d["ref"] = d.get("ref") or (refs[i] if i < len(refs) else f"F{i + 1}")
+        nf = sum(1 for d in fl if d["found"])
+        return {"source": "board", "fids": fl, "ok": bool(reg.get("ok")) and nf >= min(2, len(refs)),
+                "registration": {k: reg.get(k) for k in ("ok", "method", "match", "angle", "fid_residual_px", "msg")}}
+
+    def fid_targets(self):
+        """Golden fiducial positions + finder settings, used to lock each inspected board onto its fiducials."""
+        M = self.M
+        if M is None:
+            return []
+        par, ppm, marks = self.fid_params(), vision.px_per_mm(M), self.data.get("fid_marks") or {}
+        out = []
+        for f in self.fid_list():
+            d, shape = self._fid_geom(f, par)
+            m = marks.get(f["ref"])
+            px = (m["px"], m["py"]) if m else tuple(vision.apply(M, [vision.mm_src(f["x"], f["y"], self.data["y_up"])])[0])
+            tch = (self.data.get("fid_teach") or {}).get(f["ref"])
+            if tch:
+                tpl = self._fid_template(f["ref"])
+                out.append({"ref": f["ref"], "px": px, "r": tch.get("r_px") or d / 2 * ppm, "search": tch["search_mm"] * ppm, "shape": shape,
+                            "polarity": tch["polarity"], "threshold": tch["threshold"], "blur": tch["blur"], "rmin": tch["rmin_px"],
+                            "rmax": tch["rmax_px"], "roundness": tch["roundness"], "template": tpl,
+                            "min_match": tch["min_match"] if tpl is not None else 0.0, "min_score": tch["min_score"]})
+                continue
+            out.append({"ref": f["ref"], "px": px, "r": d / 2 * ppm, "search": max(par["search_mm"], 3.0) * ppm, "shape": shape,
+                        "polarity": (m or {}).get("polarity", par["polarity"]), "threshold": par["threshold"]})
+        return out
+
     def mark_fiducial(self, ref, px, py, snap=True, remove=False):
         """Manual fiducial position (click / nudge). snap=True refines to the blob under the click."""
         marks = self.data.setdefault("fid_marks", {})
@@ -870,7 +999,13 @@ class Program:
         if gold is None or self.M is None:
             raise ValueError("Program not ready: add board image and align fiducials first")
         warped, reg = vision.register(gold, img, self.anchors(), patch=int(vision.px_per_mm(self.M) * 1.5),
-                                       prefer=self.data.get("align"))
+                                       prefer=self.data.get("align"), fids=self.fid_targets(),
+                                       min_score=self.data.get("min_align", 0.25))
+        if warped is not None and self.data.get("fid_teach") and self.data.get("fid_required", True):
+            nf = sum(1 for d in reg.get("fids") or [] if d.get("found"))
+            if nf < min(2, len(self.fid_list())):
+                warped = None
+                reg = {**reg, "ok": False, "msg": f"Fiducials not verified on this board ({nf} found) - check board position / lighting, or re-teach the fiducials"}
         run_id = time.strftime("%Y%m%d-%H%M%S") + f"-{int(time.time() * 1000) % 1000:03d}"
         rdir = self.path("runs", run_id, "x").parent
         result = {"run": run_id, "time": time.time(), "board": board_id, "registration": reg, "components": []}
@@ -923,6 +1058,10 @@ class Program:
             self._compare(gold, warped, rdir, result)
         fails = [c for c in result["components"] if not c["ok"]]
         result.update(ok=not fails, n_fail=len(fails), cycle_s=round(time.time() - t0, 3))
+        nparts = sum(1 for c in result["components"] if "box" not in c)
+        if nparts >= 5 and len(fails) > 0.4 * nparts:
+            result["warning"] = (f"{len(fails)} of {nparts} parts failed - this is usually alignment, lighting or the wrong "
+                                 "program, not real defects. Check the fiducials (Align → Verify on a board) before trusting this result.")
         (rdir / "result.json").write_text(json.dumps(result))
         if log:
             self._log(result)
@@ -940,8 +1079,8 @@ class Program:
         tol = self.tol_map()
         # only compare where the camera actually saw the board (ignore content shifted in from outside)
         reg = result["registration"]
-        valid = cv2.warpAffine(np.full(reg["src_shape"], 255, np.uint8), np.float64(reg["M"]),
-                               (gold.shape[1], gold.shape[0]), flags=cv2.INTER_NEAREST, borderValue=0)
+        valid = cv2.warpPerspective(np.full(reg["src_shape"], 255, np.uint8), vision._h3(reg["M"]),
+                                    (gold.shape[1], gold.shape[0]), flags=cv2.INTER_NEAREST, borderValue=0)
         valid = cv2.erode(valid, np.ones((int(ppm * 0.8) | 1,) * 2, np.uint8))
         bo = vision.board_outline(gold)  # compare the board only, not the table around it
         if bo is not None:
@@ -1082,7 +1221,8 @@ class Program:
         """Learn normal variation from a known-good capture (lighting, focus, placement spread)."""
         gold = self.golden()
         warped, reg = vision.register(gold, img, self.anchors(), patch=int(vision.px_per_mm(self.M) * 1.5),
-                                       prefer=self.data.get("align"))
+                                       prefer=self.data.get("align"), fids=self.fid_targets(),
+                                       min_score=self.data.get("min_align", 0.25))
         if warped is None:
             raise ValueError("Board not found in image")
         d = vision.diff_map(gold, warped, max(1, int(vision.px_per_mm(self.M) * 0.1)))

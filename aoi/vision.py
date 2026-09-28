@@ -204,59 +204,118 @@ def auto_fiducials(img, fids, comps, y_up=True, fid_diam_mm=1.0, polarity="auto"
     return M, [pts[i] if i in keep else tuple(apply(M, [src[i]])[0]) for i in range(len(src))]
 
 
-def find_fiducial(gray, pred, r_px, search_px, polarity="auto", thresh=None, shape="circle"):
+def fid_binary(win, polarity, thresh, blur):
+    """Thresholded view of a search window (mark = white). Returns (binary, threshold used)."""
+    b = int(blur) | 1
+    w = cv2.GaussianBlur(win, (b, b), 0) if b > 1 else win
+    img = w if polarity != "dark" else 255 - w
+    if thresh is None:
+        t, bw = cv2.threshold(img, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    else:
+        t = thresh if polarity != "dark" else 255 - thresh
+        _, bw = cv2.threshold(img, t, 255, cv2.THRESH_BINARY)
+    return bw, int(t if polarity != "dark" else 255 - t)
+
+
+def find_fiducial(gray, pred, r_px, search_px, polarity="auto", thresh=None, shape="circle",
+                  blur=3, rmin=None, rmax=None, roundness=0.55, template=None, min_match=0.0):
     """Best fiducial blob near *pred* (px). r_px = expected radius (half side for squares).
 
-    polarity: bright | dark | auto; thresh: 0-255 or None (Otsu in the search window).
-    Returns {px, py, score 0-1, r, thresh, polarity} or None."""
+    polarity: bright | dark | auto; thresh: 0-255 or None (Otsu + a few brighter levels).
+    rmin/rmax: allowed radius window (default 0.6-1.5 x r_px) - every hit is size-validated.
+    template: taught grey patch of the mark; when given, the hit must also correlate >= min_match.
+    Returns {px, py, score 0-1, r, thresh, polarity, match} or None."""
     H, W = gray.shape
     x, y, R = int(round(pred[0])), int(round(pred[1])), int(max(search_px, r_px * 2.5, 8))
     x0, y0, x1, y1 = max(0, x - R), max(0, y - R), min(W, x + R + 1), min(H, y + R + 1)
     win = gray[y0:y1, x0:x1]
     if win.size < 25:
         return None
-    win = cv2.GaussianBlur(win, (3, 3), 0)
+    rmin = rmin if rmin else r_px * 0.6
+    rmax = rmax if rmax else r_px * 1.5
     exp_area = (4.0 if shape == "square" else math.pi) * r_px * r_px
+    b = int(blur) | 1
+    wb = cv2.GaussianBlur(win, (b, b), 0) if b > 1 else win
     best = None
     for pol in (("bright", "dark") if polarity == "auto" else (polarity,)):
-        img = win if pol == "bright" else 255 - win
+        img = wb if pol == "bright" else 255 - wb
         ts = [int(thresh) if pol == "bright" else 255 - int(thresh)] if thresh is not None else \
             [int(cv2.threshold(img, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[0])]
-        if thresh is None:  # a few levels around Otsu: fiducials are often brighter than the pads around them
+        if thresh is None:
             ts += [min(250, ts[0] + d) for d in (20, 40, 70)]
         for t in ts:
             _, bw = cv2.threshold(img, t, 255, cv2.THRESH_BINARY)
             cnts, _ = cv2.findContours(bw, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
             for c in cnts:
                 a = cv2.contourArea(c)
-                if a < max(6, exp_area * 0.3) or a > exp_area * 3:
+                if a < 6:
                     continue
+                req = math.sqrt(a / (4.0 if shape == "square" else math.pi))
+                if not rmin <= req <= rmax:
+                    continue  # size-validated against the taught radius
                 per = cv2.arcLength(c, True) + 1e-6
                 circ = 4 * math.pi * a / per ** 2
                 (bx, by), (bw_, bh_), _ = cv2.minAreaRect(c)
                 fill = a / max(1e-6, bw_ * bh_)
                 aspect = min(bw_, bh_) / max(1e-6, max(bw_, bh_))
-                if shape == "square":
-                    sh = min(1.0, fill / 0.85) * aspect
-                else:
-                    sh = min(1.0, circ / 0.85) * aspect
+                rnd = (min(1.0, fill / 0.85) if shape == "square" else min(1.0, circ / 0.85)) * aspect
+                if rnd < roundness:
+                    continue
                 size = math.exp(-2.5 * abs(math.sqrt(a / exp_area) - 1))
                 m = cv2.moments(c)
                 if m["m00"] <= 0:
                     continue
                 cx, cy = x0 + m["m10"] / m["m00"], y0 + m["m01"] / m["m00"]
                 dist = math.dist((cx, cy), pred) / max(1.0, R)
-                # contrast: blob vs ring around it
                 mask = np.zeros(win.shape, np.uint8)
                 cv2.drawContours(mask, [c], -1, 255, -1)
                 ring = cv2.dilate(mask, np.ones((max(3, int(r_px)) | 1,) * 2, np.uint8)) & ~mask
                 inside, outside = cv2.mean(img, mask)[0], cv2.mean(img, ring)[0] if ring.any() else 0
                 con = min(1.0, max(0.0, (inside - outside) / 60))
-                score = sh * size * (0.4 + 0.6 * con) * (1 - 0.5 * min(1, dist))
+                score = rnd * size * (0.4 + 0.6 * con) * (1 - 0.5 * min(1, dist))
+                mt = None
+                if template is not None:
+                    th_, tw_ = template.shape
+                    qx0, qy0 = int(round(cx - tw_ / 2)), int(round(cy - th_ / 2))
+                    patch = gray[max(0, qy0):qy0 + th_, max(0, qx0):qx0 + tw_]
+                    mt = ncc(patch, template) if patch.shape == template.shape else 0.0
+                    if mt < min_match:
+                        continue
+                    score = score * (0.5 + 0.5 * max(0.0, mt))
                 if best is None or score > best["score"]:
-                    best = {"px": float(cx), "py": float(cy), "score": round(float(score), 3), "r": round(math.sqrt(a / math.pi), 1),
-                            "thresh": int(t if pol == "bright" else 255 - t), "polarity": pol}
+                    best = {"px": float(cx), "py": float(cy), "score": round(float(score), 3), "r": round(req, 1),
+                            "thresh": int(t if pol == "bright" else 255 - t), "polarity": pol,
+                            "roundness": round(float(rnd), 2), "match": round(float(mt), 3) if mt is not None else None}
     return best
+
+
+def suggest_fid(gray, p, r_guess=12):
+    """Measure the mark under/near p: polarity, radius, Otsu threshold -> suggested finder settings."""
+    x, y, R = int(p[0]), int(p[1]), int(max(12, r_guess * 3))
+    H, W = gray.shape
+    win = gray[max(0, y - R):min(H, y + R + 1), max(0, x - R):min(W, x + R + 1)]
+    if win.size < 25:
+        return None
+    best = None
+    for pol in ("bright", "dark"):
+        img = cv2.GaussianBlur(win, (3, 3), 0)
+        img = img if pol == "bright" else 255 - img
+        t, bw = cv2.threshold(img, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        n, lab, st, cen = cv2.connectedComponentsWithStats(bw)
+        for i in range(1, n):
+            a = st[i, cv2.CC_STAT_AREA]
+            if a < 8 or a > 0.5 * win.size:
+                continue
+            w_, h_ = st[i, cv2.CC_STAT_WIDTH], st[i, cv2.CC_STAT_HEIGHT]
+            asp = min(w_, h_) / max(w_, h_)
+            d = math.dist(cen[i], (min(x, R), min(y, R)))
+            q = asp * (a / max(1, w_ * h_)) - d / R
+            if best is None or q > best[0]:
+                best = (q, pol, math.sqrt(a / math.pi), int(t if pol == "bright" else 255 - t))
+    if not best:
+        return None
+    _, pol, r, t = best
+    return {"polarity": pol, "r_px": round(r, 1), "threshold": t, "rmin_px": round(r * 0.6, 1), "rmax_px": round(r * 1.5, 1)}
 
 
 def fit_marks(src, dst, reject_mm=None):
@@ -273,21 +332,128 @@ def fit_marks(src, dst, reject_mm=None):
 
 
 # ---------------------------------------------------------------- registration
-def register(golden, test, anchors_px, patch=60, prefer=None):
-    """Warp *test* into golden frame. anchors_px: fiducial/feature points in golden.
+def _h3(M):
+    M = np.float64(M)
+    return M if M.shape == (3, 3) else np.vstack([M, [0, 0, 1]])
 
-    Returns (warped_test, info). Uses template matching at anchors, falls back to ORB.
-    """
+
+def happly(H, pts):
+    pts = np.float64(pts).reshape(-1, 2)
+    q = np.hstack([pts, np.ones((len(pts), 1))]) @ _h3(H).T
+    return q[:, :2] / q[:, 2:3]
+
+
+def _orb_homography(g, t, f):
+    """test -> golden homography from ORB features (handles a tilted camera). Returns (H, inliers)."""
+    gs = cv2.resize(g, None, fx=f, fy=f, interpolation=cv2.INTER_AREA) if f < 1 else g
+    ts = cv2.resize(t, None, fx=f, fy=f, interpolation=cv2.INTER_AREA) if f < 1 else t
+    orb = cv2.ORB_create(6000, fastThreshold=10)
+    k1, d1 = orb.detectAndCompute(cv2.equalizeHist(ts), None)
+    k2, d2 = orb.detectAndCompute(cv2.equalizeHist(gs), None)
+    if d1 is None or d2 is None or len(k1) < 10 or len(k2) < 10:
+        return None, 0
+    pairs = cv2.BFMatcher(cv2.NORM_HAMMING).knnMatch(d1, d2, k=2)
+    good = [m for m, n in (p for p in pairs if len(p) == 2) if m.distance < 0.8 * n.distance]
+    if len(good) < 12:
+        return None, 0
+    a = np.float32([k1[m.queryIdx].pt for m in good]) / f
+    b = np.float32([k2[m.trainIdx].pt for m in good]) / f
+    H, inl = cv2.findHomography(a, b, cv2.RANSAC, 4 / f, maxIters=5000, confidence=0.999)
+    if H is None:
+        return None, 0
+    return H, int(inl.sum())
+
+
+def refine_ecc_h(g, t, H, scale=0.5):
+    """ECC refinement of a test->golden homography. Returns (H, ok)."""
+    try:
+        S = np.diag([scale, scale, 1.0])
+        gs = cv2.resize(g, None, fx=scale, fy=scale).astype(np.float32)
+        ts = cv2.resize(t, None, fx=scale, fy=scale).astype(np.float32)
+        W0 = (S @ np.linalg.inv(_h3(H)) @ np.linalg.inv(S)).astype(np.float32)
+        W0 /= W0[2, 2]
+        _, W1 = cv2.findTransformECC(gs, ts, W0, cv2.MOTION_HOMOGRAPHY,
+                                     (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 80, 1e-5), None, 5)
+        H2 = np.linalg.inv(np.linalg.inv(S) @ W1.astype(np.float64) @ S)
+        H2 /= H2[2, 2]
+        corners = np.float64([[0, 0], [g.shape[1], 0], [0, g.shape[0]], [g.shape[1], g.shape[0]]])
+        if np.abs(happly(H2, happly(np.linalg.inv(_h3(H)), corners)) - corners).max() > 0.03 * max(g.shape):
+            return H, False
+        return H2, True
+    except (cv2.error, np.linalg.LinAlgError):
+        return H, False
+
+
+def _fid_refine(t, H, fids):
+    """Find the program fiducials in the test image where H (test->golden) predicts them, then correct H so they
+    land exactly on the golden fiducials. Returns (H, max residual px, n) or None."""
+    if not fids or H is None:
+        return None
+    Hi = np.linalg.inv(_h3(H))
+    got_t, got_g = [], []
+    details = []
+    for f in fids:
+        pred = happly(Hi, [f["px"]])[0]
+        best = None
+        for sr in (f["search"], f["search"] * 3):
+            best = find_fiducial(t, pred, f["r"], sr, f.get("polarity", "auto"), f.get("threshold"), f.get("shape", "circle"),
+                                 blur=f.get("blur", 3), rmin=f.get("rmin"), rmax=f.get("rmax"), roundness=f.get("roundness", 0.55),
+                                 template=f.get("template"), min_match=f.get("min_match", 0.0))
+            if best and best["score"] >= f.get("min_score", 0.4):
+                break
+            best = None
+        details.append({"ref": f.get("ref"), "found": bool(best), **({k: best[k] for k in ("score", "match", "r")} if best else {})})
+        if best:
+            got_t.append((best["px"], best["py"]))
+            got_g.append(tuple(f["px"]))
+    _fid_refine.last = details
+    if len(got_t) < 2:
+        return None
+    a = happly(H, got_t)  # where H puts the found dots (golden frame)
+    b = np.float64(got_g)
+    if len(a) >= 3:
+        C, _ = cv2.estimateAffine2D(a, b, method=cv2.LMEDS)
+        if C is None:
+            C = similarity_from_pairs(a, b)
+    else:
+        C = similarity_from_pairs(a, b)
+    lin = C[:, :2]
+    sv = np.linalg.svd(lin, compute_uv=False)
+    if sv.max() > 1.05 or sv.min() < 0.95 or abs(math.degrees(math.atan2(lin[1, 0], lin[0, 0]))) > 3:
+        return None  # dots found don't agree with the board estimate - ignore them
+    H2 = _h3(C) @ _h3(H)
+    res = np.linalg.norm(happly(H2, got_t) - b, axis=1)
+    return H2 / H2[2, 2], float(res.max()), len(got_t)
+
+
+def align_score(g, t, H, f=0.25):
+    """How well test warped by H matches golden (gradient NCC on a small copy), -1..1."""
+    Hh, W = g.shape
+    S = np.diag([f, f, 1.0])
+    gs = cv2.resize(g, None, fx=f, fy=f, interpolation=cv2.INTER_AREA)
+    ws = cv2.warpPerspective(cv2.resize(t, None, fx=f, fy=f, interpolation=cv2.INTER_AREA), S @ _h3(H) @ np.linalg.inv(S),
+                             (gs.shape[1], gs.shape[0]), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
+    return ncc(grad(cv2.GaussianBlur(gs, (3, 3), 0)), grad(cv2.GaussianBlur(ws, (3, 3), 0)))
+
+
+def register(golden, test, anchors_px, patch=60, prefer=None, fids=None, min_score=0.25):
+    """Warp *test* into golden frame (perspective-correct, so a tilted camera is fine).
+
+    Coarse estimates from fiducial templates, ORB features and the board outline; each is refined by ECC and
+    locked onto the program fiducials found in the test image. The estimate whose warped image matches the
+    golden best wins; below *min_score* the board is reported as not aligned instead of failing every part.
+    fids: [{px:(x,y) golden, r: radius px, search: px, shape, polarity, threshold}]."""
     g, t = prep(golden), prep(test)
-    H, W = g.shape
+    H0, W = g.shape
+    cands = []
     src, dst, scores = [], [], []
     for (x, y) in anchors_px:
         x0, y0 = int(max(0, x - patch)), int(max(0, y - patch))
-        x1, y1 = int(min(W, x + patch)), int(min(H, y + patch))
+        x1, y1 = int(min(W, x + patch)), int(min(H0, y + patch))
         tpl = g[y0:y1, x0:x1]
         if tpl.size == 0:
             continue
-        sr = int(max(W, H) * 0.12)
+        sr = int(max(W, H0) * 0.12)
         sx0, sy0 = max(0, x0 - sr), max(0, y0 - sr)
         win = t[sy0:min(t.shape[0], y1 + sr), sx0:min(t.shape[1], x1 + sr)]
         if win.shape[0] < tpl.shape[0] or win.shape[1] < tpl.shape[1]:
@@ -298,34 +464,51 @@ def register(golden, test, anchors_px, patch=60, prefer=None):
             src.append((x, y))
             dst.append((sx0 + ml[0] + (x - x0), sy0 + ml[1] + (y - y0)))
             scores.append(float(mv))
-    method = "fiducial"
-    M = None
-    if M is None and len(src) >= 2 and prefer != "features":
-        M = similarity_from_pairs(dst, src)  # test -> golden
-        method = "fiducial"
-    if M is None:
-        method = "features"
-        orb = cv2.ORB_create(3000)
-        k1, d1 = orb.detectAndCompute(t, None)
-        k2, d2 = orb.detectAndCompute(g, None)
-        if d1 is not None and d2 is not None:
-            matches = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True).match(d1, d2)
-            if len(matches) >= 8:
-                a = np.float32([k1[m.queryIdx].pt for m in matches])
-                b = np.float32([k2[m.trainIdx].pt for m in matches])
-                M, _ = cv2.estimateAffinePartial2D(a, b, method=cv2.RANSAC, ransacReprojThreshold=3)
-    if M is None:  # last resort: the board outline against a plain background (coarse; ECC refines it)
-        M = register_outline(golden, test, g, t)
-        method = "outline"
-    if M is None:
+    if len(src) >= 2 and prefer != "features":
+        cands.append(("fiducial", _h3(similarity_from_pairs(dst, src))))
+    f = min(1.0, 1400.0 / max(t.shape))
+    Ho, inl = _orb_homography(g, t, f)
+    if Ho is not None and inl >= 15:
+        cands.append(("features", Ho))
+    Mb = register_outline(golden, test, g, t)
+    if Mb is not None:
+        cands.append(("outline", _h3(Mb)))
+    if t.shape == g.shape:
+        cands.append(("identity", np.eye(3)))
+    if not cands:
         return None, {"ok": False, "method": "none", "msg": "Board not found - check position / lighting"}
-    M, refined = refine_ecc(g, t, M)
-    if refined:
-        method += "+ecc"
-    warped = cv2.warpAffine(test, M, (W, H), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-    ang = math.degrees(math.atan2(M[1, 0], M[0, 0]))
-    return warped, {"ok": True, "method": method, "M": M.tolist(), "src_shape": list(test.shape[:2]), "shift_px": [float(M[0, 2]), float(M[1, 2])],
-                    "angle": ang, "scale": px_per_mm(M), "scores": scores}
+    best, tried = None, []
+    _fid_refine.last = []
+    fid_detail = []
+    for name, H in cands:
+        method = name
+        s0 = align_score(g, t, H)
+        H2, refined = refine_ecc_h(g, t, H)
+        if refined and align_score(g, t, H2) >= s0 - 0.01:
+            H, method = H2, method + "+ecc"
+        fr = _fid_refine(t, H, fids)
+        det = list(getattr(_fid_refine, "last", []))
+        fid_res = None
+        if fr and align_score(g, t, fr[0]) >= align_score(g, t, H) - 0.02:
+            H, fid_res = fr[0], fr[1]
+            method += f"+fid{fr[2]}"
+        sc = align_score(g, t, H)
+        tried.append({"method": method, "score": round(sc, 3)})
+        if best is None or sc > best[0]:
+            best = (sc, H, method, fid_res)
+            fid_detail = det
+        if sc > 0.75:
+            break
+    sc, H, method, fid_res = best
+    A = H[:2] / H[2, 2]
+    ang = math.degrees(math.atan2(A[1, 0], A[0, 0]))
+    info = {"method": method, "M": H.tolist(), "src_shape": list(test.shape[:2]), "shift_px": [float(A[0, 2]), float(A[1, 2])],
+            "angle": ang, "scale": px_per_mm(A), "scores": scores, "match": round(sc, 3), "tried": tried,
+            "fid_residual_px": round(fid_res, 2) if fid_res is not None else None, "fids": fid_detail}
+    if sc < min_score:
+        return None, {**info, "ok": False, "msg": f"Alignment failed (match {sc:.2f}) - check fiducials / board position, or re-teach the golden"}
+    warped = cv2.warpPerspective(test, H, (W, H0), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+    return warped, {**info, "ok": True}
 
 
 def board_outline(img):
