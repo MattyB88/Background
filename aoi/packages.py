@@ -38,6 +38,9 @@ class Package:
 
     th: dict = field(default_factory=dict)
     checks: dict = None
+    body_off: list = None   # [x, y] mm: body sits off the land pattern centre (whole package)
+    ocv_roi: list = None    # [cx, cy, w, h] mm in body frame: where the marking is read
+    pol_roi: list = None    # [cx, cy, w, h] mm in body frame: polarity marker (dot / band / bevel)
 
     def to_dict(self):
         return asdict(self)

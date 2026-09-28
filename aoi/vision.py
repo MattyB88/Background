@@ -432,6 +432,14 @@ def _body_slice(shape, pkg, ppm, frac=0.8):
     return (slice(max(0, int(cy - hy)), int(cy + hy) + 1), slice(max(0, int(cx - hx)), int(cx + hx) + 1))
 
 
+def _mm_slice(shape, roi, ppm):
+    """[cx, cy, w, h] mm (body frame, y up) -> slices in an upright crop centred on the body."""
+    cx, cy, w, h = roi
+    x0 = shape[1] / 2 + (cx - w / 2) * ppm
+    y0 = shape[0] / 2 - (cy + h / 2) * ppm
+    return (slice(max(0, int(y0)), max(1, int(y0 + h * ppm) + 1)), slice(max(0, int(x0)), max(1, int(x0 + w * ppm) + 1)))
+
+
 def _z(a, floor=8.0):
     a = a.astype(np.float32)
     return (a - a.mean()) / max(float(a.std()), floor)
@@ -491,7 +499,16 @@ def inspect_component(golden, test, center, angle, pkg: Package, ppm, refs=(), t
         g_n = ncc(grad(found[sl]), grad(tpl[sl])) if ti == 0 else 1.0
         g_f = ncc(grad(ff[sl]), grad(flip[sl]))
         out["polarity"] = round(min(score - fv, g_n - g_f), 3)
-        if ti == 0 and (fv > score + th["polarity_margin"] or g_f > g_n + th["polarity_margin"]):
+        if pkg.pol_roi:
+            # user-placed marker box: compare it with the same box on the part turned 180 deg
+            ps = _mm_slice(tpl.shape, pkg.pol_roi, ppm)
+            a, b, g0 = found[ps], cv2.rotate(found, cv2.ROTATE_180)[ps], tpl[ps]
+            if g0.size > 9:
+                n0, n1 = ncc(grad(a), grad(g0)), ncc(grad(b), grad(g0))
+                out["polarity"] = round(n0 - n1, 3)
+                if ti == 0 and n1 > n0 + th["polarity_margin"]:
+                    pol_fail = True
+        elif ti == 0 and (fv > score + th["polarity_margin"] or g_f > g_n + th["polarity_margin"]):
             pol_fail = True
             found, loc = ff, fl
     presence = min(max(score, max(ncc(t, nominal) for t in templates)),
@@ -516,7 +533,7 @@ def inspect_component(golden, test, center, angle, pkg: Package, ppm, refs=(), t
         if checks.get("offset") and math.hypot(dx_mm, dy_mm) > th["offset_mm"]:
             fails.append("OFFSET")
         if checks.get("ocv"):
-            bs = _body_slice(tpl.shape, pkg, ppm, 0.7)
+            bs = _mm_slice(tpl.shape, pkg.ocv_roi, ppm) if pkg.ocv_roi else _body_slice(tpl.shape, pkg, ppm, 0.7)
             sm = lambda a: cv2.GaussianBlur(a, (0, 0), 1.2)  # tolerate focus / JPEG differences
             ocv = max(ncc(grad(sm(found[bs])), grad(sm(t[bs]))) for t in templates) if found[bs].size > 16 else 1.0
             out["ocv"] = round(ocv, 3)

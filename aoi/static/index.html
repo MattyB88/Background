@@ -317,7 +317,11 @@ rois(el,d){
   el.innerHTML=`<h2>${c.ref} <small style="color:var(--dim);font-size:15px">${c.ipn?esc(c.ipn)+" · ":""}${c.part}</small></h2>
    <div class="row"><span>Package</span><select id="pk">${Object.keys(d.packages).map(p=>`<option ${p==c.package?"selected":""}>${p}</option>`).join("")}</select></div>
    <div class="row"><span>Step</span><select id="rStep">${[0.02,0.05,0.1,0.25,1].map(v=>`<option ${v==(S.rstep||0.05)?"selected":""}>${v}</option>`).join("")}</select><span>mm</span><select id="rStepD">${[0.5,1,2,5,15].map(v=>`<option ${v==(S.rstepd||1)?"selected":""}>${v}</option>`).join("")}</select><span>°</span></div>
-   <div class="pad"><button data-r="-1" title="Rotate anticlockwise (step)">⟲</button><button data-m="0,-1">▲</button><button data-r="1" title="Rotate clockwise (step)">⟳</button><button data-m="-1,0">◀</button><button id="bRot" title="Rotate 90°">90°</button><button data-m="1,0">▶</button><button id="bR180" title="Rotate 180° (polarity)">180°</button><button data-m="0,1">▼</button><button id="bRz" title="Reset offset">↺</button></div>
+   <div class="seg" style="display:flex;gap:3px;margin:4px 0">${[["whole","Whole part"],["body","Body on pads"],["ocv","Marking box"],["pol","Polarity mark"]].map(([k,t])=>`<button data-t="${k}" class="${(S.mvT||"whole")==k?"pri":""}" style="flex:1;font-size:11px;padding:5px 2px">${t}</button>`).join("")}</div>
+   ${(S.mvT||"whole")=="body"?`<div class="row"><span>Apply to</span><select id="mvScope"><option value="part">this part only</option><option value="package" ${S.mvScope=="package"?"selected":""}>all ${esc(c.package)}</option></select></div>`:""}
+   <div class="pad"><button data-r="-1" title="Rotate anticlockwise (step)">⟲</button><button data-m="0,-1">▲</button><button data-r="1" title="Rotate clockwise (step)">⟳</button><button data-m="-1,0">◀</button><button id="bRot" title="Rotate 90°">90°</button><button data-m="1,0">▶</button><button id="bR180" title="Rotate 180° (polarity)">180°</button><button data-m="0,1">▼</button><button id="bRz" title="Reset this adjustment">↺</button></div>
+   ${["ocv","pol"].includes(S.mvT)?`<div class="row"><button data-g="-1">box −</button><button data-g="1">box ＋</button></div><div style="text-align:center;color:var(--dim);font-size:12px">${S.mvT=="ocv"?"Cyan box = where marking is read":"Magenta box = polarity dot / band / bevel"} (all ${esc(c.package)})</div>`:""}
+   ${(S.mvT||"whole")=="body"?`<div style="text-align:center;color:var(--dim);font-size:12px">Body offset ${(+(c.body_dx||0)).toFixed(2)}, ${(+(c.body_dy||0)).toFixed(2)} mm${pk.body_off?` · package ${pk.body_off.map(v=>v.toFixed(2)).join(", ")}`:""} — pads stay on the lands</div>`:""}
    <div style="text-align:center;color:var(--dim);font-size:12px">Z ${(+c.rot).toFixed(1)}° · offset ${(+c.dx).toFixed(2)}, ${(+c.dy).toFixed(2)} mm</div>
    <button id="bRotPk" style="width:100%" title="Machine package 0° differs? Turn every part of this package">⟳ Turn ALL ${esc(c.package)} parts 90°</button>
    <div style="text-align:center;color:var(--dim);margin-top:6px">Leads / pads — all <b>${esc(c.package)}</b></div>
@@ -334,9 +338,12 @@ rois(el,d){
    <button class="big" id="bDone">✔ Done</button>`;
   const put=async b=>{const r=await api(P()+"/component/"+encodeURIComponent(c.ref),{method:"PUT",json:b});S.data.overlay=r.overlay;await refresh();side();draw();};
   $("#rStep").onchange=e=>S.rstep=+e.target.value;$("#rStepD").onchange=e=>S.rstepd=+e.target.value;
-  el.querySelectorAll("[data-m]").forEach(b=>b.onclick=()=>{const[x,y]=b.dataset.m.split(",").map(Number);const k=S.rstep||0.05;put({nudge_mm:[x*k,y*k]});});
+  el.querySelectorAll("[data-t]").forEach(b=>b.onclick=()=>{S.mvT=b.dataset.t;side();draw();});
+  if($("#mvScope"))$("#mvScope").onchange=e=>S.mvScope=e.target.value;
+  el.querySelectorAll("[data-m]").forEach(b=>b.onclick=()=>{const[x,y]=b.dataset.m.split(",").map(Number);const k=S.rstep||0.05;put({nudge_mm:[x*k,y*k],target:S.mvT||"whole",scope:S.mvScope||"part"});});
+  el.querySelectorAll("[data-g]").forEach(b=>b.onclick=()=>put({grow:+b.dataset.g,target:S.mvT}));
   el.querySelectorAll("[data-r]").forEach(b=>b.onclick=()=>put({drot:-b.dataset.r*(S.rstepd||1)}));
-  $("#bRot").onclick=()=>put({drot:-90});$("#bR180").onclick=()=>put({drot:180});$("#bRz").onclick=()=>put({dx:0,dy:0});
+  $("#bRot").onclick=()=>put({drot:-90});$("#bR180").onclick=()=>put({drot:180});$("#bRz").onclick=()=>put({reset_target:S.mvT||"whole"});
   $("#bRotPk").onclick=async()=>{await api(P()+"/package/"+encodeURIComponent(c.package),{method:"PUT",json:{rotate_parts:-90}});await refresh();side();draw();};
   el.querySelectorAll("[data-pd]").forEach(b=>b.onclick=async()=>{const[k,sg]=b.dataset.pd.split(",");const f=1+.05*sg;
     const pads=pk.pads.map(([x,y,l,w])=>k=="span"?[+(x*f).toFixed(4),+(y*f).toFixed(4),l,w]:[x,y,+(l*f).toFixed(4),+(w*f).toFixed(4)]);
@@ -596,7 +603,9 @@ function draw(){
     ctx.globalAlpha=showRes?.45:1;ctx.lineWidth=Math.max(1,1.5/v.s);ctx.strokeStyle=col;
     if(o.fiducial){ctx.beginPath();ctx.arc(0,0,k*.9,0,7);ctx.stroke();}
     else{ctx.strokeRect(-o.body[0]/2*k,-o.body[1]/2*k,o.body[0]*k,o.body[1]*k);
-      if(!showRes){ctx.globalAlpha=.6;o.pads.forEach(([x,y,l,w])=>ctx.strokeRect((x-l/2)*k,(-y-w/2)*k,l*k,w*k));}}
+      if(!showRes){ctx.globalAlpha=.6;o.pads.forEach(([x,y,l,w])=>ctx.strokeRect((x-l/2)*k,(-y-w/2)*k,l*k,w*k));
+        if(S.step=="rois"&&(o.ref==S.sel||(S.hlPkg&&o.package==S.hlPkg&&!S.sel))){ctx.globalAlpha=1;ctx.setLineDash([4/v.s,3/v.s]);
+          [[o.ocv_roi,"#22d3ee"],[o.pol_roi,"#ff4fd8"]].forEach(([r,cl])=>{if(!r)return;ctx.strokeStyle=cl;ctx.strokeRect((r[0]-r[2]/2)*k,(-r[1]-r[3]/2)*k,r[2]*k,r[3]*k);});ctx.setLineDash([]);}}}
     ctx.restore();
     if(!showRes&&(v.s>0.6||o.ref==S.sel||o.fiducial)){ctx.font=`bold ${Math.max(10,13/v.s)}px system-ui`;ctx.fillStyle=col;
       ctx.fillText(o.ref,o.cx+o.body[0]*o.ppm/2+3/v.s,o.cy-o.body[1]*o.ppm/2);}

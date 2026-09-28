@@ -1,3 +1,4 @@
+import math
 import pytest
 
 from aoi import synth, pnp_import
@@ -405,3 +406,17 @@ def test_fiducial_marks_adjust_and_origin(tmp_path, monkeypatch):
         # rough placement always gives a transform
         p.rough_place()
         assert p.M is not None
+
+
+def test_body_offset_keeps_pads_on_lands(prog):
+    c = next(c for c in prog.data["components"] if not c["fiducial"] and len(prog.pkg(c["package"]).pads) == 2)
+    o0 = next(o for o in prog.overlay() if o["ref"] == c["ref"])
+    c["body_dx"] = 0.3
+    o1 = next(o for o in prog.overlay() if o["ref"] == c["ref"])
+    k = o0["ppm"]
+    # body centre moved 0.3 mm, but pad world positions unchanged
+    assert abs(math.hypot(o1["cx"] - o0["cx"], o1["cy"] - o0["cy"]) - 0.3 * k) < 0.05
+    assert abs(o1["pads"][0][0] - (o0["pads"][0][0] - 0.3)) < 1e-6
+    prog.data["packages"][c["package"]]["ocv_roi"] = [0, 0, 0.5, 0.3]
+    r = prog.inspect(synth.render(), log=False)
+    assert any(x["ref"] == c["ref"] for x in r["components"])

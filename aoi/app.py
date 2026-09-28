@@ -437,14 +437,43 @@ def edit_component(name, ref):
     p = _prog(name)
     for c in p.data["components"]:
         if c["ref"] == ref:
-            for k in ("enabled", "dx", "dy", "rot", "package", "checks", "th", "fiducial"):
+            for k in ("enabled", "dx", "dy", "rot", "package", "checks", "th", "fiducial", "body_dx", "body_dy"):
                 if k in request.json:
                     c[k] = request.json[k]
-            if "nudge_mm" in request.json and p.M is not None:  # screen-direction nudge -> board mm
+            j = request.json
+            tgt = j.get("target", "whole")
+            if ("nudge_mm" in j or "grow" in j) and p.M is not None:
                 M = p.M
-                v = np.linalg.solve(M[:, :2], np.float64(request.json["nudge_mm"]) * float(np.hypot(M[0, 0], M[1, 0])))
-                c["dx"] = round(c.get("dx", 0) + float(v[0]), 4)
-                c["dy"] = round(c.get("dy", 0) + float(-v[1] if p.data["y_up"] else v[1]), 4)
+                v = np.linalg.solve(M[:, :2], np.float64(j.get("nudge_mm", [0, 0])) * float(np.hypot(M[0, 0], M[1, 0])))
+                bx, by = float(v[0]), float(-v[1] if p.data["y_up"] else v[1])  # screen -> board mm
+                r = np.radians(c["rot"])
+                px, py = bx * np.cos(r) + by * np.sin(r), -bx * np.sin(r) + by * np.cos(r)  # board -> part frame
+                pk = p.data["packages"][c["package"]]
+                if tgt == "whole":
+                    c["dx"] = round(c.get("dx", 0) + bx, 4)
+                    c["dy"] = round(c.get("dy", 0) + by, 4)
+                elif tgt == "body" and j.get("scope") == "package":
+                    o = pk.get("body_off") or [0, 0]
+                    pk["body_off"] = [round(o[0] + px, 4), round(o[1] + py, 4)]
+                elif tgt == "body":
+                    c["body_dx"] = round(c.get("body_dx", 0) + px, 4)
+                    c["body_dy"] = round(c.get("body_dy", 0) + py, 4)
+                elif tgt in ("ocv", "pol"):
+                    k = tgt + "_roi"
+                    d = pk.get(k) or ([0, 0, pk["body_l"] * 0.6, pk["body_w"] * 0.6] if tgt == "ocv"
+                                      else [-pk["body_l"] * 0.3, pk["body_w"] * 0.25, pk["body_l"] * 0.3, pk["body_w"] * 0.4])
+                    g = 1 + 0.1 * float(j.get("grow", 0))
+                    pk[k] = [round(d[0] + px, 4), round(d[1] + py, 4), round(max(0.1, d[2] * g), 4), round(max(0.1, d[3] * g), 4)]
+            if j.get("reset_target"):
+                pk = p.data["packages"][c["package"]]
+                t = j["reset_target"]
+                if t == "whole":
+                    c["dx"] = c["dy"] = 0
+                elif t == "body":
+                    c["body_dx"] = c["body_dy"] = 0
+                    pk["body_off"] = None
+                else:
+                    pk[t + "_roi"] = None
             if "drot" in request.json:
                 c["rot"] = round((c["rot"] + float(request.json["drot"])) % 360, 3)
             if c["package"] not in p.data["packages"]:
@@ -461,7 +490,7 @@ def edit_package(name, pkg):
     from .packages import resize
     if "body_l" in request.json or "body_w" in request.json:
         resize(d, request.json.get("body_l"), request.json.get("body_w"))
-    for k in ("polarized", "marking", "pads"):
+    for k in ("polarized", "marking", "pads", "body_off", "ocv_roi", "pol_roi"):
         if k in request.json:
             d[k] = request.json[k]
     if request.json.get("rotate_parts"):  # Z offset for every part of this package

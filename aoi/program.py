@@ -107,6 +107,20 @@ class Program:
     def pkg(self, name) -> Package:
         return Package.from_dict(self.data["packages"][name])
 
+    def eff(self, c):
+        """Part + package with the body offset applied: ROI centred on the body, pads shifted back onto the lands.
+        Offset = package body_off + the part's own body_dx/body_dy (mm, part frame)."""
+        pk = self.pkg(c["package"])
+        bo = pk.body_off or [0, 0]
+        ox, oy = bo[0] + c.get("body_dx", 0), bo[1] + c.get("body_dy", 0)
+        if not (ox or oy):
+            return c, pk
+        r = math.radians(c["rot"])
+        bx, by = ox * math.cos(r) - oy * math.sin(r), ox * math.sin(r) + oy * math.cos(r)
+        c = {**c, "dx": c.get("dx", 0) + bx, "dy": c.get("dy", 0) + by}
+        pk.pads = [[x - ox, y - oy, l, w] for x, y, l, w in pk.pads]
+        return c, pk
+
     def set_golden(self, img):
         cv2.imwrite(str(self.path("golden.png")), img)
         self.data["transform"] = None
@@ -673,10 +687,10 @@ class Program:
             return []
         ppm = vision.px_per_mm(M)
         out = []
-        for c in self.data["components"]:
+        for c0 in self.data["components"]:
+            c, pkg = self.eff(c0)
             ctr, ang = vision.comp_pose(M, c, self.data["y_up"])
-            pkg = self.pkg(c["package"])
-            out.append({"ref": c["ref"], "cx": ctr[0], "cy": ctr[1], "angle": ang, "ppm": ppm,
+            out.append({"ocv_roi": pkg.ocv_roi, "pol_roi": pkg.pol_roi, "ref": c["ref"], "cx": ctr[0], "cy": ctr[1], "angle": ang, "ppm": ppm,
                         "body": [pkg.body_l, pkg.body_w], "pads": pkg.pads, "package": c["package"],
                         "enabled": c["enabled"], "fiducial": c["fiducial"], "part": c["part"]})
         return out
@@ -726,8 +740,8 @@ class Program:
         for c in self.data["components"]:
             if not c["enabled"] or c["fiducial"]:
                 continue
+            c, pkg = self.eff(c)
             ctr, ang = vision.comp_pose(M, c, yu)
-            pkg = self.pkg(c["package"])
             th = self.tuning(c)
             if bare is not None and c.get("mode") != "presence":
                 pb = vision.presence_vs_bare(warped, gold, bare, ctr, ang, pkg, ppm)
