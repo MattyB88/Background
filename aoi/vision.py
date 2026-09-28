@@ -150,7 +150,105 @@ def blob_candidates(gray, max_r, polarity="auto"):
     return keep
 
 
-def auto_fiducials(img, fids, comps, y_up=True, fid_diam_mm=1.0, polarity="auto", max_cands=120, ppm_range=None, angle_hint=None):
+def evidence_map(gray):
+    """Local detail (edge strength) map: parts and pads are busy, bare solder mask is not."""
+    g = cv2.GaussianBlur(gray, (3, 3), 0)
+    e = cv2.magnitude(cv2.Sobel(g, cv2.CV_32F, 1, 0), cv2.Sobel(g, cv2.CV_32F, 0, 1))
+    e = cv2.GaussianBlur(e, (0, 0), 2)
+    return e / (np.percentile(e, 99) + 1e-6)
+
+
+def layout_evidence(E, M, pts_src, shift_mm=2.5):
+    """How much better the layout's pads land on image detail than the same pattern nudged a few mm away.
+    ~1.0 = no better than chance (wrong alignment); >1.4 = the parts really are where the layout says."""
+    if pts_src is None or len(pts_src) < 5:
+        return None
+    h, w = E.shape
+    ppm = px_per_mm(M)
+    base = apply(M, pts_src)
+
+    def sample(p):
+        ok = (p[:, 0] >= 0) & (p[:, 0] < w - 1) & (p[:, 1] >= 0) & (p[:, 1] < h - 1)
+        if ok.mean() < 0.5:
+            return None
+        q = p[ok].astype(int)
+        return float(E[q[:, 1], q[:, 0]].mean())
+
+    on = sample(base)
+    if on is None:
+        return 0.0
+    off = [sample(base + np.float64([dx, dy]) * shift_mm * ppm) for dx, dy in
+           ((1, 0), (-1, 0), (0, 1), (0, -1), (0.7, 0.7), (-0.7, 0.7), (0.7, -0.7), (-0.7, -0.7))]
+    off = [o for o in off if o is not None]
+    return round(on / (np.mean(off) + 1e-6), 3) if off else None
+
+
+def _layout_search(E, pts_by_yup, f, scales, angles, blob_mm=0.5):
+    h, w = E.shape
+    best = None
+    for yu, pts in pts_by_yup.items():
+        P0 = np.float64(pts)
+        if len(P0) < 8:
+            continue
+        mean = P0.mean(0)
+        P = P0 - mean
+        for ang in angles:
+            r = math.radians(ang)
+            Rm = np.float64([[math.cos(r), -math.sin(r)], [math.sin(r), math.cos(r)]])
+            for sc in scales:
+                k = sc * f
+                q = P @ Rm.T * k
+                mn = q.min(0)
+                tw, th = np.ceil(q.max(0) - mn).astype(int) + 7
+                if tw >= w or th >= h or tw < 12 or th < 12:
+                    continue
+                T = np.zeros((th, tw), np.float32)
+                rad = max(1, int(round(blob_mm * k)))
+                for x, y in (q - mn + 3).astype(int):
+                    cv2.circle(T, (int(x), int(y)), rad, 1.0, -1)
+                T = cv2.GaussianBlur(T, (0, 0), 1.2)
+                T -= T.mean()
+                res = cv2.matchTemplate(E, T, cv2.TM_CCORR_NORMED)
+                _, mv, _, ml = cv2.minMaxLoc(res)
+                if best is None or mv > best[0]:
+                    c = np.float64(ml) + (-mn + 3)   # where the layout centroid lands (small px)
+                    A = np.hstack([Rm * k, c[:, None]])
+                    A[:, 2] -= A[:, :2] @ mean
+                    best = (mv, A / f, yu, sc, ang)
+    return best
+
+
+def layout_register(img, pts_by_yup, ppm_range, angle_hint=None, work=520):
+    """Coarse CAD-to-image alignment using every part: the layout's pad pattern is drawn and correlated with the
+    image's detail map over plausible scales / rotations / mirror, then refined at a higher resolution.
+    Needs no fiducial to be visible. pts_by_yup: {True: [...], False: [...]} pad points (mm_src frame).
+    Returns (M full-res, y_up, score) or None."""
+    gray = prep(img)
+    H0, W0 = gray.shape
+
+    def emap(work_px):
+        f = min(1.0, work_px / max(H0, W0))
+        E = evidence_map(cv2.resize(gray, None, fx=f, fy=f, interpolation=cv2.INTER_AREA))
+        return (E - E.mean()).astype(np.float32), f
+
+    E, f = emap(work)
+    lo, hi = ppm_range
+    angles = [angle_hint + k * 90 for k in range(4)] if angle_hint is not None else list(range(0, 360, 10))
+    best = _layout_search(E, pts_by_yup, f, np.geomspace(lo, hi, 16), angles)
+    if best is None:
+        return None
+    # fine pass around the winner: +-3 % scale, +-1.5 deg, twice the resolution
+    _, A, yu, sc, ang = best
+    E2, f2 = emap(work * 2)
+    fine = _layout_search(E2, {yu: pts_by_yup[yu]}, f2, sc * np.linspace(0.97, 1.03, 13), ang + np.linspace(-1.5, 1.5, 7))
+    if fine is not None:
+        best = fine
+    mv, A, yu, _, _ = best
+    return A, yu, float(mv)
+
+
+def auto_fiducials(img, fids, comps, y_up=True, fid_diam_mm=1.0, polarity="auto", max_cands=120, ppm_range=None, angle_hint=None,
+                   evidence_src=None):
     """Find fiducials without a known scale: hypothesise from candidate pairs, verify on all fiducials.
 
     Works on a downscaled copy for speed; returns (M, matched_px) in full-resolution px or (None, [])."""
@@ -177,6 +275,7 @@ def auto_fiducials(img, fids, comps, y_up=True, fid_diam_mm=1.0, polarity="auto"
     i0, i1 = max(itertools.combinations(range(len(src)), 2), key=lambda ij: math.dist(src[ij[0]], src[ij[1]]))
     dsrc = math.dist(src[i0], src[i1])
     best = (-1, -1e18, None, None)
+    hyps = []
     for a, b in itertools.permutations(range(len(cands)), 2):
         ra, rb = cands[a][2], cands[b][2]
         if not 0.6 < ra / rb < 1.66:
@@ -204,8 +303,19 @@ def auto_fiducials(img, fids, comps, y_up=True, fid_diam_mm=1.0, polarity="auto"
         tol = max(2.0, 0.5 * (ra + rb) / 2, 0.8 * px_per_mm(M))  # layouts / lenses are rarely perfect: ~0.8 mm
         ok = d < tol
         score = float(cq[j[ok]].sum() - (d[ok] / tol).sum() * 0.2)
+        hyps.append((int(ok.sum()), score, M, [tuple(cxy[k]) for k in j]))
         if (int(ok.sum()), score) > (best[0], best[1]):
             best = (int(ok.sum()), score, M, [tuple(cxy[k]) for k in j])
+    auto_fiducials.confidence = None
+    if hyps and evidence_src is not None and len(evidence_src) >= 5:
+        # several dot patterns can fit the fiducials; the right one is where the whole layout lands on real parts
+        E = evidence_map(gs)
+        top_n = max(h_[0] for h_ in hyps)
+        pool = sorted([h_ for h_ in hyps if h_[0] >= max(2, top_n - 1)], key=lambda h_: (-h_[0], -h_[1]))[:60]
+        ev = [(layout_evidence(E, h_[2], np.float64(evidence_src)) or 0) for h_ in pool]
+        k = int(np.argmax([e_ + 0.15 * h_[0] for e_, h_ in zip(ev, pool)]))
+        best = pool[k]
+        auto_fiducials.confidence = ev[k]
     if best[2] is None:
         return None, []
     M = best[2].copy()
@@ -244,7 +354,23 @@ def fid_channels(img):
 
 
 def find_fiducial(gray, pred, r_px, search_px, polarity="auto", thresh=None, shape="circle",
-                  blur=3, rmin=None, rmax=None, roundness=0.55, template=None, min_match=0.0, channel="auto"):
+                  blur=3, rmin=None, rmax=None, roundness=0.55, template=None, min_match=0.0, channel="auto", topk=0):
+    if topk:  # several candidates (distinct places), best first - for choosing a geometrically consistent set
+        out = []
+        chans = gray if isinstance(gray, dict) else {"gray": gray}
+        for n, im in chans.items():
+            if channel not in ("auto", n):
+                continue
+            tp = template.get(n) if isinstance(template, dict) else (template if n == "gray" else None)
+            for r in _find_fiducial(im, pred, r_px, search_px, polarity, thresh, shape, blur, rmin, rmax, roundness,
+                                    tp, min_match if tp is not None else 0.0, allc=True):
+                out.append({**r, "channel": n})
+        out.sort(key=lambda r: -r["score"])
+        keep = []
+        for r in out:
+            if all(math.dist((r["px"], r["py"]), (k["px"], k["py"])) > max(2.0, r_px) for k in keep):
+                keep.append(r)
+        return keep[:topk]
     if isinstance(gray, dict):  # several channels: use the chosen one, or the best of all
         names = [c for c in gray if channel in ("auto", c)] or list(gray)
         best = None
@@ -259,7 +385,7 @@ def find_fiducial(gray, pred, r_px, search_px, polarity="auto", thresh=None, sha
 
 
 def _find_fiducial(gray, pred, r_px, search_px, polarity="auto", thresh=None, shape="circle",
-                   blur=3, rmin=None, rmax=None, roundness=0.55, template=None, min_match=0.0):
+                   blur=3, rmin=None, rmax=None, roundness=0.55, template=None, min_match=0.0, allc=False):
     """Best fiducial blob near *pred* (px). r_px = expected radius (half side for squares).
 
     polarity: bright | dark | auto; thresh: 0-255 or None (Otsu + a few brighter levels).
@@ -271,13 +397,14 @@ def _find_fiducial(gray, pred, r_px, search_px, polarity="auto", thresh=None, sh
     x0, y0, x1, y1 = max(0, x - R), max(0, y - R), min(W, x + R + 1), min(H, y + R + 1)
     win = gray[y0:y1, x0:x1]
     if win.size < 25:
-        return None
+        return [] if allc else None
     rmin = rmin if rmin else r_px * 0.6
     rmax = rmax if rmax else r_px * 1.5
     exp_area = (4.0 if shape == "square" else math.pi) * r_px * r_px
     b = int(blur) | 1
     wb = cv2.GaussianBlur(win, (b, b), 0) if b > 1 else win
     best = None
+    allr = []
     for pol in (("bright", "dark") if polarity == "auto" else (polarity,)):
         img = wb if pol == "bright" else 255 - wb
         ts = [int(thresh) if pol == "bright" else 255 - int(thresh)] if thresh is not None else \
@@ -323,11 +450,13 @@ def _find_fiducial(gray, pred, r_px, search_px, polarity="auto", thresh=None, sh
                     if mt < min_match:
                         continue
                     score = score * (0.5 + 0.5 * max(0.0, mt))
-                if best is None or score > best["score"]:
-                    best = {"px": float(cx), "py": float(cy), "score": round(float(score), 3), "r": round(req, 1),
+                cand = {"px": float(cx), "py": float(cy), "score": round(float(score), 3), "r": round(req, 1),
                             "thresh": int(t if pol == "bright" else 255 - t), "polarity": pol,
                             "roundness": round(float(rnd), 2), "match": round(float(mt), 3) if mt is not None else None}
-    return best
+                allr.append(cand)
+                if best is None or score > best["score"]:
+                    best = cand
+    return allr if allc else best
 
 
 def suggest_fid(gray, p, r_guess=12):
@@ -467,6 +596,32 @@ def _fid_refine(t, H, fids, chans=None):
     return H2 / H2[2, 2], float(res.max()), len(got_t)
 
 
+def consistent_fids(src, cand_lists, max_res_mm=0.8, ppm_hint=None):
+    """Pick one candidate per fiducial (or none) so the set fits a similarity best.
+    src: mm_src points; cand_lists: per fiducial [{px, py, score}...]. Returns list of chosen dicts / None."""
+    idx = [i for i, c in enumerate(cand_lists) if c]
+    if len(idx) < 2:
+        return [c[0] if c else None for c in cand_lists]
+    best = None
+    for combo in itertools.product(*[range(len(cand_lists[i])) for i in idx]):
+        pts = [(cand_lists[i][k]["px"], cand_lists[i][k]["py"]) for i, k in zip(idx, combo)]
+        ss = [src[i] for i in idx]
+        M = similarity_from_pairs(ss, pts)
+        ppm = px_per_mm(M)
+        if ppm_hint and not 0.85 < ppm / ppm_hint < 1.15:
+            continue
+        res = [math.dist(apply(M, [a])[0], b) / ppm for a, b in zip(ss, pts)]
+        sc = sum(cand_lists[i][k]["score"] for i, k in zip(idx, combo))
+        key = (max(res) if len(idx) > 2 else 0) - 0.2 * sc
+        if len(idx) > 2 and max(res) > max_res_mm:
+            continue
+        if best is None or key < best[0]:
+            best = (key, dict(zip(idx, combo)))
+    if best is None:
+        return [None] * len(cand_lists)
+    return [cand_lists[i][best[1][i]] if i in best[1] else None for i in range(len(cand_lists))]
+
+
 def align_score(g, t, H, f=0.25):
     """How well test warped by H matches golden (gradient NCC on a small copy), -1..1."""
     Hh, W = g.shape
@@ -558,8 +713,9 @@ def board_outline(img):
     lab = cv2.GaussianBlur(cv2.cvtColor(img, cv2.COLOR_BGR2LAB), (7, 7), 0).astype(np.float32)
     h, w = lab.shape[:2]
     border = np.concatenate([lab[:10].reshape(-1, 3), lab[-10:].reshape(-1, 3), lab[:, :10].reshape(-1, 3), lab[:, -10:].reshape(-1, 3)])
-    bg, spread = np.median(border, 0), np.percentile(np.linalg.norm(border - np.median(border, 0), axis=1), 95)
-    m = (np.linalg.norm(lab - bg, axis=2) > max(18.0, 2.5 * spread)).astype(np.uint8)
+    bg = np.median(border, 0)
+    spread = np.percentile(np.linalg.norm(border - bg, axis=1), 60)  # tape / board touching the edge must not dominate
+    m = (np.linalg.norm(lab - bg, axis=2) > min(45.0, max(18.0, 2.5 * spread))).astype(np.uint8)
     m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, np.ones((15, 15), np.uint8))
     m = cv2.morphologyEx(m, cv2.MORPH_OPEN, np.ones((9, 9), np.uint8))
     n, lbl, st, _ = cv2.connectedComponentsWithStats(m)
@@ -757,7 +913,7 @@ def inspect_component(golden, test, center, angle, pkg: Package, ppm, refs=(), t
                 out["polarity"] = round(n0 - n1, 3)
                 if ti == 0 and n1 > n0 + th["polarity_margin"]:
                     pol_fail = True
-        elif ti == 0 and (fv > score + th["polarity_margin"] or g_f > g_n + th["polarity_margin"]):
+        elif ti == 0 and g_f > g_n + th["polarity_margin"] and fv > score - th["polarity_margin"]:  # body must flip; neighbours ignored
             pol_fail = True
             found, loc = ff, fl
     presence = min(max(score, max(ncc(t, nominal) for t in templates)),

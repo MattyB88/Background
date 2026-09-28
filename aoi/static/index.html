@@ -5,76 +5,76 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PCBA AOI</title>
 <style>
-:root{--bg:#0f1318;--panel:#161b22;--panel2:#1f262f;--panel3:#27303b;--line:#2c3542;--txt:#e6ebf1;--dim:#8a96a6;
---ok:#22c55e;--ok-d:#0f3d22;--bad:#ef4444;--bad-d:#4a1616;--warn:#f59e0b;--acc:#3b82f6;--acc-d:#16294a;--sel:#a855f7;
---r:8px;--sh:0 1px 2px #0006}
+:root{--bg:#0d1014;--panel:#13171c;--panel2:#1a1f26;--panel3:#222933;--line:#262d37;--line2:#323b47;--txt:#dfe4ea;--dim:#8792a0;
+--ok:#3fb950;--ok-d:#10261a;--bad:#f0524d;--bad-d:#2d1414;--warn:#d6a232;--acc:#3d8bfd;--acc-d:#14233a;--sel:#a371f7;
+--r:4px;--sh:none}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.45 "Segoe UI Variable","Segoe UI",system-ui,-apple-system,Roboto,sans-serif;height:100vh;display:flex;flex-direction:column;overflow:hidden;-webkit-font-smoothing:antialiased}
-button{font:inherit;font-weight:500;color:inherit;cursor:pointer;border:1px solid var(--line);border-radius:var(--r);background:var(--panel2);padding:7px 12px;transition:background .12s,border-color .12s,transform .05s}
-button:hover{background:var(--panel3);border-color:#3a4656}button:active{transform:translateY(1px)}
-button:disabled{opacity:.45;cursor:default}
-button.big{font-size:14px;font-weight:600;padding:10px 14px;width:100%;margin:5px 0;display:flex;align-items:center;gap:10px;justify-content:center;box-shadow:var(--sh)}
-button.pri{background:var(--acc);border-color:var(--acc);color:#fff}button.pri:hover{background:#2f6fe0}
-button.ok{background:var(--ok);border-color:var(--ok);color:#052e14}button.ok:hover{background:#1eb053}
-button.bad{background:var(--bad);border-color:var(--bad);color:#fff}button.bad:hover{background:#dc3434}
+body{margin:0;background:var(--bg);color:var(--txt);font:13px/1.45 "Segoe UI Variable Text","Segoe UI",Inter,system-ui,-apple-system,Roboto,sans-serif;height:100vh;display:flex;flex-direction:column;overflow:hidden;-webkit-font-smoothing:antialiased}
+button{font:inherit;font-weight:500;color:inherit;cursor:pointer;border:1px solid var(--line2);border-radius:var(--r);background:var(--panel2);padding:6px 11px;transition:background .1s,border-color .1s}
+button:hover{background:var(--panel3);border-color:#3f4a58}
+button:disabled{opacity:.4;cursor:default}
+button.big{font-size:13px;font-weight:600;padding:8px 12px;width:100%;margin:4px 0;display:flex;align-items:center;gap:8px;justify-content:center}
+button.pri{background:var(--acc);border-color:var(--acc);color:#fff}button.pri:hover{background:#2f7ae8}
+button.ok{background:#238636;border-color:#2ea043;color:#fff}button.ok:hover{background:#2a9a40}
+button.bad{background:#b62324;border-color:#da3633;color:#fff}button.bad:hover{background:#c92a2a}
 button.on{border-color:var(--acc);background:var(--acc-d);color:#cfe0ff}
-.ico{font-size:16px;line-height:1}
-header{display:flex;align-items:center;gap:8px;padding:6px 12px;background:var(--panel);border-bottom:1px solid var(--line);min-height:48px}
-header h1{font-size:15px;font-weight:700;letter-spacing:.3px;margin:0 8px 0 2px;white-space:nowrap}
-header>button{padding:6px 9px;font-size:15px;background:transparent;border-color:transparent}header>button:hover{background:var(--panel2);border-color:var(--line)}
-select,input{font:inherit;background:var(--panel2);color:var(--txt);border:1px solid var(--line);border-radius:var(--r);padding:6px 9px}
+header{display:flex;align-items:center;gap:6px;padding:0 12px;background:var(--panel);border-bottom:1px solid var(--line);height:44px}
+header h1{font-size:13px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;margin:0 10px 0 0;white-space:nowrap;color:#fff}
+header>button{padding:5px 10px;font-size:12px;background:transparent;border-color:transparent;color:var(--dim)}header>button:hover{background:var(--panel2);border-color:var(--line2);color:var(--txt)}
+select,input{font:inherit;background:var(--panel2);color:var(--txt);border:1px solid var(--line2);border-radius:var(--r);padding:5px 8px}
 select:focus,input:focus{outline:none;border-color:var(--acc)}
-header select{min-width:170px;font-weight:600}
-.steps{display:flex;gap:2px;flex:1;overflow-x:auto;align-items:center}
-.step{display:flex;align-items:center;gap:6px;padding:5px 10px;background:transparent;border:1px solid transparent;border-radius:6px;font-size:13px;font-weight:500;color:var(--dim);white-space:nowrap}
-.step:hover{background:var(--panel2);color:var(--txt)}
-.step .n{background:var(--panel3);border-radius:50%;width:18px;height:18px;display:inline-grid;place-items:center;font-size:11px;font-weight:700;color:var(--dim)}
-.step.done{color:var(--txt)}.step.done .n{background:var(--ok);color:#052e14}
-.step.cur{background:var(--acc-d);border-color:#2a4f8a;color:#fff}.step.cur .n{background:var(--acc);color:#fff}
-.arrow{color:#3a4656;font-size:11px}
+header select{min-width:180px;font-weight:600}
+.steps{display:flex;gap:0;flex:1;overflow-x:auto;align-items:stretch;height:100%;margin-left:6px}
+.step{display:flex;align-items:center;gap:7px;padding:0 12px;background:transparent;border:0;border-bottom:2px solid transparent;border-radius:0;font-size:12.5px;font-weight:500;color:var(--dim);white-space:nowrap}
+.step:hover{background:transparent;color:var(--txt)}
+.step .n{border:1px solid var(--line2);border-radius:50%;width:18px;height:18px;display:inline-grid;place-items:center;font-size:10px;font-weight:700;color:var(--dim)}
+.step.done{color:var(--txt)}.step.done .n{background:#1f3a28;border-color:#2ea043;color:#7ee2a0}
+.step.cur{color:#fff;border-bottom-color:var(--acc)}.step.cur .n{background:var(--acc);border-color:var(--acc);color:#fff}
+.arrow{display:none}
 main{flex:1;display:flex;min-height:0}
-#view{flex:1;position:relative;background:#0a0d11;min-width:0}
+#view{flex:1;position:relative;background:#080a0d;min-width:0}
 canvas{width:100%;height:100%;display:block;cursor:crosshair}
-#side{width:360px;max-width:42vw;background:var(--panel);border-left:1px solid var(--line);padding:14px 16px;overflow-y:auto}
-#side h2{margin:2px 0 10px;font-size:16px;font-weight:650;letter-spacing:.2px}
-#side h3{margin:14px 0 6px;font-size:12px;font-weight:650;text-transform:uppercase;letter-spacing:.8px;color:var(--dim)}
-.hint{background:var(--acc-d);border:1px solid #24406e;padding:9px 11px;border-radius:var(--r);font-size:13px;margin:8px 0;color:#cdddf7}
-.hint.big{font-size:14px;font-weight:600}
-.banner{font-size:26px;font-weight:800;letter-spacing:1px;text-align:center;border-radius:var(--r);padding:10px;margin:8px 0}
-.banner.pass{background:var(--ok-d);color:#4ade80;border:1px solid #1e7a43}.banner.fail{background:var(--bad-d);color:#fca5a5;border:1px solid #8a2a2a}
+#side{width:370px;max-width:42vw;background:var(--panel);border-left:1px solid var(--line);padding:14px 16px;overflow-y:auto}
+#side h2{margin:0 0 12px;font-size:14px;font-weight:650;letter-spacing:.2px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+#side h3{margin:14px 0 6px;font-size:11px;font-weight:650;text-transform:uppercase;letter-spacing:.9px;color:var(--dim)}
+#side b[style*="display:block"]{font-size:11px;text-transform:uppercase;letter-spacing:.9px;color:var(--dim);font-weight:650;margin-top:14px!important}
+.hint{background:var(--panel2);border:1px solid var(--line2);border-left:3px solid var(--acc);padding:8px 10px;border-radius:var(--r);font-size:12.5px;margin:8px 0;color:#c9d3df}
+.hint.big{font-size:13px;font-weight:600}
+.banner{font-size:22px;font-weight:700;letter-spacing:3px;text-align:center;border-radius:var(--r);padding:10px;margin:8px 0}
+.banner.pass{background:var(--ok-d);color:#56d364;border:1px solid #2ea043}.banner.fail{background:var(--bad-d);color:#ff7b72;border:1px solid #da3633}
 .tiles{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:6px 0}
-.tile{background:var(--panel2);border:1px solid var(--line);border-radius:var(--r);padding:8px 10px;text-align:left}
-.tile b{display:block;font-size:18px;font-weight:650}.tile span{color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.6px}
+.tile{background:var(--panel2);border:1px solid var(--line);border-radius:var(--r);padding:7px 10px;text-align:left}
+.tile b{display:block;font-size:17px;font-weight:600;font-variant-numeric:tabular-nums}.tile span{color:var(--dim);font-size:10.5px;text-transform:uppercase;letter-spacing:.7px}
 .row{display:flex;gap:6px;align-items:center;margin:5px 0}.row>*{flex:1}
-.pad{display:grid;grid-template-columns:repeat(3,40px);gap:4px;justify-content:center;margin:8px 0}
-.pad button{height:40px;font-size:15px;padding:0}
+.pad{display:grid;grid-template-columns:repeat(3,38px);gap:4px;justify-content:center;margin:8px 0}
+.pad button{height:34px;font-size:13px;padding:0}
 .card{background:var(--panel2);border-radius:var(--r);padding:10px;margin:8px 0;border:1px solid var(--line)}
 .card.cur{border-color:var(--sel);box-shadow:0 0 0 1px var(--sel)}
-.card .imgs{display:flex;gap:6px;align-items:center}.card .imgs>div{flex:1;min-width:0;font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.6px}.card .imgs img{width:100%}
-.card img{flex:1;min-width:0;border-radius:6px;background:#000;max-height:200px;object-fit:contain;margin-top:3px}
-.tag{display:inline-block;padding:1px 7px;border-radius:4px;font-size:11px;font-weight:700;letter-spacing:.4px;background:var(--bad);color:#fff;margin:2px;vertical-align:middle}
+.card .imgs{display:flex;gap:6px;align-items:center}.card .imgs>div{flex:1;min-width:0;font-size:10.5px;color:var(--dim);text-transform:uppercase;letter-spacing:.7px}.card .imgs img{width:100%}
+.card img{flex:1;min-width:0;border-radius:3px;background:#000;max-height:200px;object-fit:contain;margin-top:3px}
+.tag{display:inline-block;padding:1px 6px;border-radius:3px;font-size:10.5px;font-weight:700;letter-spacing:.5px;background:var(--bad);color:#fff;margin:2px;vertical-align:middle}
 .tag.w{background:var(--warn);color:#1f1300}
-.bar{height:20px;background:#7f2a2a;border-radius:4px;margin:3px 0;display:flex;align-items:center;padding:0 8px;font-size:12px;white-space:nowrap}
-.chk{display:flex;gap:5px;flex-wrap:wrap}.chk button{flex:1 1 45%;font-size:13px}
+.bar{height:18px;background:#6e2525;border-radius:3px;margin:3px 0;display:flex;align-items:center;padding:0 8px;font-size:12px;white-space:nowrap}
+.chk{display:flex;gap:5px;flex-wrap:wrap}.chk button{flex:1 1 45%;font-size:12px}
 label.sl{display:block;margin:10px 0 2px;color:var(--dim);font-size:12px}input[type=range]{width:100%;accent-color:var(--acc)}
-#toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#0b0f14ee;border:1px solid var(--line);padding:9px 16px;border-radius:var(--r);font-size:13px;display:none;z-index:9;box-shadow:0 6px 24px #0008}
-.legend{position:absolute;left:10px;bottom:10px;background:#0b0f14cc;border:1px solid var(--line);padding:4px 10px;border-radius:6px;font-size:11px;color:var(--dim)}
-.legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin:0 4px 0 8px;vertical-align:middle}
-details summary{font-size:13px !important;color:var(--dim)}
+#toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#0b0e12f2;border:1px solid var(--line2);padding:8px 14px;border-radius:var(--r);font-size:12.5px;display:none;z-index:99;box-shadow:0 6px 24px #0008}
+.legend{position:absolute;left:10px;bottom:10px;background:#0b0e12d9;border:1px solid var(--line);padding:4px 10px;border-radius:var(--r);font-size:11px;color:var(--dim)}
+.legend i{display:inline-block;width:8px;height:8px;border-radius:1px;margin:0 4px 0 8px;vertical-align:middle}
+details summary{font-size:12px !important;color:var(--dim)}
 table td{padding:4px 5px}
-a.big{font-size:14px !important;padding:10px 14px !important;border:1px solid var(--line);font-weight:600 !important}
+a.big{font-size:13px !important;padding:8px 12px !important;border:1px solid var(--line2);font-weight:600 !important}
 @media (max-width:800px){main{flex-direction:column}#side{width:auto;max-width:none;height:50vh}}
 </style>
 </head>
 <body>
 <header>
-  <h1>◉ PCBA&nbsp;AOI <small id="ver" style="font-weight:400;color:var(--dim);font-size:11px"></small></h1>
+  <h1>PCBA&nbsp;AOI <small id="ver" style="font-weight:400;color:var(--dim);font-size:11px"></small></h1>
   <select id="prog" title="Program"></select>
   <nav class="steps" id="steps"></nav>
-  <button id="bList" title="Parts list">📋</button>
-  <button id="bLib" title="Parts library">📚</button>
-  <button id="bStats" title="Statistics">📊</button>
-  <button id="bSet" title="Advanced settings">⚙</button>
+  <button id="bList" title="Parts list">Parts</button>
+  <button id="bLib" title="Package library">Library</button>
+  <button id="bStats" title="Statistics">Statistics</button>
+  <button id="bSet" title="Settings">Settings</button>
 </header>
 <main>
   <div id="view"><canvas id="cv"></canvas>
@@ -86,13 +86,13 @@ a.big{font-size:14px !important;padding:10px 14px !important;border:1px solid va
 <input type="file" id="fileIn" hidden>
 <script>
 const $=s=>document.querySelector(s);
-const STEPS=[["program","📄","Program"],["board","🖼","Board"],["align","🎯","Align"],["rois","🎛","Fine-tune"],["inspect","▶","Inspect"],["review","✔","Review"]];
+const STEPS=[["program","","Program"],["board","","Board"],["align","","Align"],["rois","","Fine-tune"],["inspect","","Inspect"],["review","","Review"]];
 let S={prog:null,data:null,step:"program",img:null,imgSrc:null,view:{s:1,x:0,y:0},sel:null,teach:[],result:null,revIdx:0,watch:null};
 
 async function api(path,opt={}){
   if(opt.json){opt.body=JSON.stringify(opt.json);opt.headers={"Content-Type":"application/json"};opt.method=opt.method||"POST";}
   const r=await fetch(path,opt);const j=await r.json().catch(()=>({}));
-  if(!r.ok){toast("⚠ "+(j.error||r.status));throw new Error(j.error);}return j;
+  if(!r.ok){toast("Error: "+(j.error||r.status));throw new Error(j.error);}return j;
 }
 function toast(t,ms=2500){const e=$("#toast");e.textContent=t;e.style.display="block";clearTimeout(e._t);e._t=setTimeout(()=>e.style.display="none",ms);}
 function pickFile(accept){return new Promise(res=>{const f=$("#fileIn");f.accept=accept;f.value="";f.onchange=()=>res(f.files[0]);f.click();});}
@@ -120,7 +120,7 @@ async function refresh(){S.data=await api(P());if(S.data.has_golden&&!S.result)a
 function stepDone(k){const d=S.data;if(!d)return false;
   return {program:d.components.length>0,board:d.has_golden,align:!!d.transform,rois:!!d.transform,inspect:!!S.result,review:false}[k];}
 function renderSteps(){
-  $("#steps").innerHTML=STEPS.map(([k,i,t],n)=>(n?'<span class="arrow">➜</span>':"")+`<button class="step ${stepDone(k)?"done":""} ${S.step==k?"cur":""}" data-k="${k}"><span class="n">${stepDone(k)?"✓":n+1}</span>${i} ${t}</button>`).join("");
+  $("#steps").innerHTML=STEPS.map(([k,i,t],n)=>(n?'<span class="arrow">→</span>':"")+`<button class="step ${stepDone(k)?"done":""} ${S.step==k?"cur":""}" data-k="${k}"><span class="n">${stepDone(k)?"✓":n+1}</span>${i} ${t}</button>`).join("");
   document.querySelectorAll(".step").forEach(b=>b.onclick=()=>go(b.dataset.k));
 }
 function go(k){S.step=k;if(k!=="align")S.teach=[];renderSteps();side();draw();}
@@ -130,23 +130,23 @@ $("#bStats").onclick=()=>go("stats");$("#bLib").onclick=()=>{S.libPkg=null;go("l
 function side(){
   const el=$("#side"),d=S.data;
   if(!S.prog&&S.step!=="settings"){el.innerHTML=`<h2>Start</h2>
-    <div class="hint big">⬆ Pick a program at the top — or make a new one</div>
-    <button class="big pri" id="bNew"><span class="ico">＋</span>New program</button>
-    <button class="big" id="bDemo"><span class="ico">🧪</span>Try the demo board</button>`;
+    <div class="hint big">↑ Pick a program at the top — or make a new one</div>
+    <button class="big pri" id="bNew">New program</button>
+    <button class="big" id="bDemo">Try the demo board</button>`;
     $("#bNew").onclick=()=>{$("#prog").value="__new";$("#prog").onchange({target:$("#prog")});};
     $("#bDemo").onclick=demo;return;}
   (PANELS[S.step]||(()=>{}))(el,d);
 }
 function verifyHtml(v){return `<div class="card" style="border-color:${v.ok?"var(--ok)":"var(--bad)"};font-size:12px">
-  <b style="color:${v.ok?"var(--ok)":"var(--bad)"}">${v.ok?"✔ Fiducials verified":"✖ Fiducials NOT verified"}</b> on ${v.source}
+  <b style="color:${v.ok?"var(--ok)":"var(--bad)"}">${v.ok?"✓ Fiducials verified":"✕ Fiducials NOT verified"}</b> on ${v.source}
   ${v.registration?` · ${esc(v.registration.method||"")} · match ${v.registration.match??"—"} · residual ${v.registration.fid_residual_px??"—"} px${v.registration.msg?"<br>"+esc(v.registration.msg):""}`:""}
-  <table style="width:100%">${v.fids.map(f=>`<tr><td><b>${esc(f.ref||"")}</b></td><td>${f.found?"✔":"✖"}</td><td>${f.score!=null?"score "+Math.round(f.score*100)+"%":esc(f.why||"")}</td><td>${f.match!=null?"match "+f.match:""}</td><td>${f.r?"r "+f.r+"px":""}</td></tr>`).join("")}</table></div>`;}
+  <table style="width:100%">${v.fids.map(f=>`<tr><td><b>${esc(f.ref||"")}</b></td><td>${f.found?"✓":"✕"}</td><td>${f.score!=null?"score "+Math.round(f.score*100)+"%":esc(f.why||"")}</td><td>${f.match!=null?"match "+f.match:""}</td><td>${f.r?"r "+f.r+"px":""}</td></tr>`).join("")}</table></div>`;}
 function fidTeach(ref,px,py){
   const m=document.createElement("div");m.style.cssText="position:fixed;inset:0;background:#000b;z-index:60;display:flex;align-items:center;justify-content:center";
   let st={px,py,view:"binary",par:null,res:null,busy:false,again:false};
   const sl=(id,lab,min,max,step)=>`<div class="row" style="margin:3px 0"><span style="flex:0 0 130px">${lab}: <b id="${id}v"></b></span><input type="range" id="${id}" min="${min}" max="${max}" step="${step}"></div>`;
   m.innerHTML=`<div style="background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;width:min(900px,96vw);max-height:94vh;overflow:auto">
-   <h2>🎯 Teach fiducial ${esc(ref)}</h2>
+   <h2>Teach fiducial ${esc(ref)}</h2>
    <div style="display:flex;gap:14px;flex-wrap:wrap">
     <div style="flex:1 1 380px;min-width:300px">
      <div class="row"><span style="flex:0">View</span><select id="ftV"><option value="binary">Binary (what it thresholds)</option><option value="image">Image</option></select></div>
@@ -155,7 +155,7 @@ function fidTeach(ref,px,py){
      <div style="font-size:11px;color:var(--dim);text-align:center">Click in the view to re-centre on the mark · blue ring = search area</div>
     </div>
     <div style="flex:1 1 300px">
-     <button class="big pri" id="ftSug">✨ Suggest settings from this mark</button>
+     <button class="big pri" id="ftSug">Suggest settings from this mark</button>
      <div class="row"><span style="flex:0 0 130px">Look at</span><select id="ftC"><option value="auto">Auto (best)</option><option value="gray">Brightness</option><option value="copper">Copper colour (dull pads on green)</option></select></div>
      <label style="display:flex;gap:6px;margin:4px 0"><input type="checkbox" id="ftA"> Auto threshold (Otsu)</label>
      <label style="display:flex;gap:6px;margin:4px 0"><input type="checkbox" id="ftD"> Mark is darker than surround (invert)</label>
@@ -175,7 +175,7 @@ function fidTeach(ref,px,py){
     try{const r=await api(U+"/try",{json:{px:st.px,py:st.py,params}});st.res=r;if(!params)fill(r.params);
       q("#ftI").src=r.views[st.view];const h=r.hit;
       q("#ftS").innerHTML=r.found?`<span style="color:var(--ok)">FOUND ✓ (${h.px.toFixed(1)}, ${h.py.toFixed(1)}) r=${h.r}px · score ${Math.round(h.score*100)}%${h.match!=null?" · match "+h.match:""}</span>`:
-        h?`<span style="color:var(--warn)">WEAK ${Math.round(h.score*100)}% — adjust settings</span>`:`<span style="color:var(--bad)">NOT FOUND ✖</span>`;
+        h?`<span style="color:var(--warn)">WEAK ${Math.round(h.score*100)}% — adjust settings</span>`:`<span style="color:var(--bad)">NOT FOUND ✕</span>`;
       q("#ftInfo").textContent=`Expected radius ≈ ${r.expected_r_px}px (from .gen size) · Otsu ≈ ${r.otsu}${h?` · roundness ${h.roundness} · ${h.polarity} mark · ${h.channel=="copper"?"copper colour":"brightness"}`:""}${r.template?" · checked against taught template":""}`;
       q("#ftOK").disabled=!r.found;}
     finally{st.busy=false;if(st.again){st.again=false;run(read());}}};
@@ -188,7 +188,7 @@ function fidTeach(ref,px,py){
     fill({...read(),...s,threshold:null});q("#ftInfo").textContent=`Measured mark: radius ${s.measured.r_px}px · ${s.measured.polarity} on its surround (${s.channel=="copper"?"copper colour":"brightness"}) · Otsu ≈ ${s.measured.threshold}. Radius window set to ${s.rmin_px}–${s.rmax_px}px.`;run(read());};
   q("#ftX").onclick=()=>m.remove();
   q("#ftOK").onclick=async()=>{const h=st.res.hit;const r=await api(U+"/teach",{json:{px:h.px,py:h.py,params:read()}});m.remove();
-    toast(r.fit?`✔ ${ref} taught · max error ${r.fit.max_mm} mm`:`✔ ${ref} taught — teach one more`,3500);
+    toast(r.fit?`✓ ${ref} taught · max error ${r.fit.max_mm} mm`:`✓ ${ref} taught — teach one more`,3500);
     const next=S.data.components.filter(c=>c.fiducial).map(c=>c.ref).find(f=>f!=ref&&!(S.data.fid_teach||{})[f]);await refresh();side();draw();
     if(next&&!r.fit){S.fidPick=next;side();}};
   run(null);}
@@ -208,7 +208,7 @@ function libConflict(cf,c){const m=document.createElement("div");
     if(a=="variant"){const n=prompt("New package name",cf.name+"_"+(c.ipn||c.ref));if(!n)return;await api(U,{json:{scope:"package",mode:"variant",new_name:n}});}
     if(a=="ipn"){await api(P()+"/component/"+encodeURIComponent(c.ref)+"/promote_ipn",{method:"POST"});}
     if(a=="use")await api(U,{json:{scope:cf.scope,mode:"use_library"}});
-    m.remove();if(a!="x"){toast("✔ Done");await refresh();side();draw();}});}
+    m.remove();if(a!="x"){toast("✓ Done");await refresh();side();draw();}});}
 function pickBoard(boards,cb){const m=document.createElement("div");
   m.style.cssText="position:fixed;inset:0;background:#000a;z-index:50;display:flex;align-items:center;justify-content:center";
   m.innerHTML=`<div style="background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;width:min(460px,92vw);max-height:80vh;overflow:auto">
@@ -222,54 +222,54 @@ async function demo(){toast("Building demo…");await api("/api/demo",{method:"P
 
 const PANELS={
 program(el,d){
-  el.innerHTML=`<h2>📄 Placement data</h2>
+  el.innerHTML=`<h2>Placement data</h2>
    <div class="hint">Load the MY9 layout (<b>.gen</b>) or a placement CSV / TXT / .pos. Packages are made automatically.</div>
-   <button class="big pri" id="bImp"><span class="ico">📂</span>Import file</button>
+   <button class="big pri" id="bImp">Import file</button>
    <label style="display:flex;gap:6px;align-items:center;margin:2px 0 6px"><input type="checkbox" id="orgBL" checked> Origin 0,0 = bottom-left of the layout</label>
-   <button class="big" id="bMach"><span class="ico">🏭</span>Machine library (pck.gen + cmp.cmp)</button><div id="machInfo" style="color:var(--dim);font-size:12px;text-align:center"></div>
-   <button class="big" id="bTr"><span class="ico">⇄</span>Translate .gen → CSV (download)</button>
-   <button class="big" id="bWiz"><span class="ico">🧩</span>Odd file? Map columns (wizard)</button>
-   <button class="big" id="bBom"><span class="ico">📦</span>Load BOM (IPN + designators, no XY)</button>
-   <button class="big" id="bPhoto"><span class="ico">📷</span>No placement file? Build from photo</button>
+   <button class="big" id="bMach">Machine library (pck.gen + cmp.cmp)</button><div id="machInfo" style="color:var(--dim);font-size:12px;text-align:center"></div>
+   <button class="big" id="bTr">Translate .gen → CSV (download)</button>
+   <button class="big" id="bWiz">Odd file? Map columns (wizard)</button>
+   <button class="big" id="bBom">Load BOM (IPN + designators, no XY)</button>
+   <button class="big" id="bPhoto">No placement file? Build from photo</button>
    <div class="row"><span>Units</span><select id="units"><option value="auto">Auto</option><option>mm</option><option value="um">µm (MYData)</option><option>mil</option></select></div>
    ${d.components.length?`<div class="tiles"><div class="tile"><b>${d.components.length}</b><span>placements</span></div>
    <div class="tile"><b>${Object.keys(d.packages).length}</b><span>packages</span></div>
    <div class="tile"><b>${d.components.filter(c=>c.fiducial).length}</b><span>fiducials</span></div>
    <div class="tile"><b>${d.components.filter(c=>c.enabled).length}</b><span>to inspect</span></div></div>
-   <button class="big ok" id="bNext">Next ➜ Board image</button>`:""}`;
+   <button class="big ok" id="bNext">Next → Board image</button>`:""}`;
   fetch("/api/machine_lib").then(r=>r.json()).then(m=>{if($("#machInfo"))$("#machInfo").textContent=m.packages||m.components?`Loaded: ${m.packages} packages · ${m.components} components (exact body + lead geometry)`:"Not loaded — packages are estimated from names";});
   $("#bMach").onclick=async()=>{const fd=new FormData();const f=$("#fileIn");f.accept=".gen,.cmp,.txt,*";f.multiple=true;f.value="";
     const files=await new Promise(res=>{f.onchange=()=>res([...f.files]);f.click();});f.multiple=false;if(!files.length)return;files.forEach(x=>fd.append("file",x));
-    const r=await api("/api/machine_lib",{method:"POST",body:fd});toast(`🏭 +${r.added_packages} packages, +${r.added_components} components — re-import the layout to use them`,6000);side();};
+    const r=await api("/api/machine_lib",{method:"POST",body:fd});toast(`+${r.added_packages} packages, +${r.added_components} components — re-import the layout to use them`,6000);side();};
   $("#bImp").onclick=async()=>{const f=await pickFile(".gen,.csv,.txt,.pos,.tsv,.xy,.mnt,.lay");if(!f)return;
     const send=async board=>{const fd=new FormData();fd.append("file",f);fd.append("units",$("#units").value);fd.append("origin",$("#orgBL").checked?"bottom_left":"file");if(board)fd.append("board",board);
       const r=await fetch(P()+"/import",{method:"POST",body:fd});const j=await r.json();
-      if(!r.ok&&j.boards){pickBoard(j.boards,send);return;}if(!r.ok){toast("⚠ "+j.error);return;}
-      toast(`✔ ${j.board?j.board+": ":""}${j.count} parts, ${j.packages} packages`+(j.sources?` (${j.sources.machine} from machine lib)`:"")+(j.warnings.length?" — "+j.warnings.join("; "):""),6000);await refresh();side();draw();};
+      if(!r.ok&&j.boards){pickBoard(j.boards,send);return;}if(!r.ok){toast("Error: "+j.error);return;}
+      toast(`✓ ${j.board?j.board+": ":""}${j.count} parts, ${j.packages} packages`+(j.sources?` (${j.sources.machine} from machine lib)`:"")+(j.warnings.length?" — "+j.warnings.join("; "):""),6000);await refresh();side();draw();};
     send(null);};
   $("#bBom").onclick=async()=>{const f=await pickFile(".csv,.txt,*");if(!f)return;const fd=new FormData();fd.append("file",f);
     const r=await api(P()+"/bom",{method:"POST",body:fd});await refresh();
-    toast(`📦 BOM: ${r.refs} refs, ${r.smd} SMD, ${r.placed} matched`,6000);
+    toast(`BOM: ${r.refs} refs, ${r.smd} SMD, ${r.placed} matched`,6000);
     S.bomCheck=r;go("list");};
   $("#bTr").onclick=async()=>{const f=await pickFile(".gen,.csv,.txt,.pos");if(!f)return;
     const send=async board=>{const fd=new FormData();fd.append("file",f);if(board)fd.append("board",board);
-    const r=await fetch("/api/translate.csv",{method:"POST",body:fd});if(!r.ok){const j=await r.json();if(j.boards){pickBoard(j.boards,send);return;}toast("⚠ "+(j.error||r.status));return;}
+    const r=await fetch("/api/translate.csv",{method:"POST",body:fd});if(!r.ok){const j=await r.json();if(j.boards){pickBoard(j.boards,send);return;}toast("Error: "+(j.error||r.status));return;}
     const a=document.createElement("a");a.href=URL.createObjectURL(await r.blob());a.download=f.name.replace(/\.[^.]+$/,"")+(board?"_"+board:"")+"_placements.csv";a.click();toast("⇄ Translated");};send(null);};
   $("#bWiz").onclick=async()=>{const f=await pickFile(".csv,.txt,.pos,.tsv,.xy,*");if(!f)return;S.wiz={file:f,fmt:{}};go("wizard");};
   $("#bPhoto").onclick=async()=>{const f=await pickFile("image/*");if(!f)return;const bm=prompt("Board length in mm (optional - makes tolerances real mm)","");const fd=new FormData();fd.append("image",f);toast("Finding parts…");
-    const r=await api(P()+"/from_photo"+(bm?`?board_mm=${encodeURIComponent(bm)}`:""),{method:"POST",body:fd});toast(`✔ ${r.parts} parts, ${r.holes} holes · ${r.ppm} px/mm — now train with good boards`,6000);
+    const r=await api(P()+"/from_photo"+(bm?`?board_mm=${encodeURIComponent(bm)}`:""),{method:"POST",body:fd});toast(`✓ ${r.parts} parts, ${r.holes} holes · ${r.ppm} px/mm — now train with good boards`,6000);
     await refresh();go("inspect");};
   if($("#bNext"))$("#bNext").onclick=()=>go("board");
 },
 board(el,d){
-  el.innerHTML=`<h2>🖼 Golden board</h2>
+  el.innerHTML=`<h2>Golden board</h2>
    <div class="hint">Use a <b>known-good</b> board. Same camera + lights as production.</div>
-   <button class="big pri" id="bUp"><span class="ico">🖼</span>Upload image</button>
-   <button class="big" id="bCam"><span class="ico">📷</span>Camera snapshot</button>
+   <button class="big pri" id="bUp">Upload image</button>
+   <button class="big" id="bCam">Camera snapshot</button>
    ${d.has_golden&&d.transform?`<div class="hint" style="margin-top:14px">Optional: photo of a <b>BARE board</b> (no parts), same camera position → boxes snap onto the real parts + stronger missing-part check.</div>
-   <button class="big ${d.has_bare?"ok":""}" id="bBare"><span class="ico">⬜</span>${d.has_bare?"✔ Bare board added — replace":"Add BARE board"}</button><div id="bareOut"></div>`:""}
-   ${d.has_golden?`<button class="big ok" id="bNext">Next ➜ Align</button>`:""}`;
-  const done=async r=>{toast(r.auto_aligned?"✔ Fiducials found automatically":"Image saved — now click the fiducials",4000);await refresh();go("align");};
+   <button class="big ${d.has_bare?"ok":""}" id="bBare">${d.has_bare?"✓ Bare board added — replace":"Add BARE board"}</button><div id="bareOut"></div>`:""}
+   ${d.has_golden?`<button class="big ok" id="bNext">Next → Align</button>`:""}`;
+  const done=async r=>{toast(r.auto_aligned?"✓ Fiducials found automatically":"Image saved — now click the fiducials",4000);await refresh();go("align");};
   $("#bUp").onclick=async()=>{const f=await pickFile("image/*");if(!f)return;const fd=new FormData();fd.append("image",f);done(await api(P()+"/golden",{method:"POST",body:fd}));};
   $("#bCam").onclick=async()=>done(await api(P()+"/golden?camera=1",{method:"POST"}));
   if($("#bBare"))$("#bBare").onclick=async()=>{const f=await pickFile("image/*");if(!f)return;const fd=new FormData();fd.append("image",f);toast("Comparing bare vs golden…");
@@ -284,26 +284,26 @@ align(el,d){
   const st=f=>{const m=marks[f.ref];if(!m)return`<span class="tag" style="background:#555">not set</span>`;
     const res=fit&&fit.residual_mm?fit.residual_mm[f.ref]:null;
     return `<span class="tag" style="background:${m.source=="taught"?"#2ecc71":m.source=="manual"?"var(--warn)":"#8fd3a0"};color:#000">${m.source=="taught"?"taught ✓":m.source=="manual"?"manual":"auto "+Math.round((m.score||0)*100)+"%"}</span>${res!=null?`<small style="color:${res>.15?"var(--bad)":"var(--dim)"}">${res.toFixed(3)} mm</small>`:""}`;};
-  el.innerHTML=`<h2>🎯 Align</h2>
+  el.innerHTML=`<h2>Align</h2>
    ${!d.has_golden?`<div class="hint">Load the golden image first (Board step)</div>`:""}
    <div class="hint">1 Rough-place the layout · 2 Snap / click fiducials · 3 Fine-tune</div>
    <b style="display:block;margin-top:6px">1 · Rough place</b>
-   <button class="big pri" id="aRough"><span class="ico">🗺</span>Place layout on image</button>
+   <button class="big pri" id="aRough">Place layout on image</button>
    <div class="row"><button id="aR90m" title="Rotate layout 90° anticlockwise">⟲ 90°</button><button id="aR90p" title="Rotate 90° clockwise">⟳ 90°</button><button id="bFlip" title="Mirror Y">↕ ${d.y_up?"Y up":"Y down"}</button></div>
-   <label style="display:flex;gap:6px;align-items:center;margin:4px 0"><input type="checkbox" id="aDrag" ${S.dragLayout?"checked":""}> ✋ Drag layout with mouse (wheel = scale, Shift+wheel = rotate)</label>
+   <label style="display:flex;gap:6px;align-items:center;margin:4px 0"><input type="checkbox" id="aDrag" ${S.dragLayout?"checked":""}> Drag layout with mouse (wheel = scale, Shift+wheel = rotate)</label>
    <b style="display:block;margin-top:8px">2 · Fiducials</b>
-   <div class="row"><button id="aSnap" class="pri">🎯 Snap near overlay</button><button id="aAuto">✨ Search whole image</button></div>
+   <div class="row"><button id="aSnap" class="pri">Snap near overlay</button><button id="aAuto">Search whole image</button></div>
    <table style="width:100%;font-size:12px;border-collapse:collapse">${fids.map(f=>`<tr style="border-top:1px solid var(--line);${S.fidSel==f.ref?"background:var(--panel2)":""}">
      <td><b>${f.ref}</b><br><small style="color:var(--dim)">${f.x.toFixed(2)}, ${f.y.toFixed(2)}</small></td><td>${st(f)}</td>
-     <td style="text-align:right;white-space:nowrap"><button data-fp="${f.ref}" class="${S.fidPick==f.ref?"ok":""}" title="Click it on the image, then teach">👆 Pick</button><button data-ft="${f.ref}" title="Teach / tune finder settings">🔧</button><button data-fs="${f.ref}" title="Select to nudge">✥</button><button data-fx="${f.ref}" title="Clear">✕</button></td></tr>`).join("")||`<tr><td class="hint">No fiducials in the layout — click 2 part centres below</td></tr>`}</table>
-   ${S.fidPick?`<div class="hint big">👆 Click <span style="color:var(--warn)">${S.fidPick}</span> on the image → teach dialog opens (Alt+click = place exactly, no teach)</div>`:""}
+     <td style="text-align:right;white-space:nowrap"><button data-fp="${f.ref}" class="${S.fidPick==f.ref?"ok":""}" title="Click it on the image, then teach">Pick</button><button data-ft="${f.ref}" title="Teach / tune finder settings">Teach</button><button data-fs="${f.ref}" title="Select to nudge">Nudge</button><button data-fx="${f.ref}" title="Clear">✕</button></td></tr>`).join("")||`<tr><td class="hint">No fiducials in the layout — click 2 part centres below</td></tr>`}</table>
+   ${S.fidPick?`<div class="hint big">Click <span style="color:var(--warn)">${S.fidPick}</span> on the image → teach dialog opens (Alt+click = place exactly, no teach)</div>`:""}
    ${S.fidSel&&marks[S.fidSel]?`<div style="text-align:center;color:var(--dim)">Nudge ${S.fidSel} (1 px)</div><div class="pad"><span></span><button data-fn="0,-1">▲</button><span></span><button data-fn="-1,0">◀</button><button id="fSnap" title="Snap to blob">◎</button><button data-fn="1,0">▶</button><span></span><button data-fn="0,1">▼</button><span></span></div>`:""}
    ${fit?`<div class="tiles"><div class="tile"><b style="color:${fit.max_mm>.15?"var(--warn)":"var(--ok)"}">${fit.max_mm.toFixed(3)}</b><span>max error mm</span></div><div class="tile"><b>${fit.ppm}</b><span>px / mm</span></div><div class="tile"><b>${fit.rotation}°</b><span>rotation</span></div></div>`:""}
-   <b style="display:block;margin-top:8px">✅ Verify fiducials</b>
+   <b style="display:block;margin-top:8px">Verify fiducials</b>
    <div class="row"><button id="vGold">Verify on golden</button><button id="vBoard">Verify on a board…</button></div>
    <label style="font-size:12px;display:flex;gap:6px;align-items:center"><input type="checkbox" id="vReq" ${d.fid_required!==false?"checked":""}> Stop inspection if taught fiducials aren't found</label>
    <div id="vOut">${S.verify?verifyHtml(S.verify):""}</div>
-   <details ${S.fidOpen?"open":""} id="fDet"><summary style="cursor:pointer">🔧 Finder settings (auto-find)</summary>
+   <details ${S.fidOpen?"open":""} id="fDet"><summary style="cursor:pointer">Finder settings (auto-find)</summary>
     <div class="row"><span>Dot</span><select id="fPol">${["auto","bright","dark"].map(v=>`<option ${par.polarity==v?"selected":""}>${v}</option>`).join("")}</select><select id="fShape">${["auto","circle","square"].map(v=>`<option ${par.shape==v?"selected":""}>${v}</option>`).join("")}</select></div>
     <div class="row"><span>Threshold</span><label style="flex:0"><input type="checkbox" id="fTa" ${par.threshold==null?"checked":""}>auto</label><input type="range" id="fT" min="0" max="255" value="${par.threshold??128}" ${par.threshold==null?"disabled":""}><b id="fTv" style="flex:0;min-width:28px">${par.threshold??"—"}</b></div>
     <div class="row"><span>Dot size mm</span><input type="number" id="fSz" step="0.1" min="0.2" placeholder="from .gen" value="${par.size_mm??""}"></div>
@@ -317,15 +317,15 @@ align(el,d){
    <details><summary style="cursor:pointer">No fiducials? Click 2 part centres</summary>
     <div class="row"><span>Reference</span><select id="tref"><option value="">—</option>${d.components.map(c=>`<option ${c.ref==S.teachRef?"selected":""}>${c.ref}</option>`).join("")}</select></div>
     <div>${S.teach.map(t=>`<span class="tag" style="background:var(--warn);color:#000">✓ ${t.ref}</span>`).join("")}</div></details>
-   ${d.transform?`<button class="big ok" id="bNext">Next ➜ Check ROIs</button>`:""}`;
+   ${d.transform?`<button class="big ok" id="bNext">Next → Check ROIs</button>`:""}`;
   const adj=async b=>{const r=await api(P()+"/adjust",{method:"PUT",json:b});await refresh();side();draw();return r;};
   S.adj=adj;
-  $("#aRough").onclick=()=>adj({rough:true}).then(()=>toast("🗺 Layout placed — drag / rotate to roughly match, then Snap"));
+  $("#aRough").onclick=()=>adj({rough:true}).then(()=>toast("Layout placed — drag / rotate to roughly match, then Snap"));
   $("#aR90m").onclick=()=>adj({drot:-90});$("#aR90p").onclick=()=>adj({drot:90});
   $("#aDrag").onchange=e=>{S.dragLayout=e.target.checked;};
   const findP=()=>({polarity:$("#fPol").value,shape:$("#fShape").value,threshold:$("#fTa").checked?null:+$("#fT").value,size_mm:+$("#fSz").value||null,search_mm:+$("#fSr").value,min_score:+$("#fMs").value});
   const find=async fresh=>{S.fidOpen=$("#fDet").open;const r=await api(P()+"/fiducials/find",{json:{...findP(),fresh,overwrite:true}});
-    const n=r.marks.filter(m=>!m.missing).length;toast(r.fit?`✔ ${n}/${r.marks.length} fiducials · max error ${r.fit.max_mm} mm`:`Found ${n}/${r.marks.length} — Pick the rest on the image`,4000);await refresh();side();draw();};
+    const n=r.marks.filter(m=>!m.missing).length;toast(r.fit?`✓ ${n}/${r.marks.length} fiducials · max error ${r.fit.max_mm} mm`:`Found ${n}/${r.marks.length} — Pick the rest on the image`,4000);await refresh();side();draw();};
   $("#aSnap").onclick=()=>d.transform?find(false):toast("Place the layout first (step 1) or use Search whole image");
   $("#aAuto").onclick=()=>find(true);
   $("#fTa").onchange=e=>{$("#fT").disabled=e.target.checked;$("#fTv").textContent=e.target.checked?"—":$("#fT").value;};
@@ -353,25 +353,25 @@ align(el,d){
 },
 rois(el,d){
   const c=S.sel&&d.components.find(c=>c.ref==S.sel);
-  if(!c){el.innerHTML=`<h2>🎛 Fine-tune</h2><div class="hint big">👆 Click a part on the image to adjust it</div>
-    <button class="big ${S.teachMode?"ok":""}" id="bTeachMode"><span class="ico">➕</span>${S.teachMode?"Teaching: click parts to add":"Teach parts (click to add)"}</button>
-    ${S.teachMode&&d.bom?`<div class="hint big">👆 Click <span style="color:var(--warn)">${esc(S.teachRef2||d.next_ref||"—")}</span> ${d.bom[S.teachRef2||d.next_ref]?`<small style="font-size:14px">${esc(d.bom[S.teachRef2||d.next_ref].ipn)}</small>`:""}</div>
+  if(!c){el.innerHTML=`<h2>Fine-tune</h2><div class="hint big">Click a part on the image to adjust it</div>
+    <button class="big ${S.teachMode?"ok":""}" id="bTeachMode">${S.teachMode?"Teaching: click parts to add":"Teach parts (click to add)"}</button>
+    ${S.teachMode&&d.bom?`<div class="hint big">Click <span style="color:var(--warn)">${esc(S.teachRef2||d.next_ref||"—")}</span> ${d.bom[S.teachRef2||d.next_ref]?`<small style="font-size:14px">${esc(d.bom[S.teachRef2||d.next_ref].ipn)}</small>`:""}</div>
       <div class="row"><span>or pick</span><select id="tRef"><option value="">next in BOM</option>${Object.keys(d.bom).filter(r=>!d.bom[r].th&&!d.components.some(c=>c.ref==r)).map(r=>`<option ${r==S.teachRef2?"selected":""}>${esc(r)}</option>`).join("")}</select></div>`:""}
     <div class="tiles"><div class="tile"><b>${d.components.filter(c=>c.enabled).length}</b><span>inspected</span></div><div class="tile"><b>${Object.keys(d.packages).length}</b><span>packages</span></div></div>
     <details class="card" ${S.ftOpen!==false?"open":""} id="ftW"><summary style="cursor:pointer;font-weight:700">⊕ Whole layout — move / rotate</summary>
      <div class="row"><span>Step</span><select id="ftS">${[0.02,0.05,0.2,1].map(v=>`<option ${v==(S.step_mm||0.2)?"selected":""}>${v}</option>`).join("")}</select><span>mm</span><select id="ftD">${[0.05,0.2,0.5,1].map(v=>`<option ${v==(S.step_deg||0.5)?"selected":""}>${v}</option>`).join("")}</select><span>°</span></div>
      <div class="pad"><button data-wr="-1">⟲</button><button data-wm="0,-1">▲</button><button data-wr="1">⟳</button><button data-wm="-1,0">◀</button><button id="ftR">↺</button><button data-wm="1,0">▶</button><button data-ws="-1">－</button><button data-wm="0,1">▼</button><button data-ws="1">＋</button></div></details>
-    <details class="card" open><summary style="cursor:pointer;font-weight:700">📦 Package — fixes every part of that type</summary>
+    <details class="card" open><summary style="cursor:pointer;font-weight:700">Package — fixes every part of that type</summary>
      <select id="ftP" style="width:100%;margin:6px 0"><option value="">— choose package (or click a part) —</option>${Object.keys(d.packages).filter(k=>d.packages[k].kind!="fiducial").sort().map(k=>`<option ${k==S.hlPkg?"selected":""} value="${esc(k)}">${esc(k)} (${d.components.filter(c=>c.package==k).length})</option>`).join("")}</select>
      ${S.hlPkg&&d.packages[S.hlPkg]?(()=>{const pk=d.packages[S.hlPkg];return `<div style="color:var(--dim);font-size:12px;text-align:center">${pk.body_l.toFixed(2)} × ${pk.body_w.toFixed(2)} mm · ${pk.pads.length} pads · ${pk.source||""} — highlighted purple</div>
      <div class="row"><button data-pr="-90">⟳ 90°</button><button data-pr="90">⟲ 90°</button><button data-pr="180">180°</button></div>
      <div class="row"><button data-pb="body_l,-1">L −</button><button data-pb="body_l,1">L ＋</button><button data-pb="body_w,-1">W −</button><button data-pb="body_w,1">W ＋</button></div>
      <div class="row"><button data-pp="span,-1">↔ −</button><button data-pp="span,1">↔ ＋</button><button data-pp="size,-1">pad −</button><button data-pp="size,1">pad ＋</button></div>
-     <div class="row"><button id="ftFit">✨ Auto-fit</button><button id="ftLib">🎚 Thresholds / checks</button></div>`;})():""}</details>
-    <div class="hint">👆 Click any part for its own offset / Z rotation. Annoying false calls? Mark them in Review → it learns.</div>
-    <button class="big pri" id="bFitAll"><span class="ico">✨</span>Auto-fit ALL package sizes</button>
+     <div class="row"><button id="ftFit">Auto-fit</button><button id="ftLib">Thresholds / checks</button></div>`;})():""}</details>
+    <div class="hint">Click any part for its own offset / Z rotation. Annoying false calls? Mark them in Review → it learns.</div>
+    <button class="big pri" id="bFitAll">Auto-fit ALL package sizes</button>
     <div id="fitOut"></div>
-    <button class="big ok" id="bNext">Next ➜ Inspect</button>`;$("#bNext").onclick=()=>go("inspect");
+    <button class="big ok" id="bNext">Next → Inspect</button>`;$("#bNext").onclick=()=>go("inspect");
     $("#bTeachMode").onclick=()=>{S.teachMode=!S.teachMode;side();};
     const adj=async b=>{await api(P()+"/adjust",{method:"PUT",json:b});await refresh();side();draw();};S.adj=adj;
     $("#ftW").ontoggle=e=>S.ftOpen=e.target.open;
@@ -387,12 +387,12 @@ rois(el,d){
       el.querySelectorAll("[data-pb]").forEach(b=>b.onclick=()=>{const[k,g]=b.dataset.pb.split(",");upd({[k]:Math.max(.1,+(pk[k]*(1+.05*g)).toFixed(3))});});
       el.querySelectorAll("[data-pp]").forEach(b=>b.onclick=()=>{const[k,g]=b.dataset.pp.split(",");const f=1+.05*g;
         upd({pads:pk.pads.map(([x,y,l,w])=>k=="span"?[+(x*f).toFixed(4),+(y*f).toFixed(4),l,w]:[x,y,+(l*f).toFixed(4),+(w*f).toFixed(4)])});});
-      $("#ftFit").onclick=async()=>{const r=await api(P()+"/autofit/"+encodeURIComponent(pn),{method:"POST"});toast(`✨ ${pn}: ${r.body_l} × ${r.body_w} mm`);await refresh();side();draw();};
+      $("#ftFit").onclick=async()=>{const r=await api(P()+"/autofit/"+encodeURIComponent(pn),{method:"POST"});toast(`${pn}: ${r.body_l} × ${r.body_w} mm`);await refresh();side();draw();};
       $("#ftLib").onclick=()=>{go("library");S.libPkg=pn;side();};}
     if($("#tRef"))$("#tRef").onchange=e=>{S.teachRef2=e.target.value||null;side();};
     $("#bFitAll").onclick=async()=>{$("#fitOut").innerHTML='<div class="hint">Measuring…</div>';
       const r=await api(P()+"/autofit_all",{method:"POST"});await refresh();draw();
-      $("#fitOut").innerHTML=`<div class="tiles"><div class="tile"><b style="color:var(--ok)">${r.fitted.length}</b><span>fitted ✔</span></div><div class="tile"><b style="color:var(--warn)">${r.failed.length}</b><span>check by hand</span></div></div>`+
+      $("#fitOut").innerHTML=`<div class="tiles"><div class="tile"><b style="color:var(--ok)">${r.fitted.length}</b><span>fitted ✓</span></div><div class="tile"><b style="color:var(--warn)">${r.failed.length}</b><span>check by hand</span></div></div>`+
         (r.failed.length?`<div style="color:var(--dim);font-size:13px">Tap a part to set by hand: ${r.failed.map(esc).join(", ")}</div>`:"");};
     return;}
   const pk=d.packages[c.package];const ch={presence:true,polarity:pk.polarized,ocv:pk.marking,offset:true,bridge:pk.pads.length>=4,...(c.checks||{})};
@@ -408,11 +408,11 @@ rois(el,d){
     <div style="display:flex;gap:3px;margin:4px 0">${[["part",`${esc(c.ref)} only`,1],["ipn",c.ipn?`IPN ${esc(c.ipn)}`:"no IPN",nIpn],["package",`${esc(c.package)}`,nPk]].map(([k,t,n])=>`<button data-sc="${k}" ${k=="ipn"&&!c.ipn?"disabled":""} class="${sc==k?"pri":""}" style="flex:1;font-size:11px;padding:5px 2px">${t}<br><small>${n} part${n==1?"":"s"}</small></button>`).join("")}</div>
     <div style="font-size:11px;color:var(--dim)">Priority: part › IPN › package. Active here: ${["package",...(o.levels||[])].map(x=>`<b>${lvl[x]}</b>`).join(" › ")}
      ${(o.levels||[]).map(x=>`<a href="#" data-clr="${x}" style="color:var(--warn)">✕ clear ${lvl[x]}</a>`).join(" ")}</div>
-    ${sc!="part"?`<div class="row" style="margin-top:4px"><button id="gSave">💾 Save ${sc=="ipn"?"IPN":"package"} to library</button><button id="gLib" title="Replace with the library copy">⬇ Use library</button></div>
+    ${sc!="part"?`<div class="row" style="margin-top:4px"><button id="gSave">Save ${sc=="ipn"?"IPN":"package"} to library</button><button id="gLib" title="Replace with the library copy">↓ Use library</button></div>
      <label style="font-size:11px;display:flex;gap:5px;align-items:center"><input type="checkbox" id="gAuto" ${d.auto_lib!==false?"checked":""}> auto-save package / IPN changes to library</label>`:""}
    </div>
    <div style="display:flex;gap:3px;margin:6px 0">${[["whole","Whole part"],["body","Body on pads"],["ocv","Marking box"],["pol","Polarity mark"]].map(([k,t])=>`<button data-t="${k}" class="${T==k?"pri":""}" style="flex:1;font-size:11px;padding:5px 2px">${t}</button>`).join("")}</div>
-   <div class="hint" style="font-size:11px">🖱 Drag on the image: inside body = move · body edge/corner = size · pad = lead span (Shift = pad size) · cyan/magenta box = move, corner = size</div>
+   <div class="hint" style="font-size:11px">Drag on the image: inside body = move · body edge/corner = size · pad = lead span (Shift = pad size) · cyan/magenta box = move, corner = size</div>
    <div class="row"><span>Step</span><select id="rStep">${[0.02,0.05,0.1,0.25,1].map(v=>`<option ${v==(S.rstep||0.05)?"selected":""}>${v}</option>`).join("")}</select><span>mm</span><select id="rStepD">${[0.5,1,2,5,15,90].map(v=>`<option ${v==(S.rstepd||1)?"selected":""}>${v}</option>`).join("")}</select><span>°</span></div>
    <div class="pad"><button data-r="1" title="Rotate anticlockwise">⟲</button><button data-m="0,-1">▲</button><button data-r="-1" title="Rotate clockwise">⟳</button><button data-m="-1,0">◀</button><button id="bR180" title="Turn 180°">180°</button><button data-m="1,0">▶</button><button data-g="-1" title="Smaller box">－</button><button data-m="0,1">▼</button><button data-g="1" title="Bigger box">＋</button></div>
    <div class="row"><button id="bRz">↺ Reset ${T=="whole"?"position":T=="body"?"body offset":T=="ocv"?"marking box":"polarity box"}</button></div>
@@ -420,21 +420,21 @@ rois(el,d){
    <div style="text-align:center;color:var(--dim);margin-top:4px">Body & leads (${lvl[sc]})</div>
    <div class="row"><button data-b="body_l,-1">L −</button><button data-b="body_l,1">L ＋</button><button data-b="body_w,-1">W −</button><button data-b="body_w,1">W ＋</button></div>
    <div class="row"><button data-pd="span,-1" title="Leads closer">↔ −</button><button data-pd="span,1" title="Leads further apart">↔ ＋</button><button data-pd="size,-1">pad −</button><button data-pd="size,1">pad ＋</button></div>
-   <button class="big pri" id="bFit"><span class="ico">✨</span>Auto-fit ${esc(c.package)} size from image</button>
+   <button class="big pri" id="bFit">Auto-fit ${esc(c.package)} size from image</button>
    <div style="color:var(--dim);margin-top:8px">Checks</div>
-   <div class="chk">${[["presence","⬛ Missing"],["polarity","➕ Polarity"],["ocv","🔤 Marking"],["offset","↔ Offset"],["bridge","🔗 Bridge"]].map(([k,t])=>`<button data-c="${k}" class="${ch[k]?"on":""}">${ch[k]?"✔":"✖"} ${t}</button>`).join("")}</div>
-   <div class="row"><button id="bRen">✏ Rename</button><button id="bDel" class="bad">🗑 Delete</button></div>
-   <details style="margin:8px 0"><summary style="cursor:pointer">🎚 Thresholds for this part only</summary>
+   <div class="chk">${[["presence","Missing"],["polarity","Polarity"],["ocv","Marking"],["offset","↔ Offset"],["bridge","Bridge"]].map(([k,t])=>`<button data-c="${k}" class="${ch[k]?"on":""}">${ch[k]?"✓":"✕"} ${t}</button>`).join("")}</div>
+   <div class="row"><button id="bRen">Rename</button><button id="bDel" class="bad">Delete</button></div>
+   <details style="margin:8px 0"><summary style="cursor:pointer">Thresholds for this part only</summary>
    ${tuneBox({...d.thresholds,...(pk.th||{})},{...(c.th||{})},"c")}</details>
-   <button class="big ${c.enabled?"":"pri"}" id="bEn">${c.enabled?"🚫 Skip this part":"✔ Inspect this part"}</button>
-   <button class="big" id="bDone">✔ Done</button>`;
+   <button class="big ${c.enabled?"":"pri"}" id="bEn">${c.enabled?"Skip this part":"✓ Inspect this part"}</button>
+   <button class="big" id="bDone">✓ Done</button>`;
   const put=async b=>{const r=await api(P()+"/component/"+encodeURIComponent(c.ref),{method:"PUT",json:b});S.data.overlay=r.overlay;await refresh();side();draw();};
   const geo=async b=>{await api(P()+"/component/"+encodeURIComponent(c.ref)+"/geom",{method:"PUT",json:{scope:sc,...b}});await refresh();side();draw();};
   S.geo=geo;
   el.querySelectorAll("[data-sc]").forEach(b=>b.onclick=()=>{S.gScope=b.dataset.sc;side();});
   el.querySelectorAll("[data-clr]").forEach(a=>a.onclick=async e=>{e.preventDefault();await api(P()+"/component/"+encodeURIComponent(c.ref)+"/geom",{method:"PUT",json:{scope:a.dataset.clr,op:"reset",target:"all"}});await refresh();side();draw();});
   const libSave=async mode=>{const r=await api(P()+"/component/"+encodeURIComponent(c.ref)+"/library",{json:{scope:sc,mode}});
-    if(r.conflict){libConflict(r.conflict,c);return;}toast("💾 Saved "+r.saved+" to library");await refresh();side();draw();};
+    if(r.conflict){libConflict(r.conflict,c);return;}toast("Saved "+r.saved+" to library");await refresh();side();draw();};
   if($("#gSave"))$("#gSave").onclick=()=>libSave("check");
   if($("#gLib"))$("#gLib").onclick=async()=>{if(!confirm("Replace this program's "+(sc=="ipn"?"IPN "+c.ipn:c.package)+" adjustments with the library copy?"))return;await api(P()+"/component/"+encodeURIComponent(c.ref)+"/library",{json:{scope:sc,mode:"use_library"}});await refresh();side();draw();};
   if($("#gAuto"))$("#gAuto").onchange=async e=>{await api(P()+"/settings",{method:"PUT",json:{auto_lib:e.target.checked}});await refresh();};
@@ -450,7 +450,7 @@ rois(el,d){
   el.querySelectorAll("[data-pd]").forEach(b=>b.onclick=()=>{const[k,g]=b.dataset.pd.split(",");geo({op:"pads",mode:k,factor:1+.05*g});});
   el.querySelectorAll("[data-b]").forEach(b=>b.onclick=()=>{const[k,g]=b.dataset.b.split(",");geo({op:"body",key:k,factor:1+.05*g});});
   $("#bFit").onclick=async()=>{const r=await api(P()+"/autofit/"+encodeURIComponent(c.package),{method:"POST"});
-    toast(`✨ ${c.package}: ${r.body_l} × ${r.body_w} mm (measured on ${r.measured})`,4000);await refresh();side();draw();};
+    toast(`${c.package}: ${r.body_l} × ${r.body_w} mm (measured on ${r.measured})`,4000);await refresh();side();draw();};
   el.querySelectorAll("[data-c]").forEach(b=>b.onclick=()=>put({checks:{...ch,[b.dataset.c]:!ch[b.dataset.c]}}));
   $("#pk").onchange=e=>put({package:e.target.value});
   $("#bEn").onclick=()=>put({enabled:!c.enabled});
@@ -462,20 +462,20 @@ inspect(el,d){
   const r=S.result;
   el.innerHTML=`<h2>▶ Inspect</h2>
    ${!d.transform?`<div class="hint">Finish Align first</div>`:""}
-   <button class="big pri" id="bIn" style="font-size:15px;padding:12px"><span class="ico">▶</span>INSPECT IMAGE</button>
-   <div class="row"><button id="bCam">📷 Camera</button><button id="bAuto" class="${S.watch?"on":""}">${S.watch?"⏸ Stop auto":"🔁 Auto folder"}</button></div>
-   <button class="big ok" id="bTrain"><span class="ico">✔</span>Train with GOOD board${d.compare&&d.compare.trained?` (${d.compare.trained})`:""}</button>
-   ${r?`<div class="banner ${r.ok?"pass":"fail"}">${r.ok?"PASS ✔":"FAIL ✖ "+(r.n_fail||"")}</div>
-   ${r.registration&&!r.registration.ok?`<div class="hint" style="border-color:var(--bad)">⚠ ${esc(r.registration.msg||"Board not aligned")}<br><small>No parts were judged — fix alignment first (Align → Verify on a board).</small></div>`:""}
-   ${r.warning?`<div class="hint" style="border-color:var(--warn)">⚠ ${esc(r.warning)}</div>`:""}
+   <button class="big pri" id="bIn" style="font-size:15px;padding:12px">INSPECT IMAGE</button>
+   <div class="row"><button id="bCam">Camera</button><button id="bAuto" class="${S.watch?"on":""}">${S.watch?"Stop auto":"Auto folder"}</button></div>
+   <button class="big ok" id="bTrain">Train with GOOD board${d.compare&&d.compare.trained?` (${d.compare.trained})`:""}</button>
+   ${r?`<div class="banner ${r.ok?"pass":"fail"}">${r.ok?"PASS ✓":"FAIL ✕ "+(r.n_fail||"")}</div>
+   ${r.registration&&!r.registration.ok?`<div class="hint" style="border-color:var(--bad)"><b>Error</b> · ${esc(r.registration.msg||"Board not aligned")}<br><small>No parts were judged — fix alignment first (Align → Verify on a board).</small></div>`:""}
+   ${r.warning?`<div class="hint" style="border-color:var(--warn)"><b>Check</b> · ${esc(r.warning)}</div>`:""}
    ${(r.notes||[]).map(n=>`<div style="font-size:12px;color:var(--dim);margin:4px 0">ℹ ${esc(n)}</div>`).join("")}
    <div class="tiles"><div class="tile"><b>${r.cycle_s}s</b><span>cycle</span></div><div class="tile"><b>${(r.registration.angle||0).toFixed(2)}°</b><span>board angle</span></div>
    <div class="tile"><b>${r.registration.match??"—"}</b><span>align match</span></div><div class="tile"><b>${(r.registration.fids||[]).filter(f=>f.found).length}/${(r.registration.fids||[]).length}</b><span>fiducials</span></div></div>
-   ${r.ok?"":`<button class="big bad" id="bRev">Review ${r.n_fail||""} fails ➜</button>`}
-   ${r.run?`<a class="big" href="${P()}/runs/${r.run}/report.jpg" target="_blank" style="display:flex;justify-content:center;gap:12px;text-decoration:none;color:var(--txt);background:var(--panel2);border-radius:8px;padding:10px 14px;font-size:14px;font-weight:600;margin:5px 0">📋 Report sheet (zoomed golden vs board)</a>`:""}`:""}
+   ${r.ok?"":`<button class="big bad" id="bRev">Review ${r.n_fail||""} fails →</button>`}
+   ${r.run?`<a class="big" href="${P()}/runs/${r.run}/report.jpg" target="_blank" style="display:flex;justify-content:center;gap:12px;text-decoration:none;color:var(--txt);background:var(--panel2);border-radius:8px;padding:10px 14px;font-size:14px;font-weight:600;margin:5px 0">Report sheet (zoomed golden vs board)</a>`:""}`:""}
    ${S.data.demo_hint?"":`<div style="color:var(--dim);margin-top:14px;font-size:13px">Demo images: <a style="color:var(--acc)" href="/api/demo/image/good_1" download>good</a> · <a style="color:var(--acc)" href="/api/demo/image/defects_1" download>defects</a></div>`}`;
   const show=async res=>{S.result=res;S.revIdx=0;if(res.registration&&res.registration.ok)await setImg(P()+`/runs/${res.run}/board.jpg`);side();draw();renderSteps();
-    if(!res.ok)toast("✖ "+(res.fails||res.components.filter(c=>!c.ok).map(c=>c.ref+" "+c.fails.join("/"))).join(", "),4000);};
+    if(!res.ok)toast("✕ "+(res.fails||res.components.filter(c=>!c.ok).map(c=>c.ref+" "+c.fails.join("/"))).join(", "),4000);};
   $("#bIn").onclick=async()=>{const f=await pickFile("image/*");if(!f)return;const fd=new FormData();fd.append("image",f);toast("Inspecting…");show(await api(P()+"/inspect",{method:"POST",body:fd}));};
   $("#bCam").onclick=async()=>show(await api(P()+"/inspect?camera=1",{method:"POST"}));
   $("#bAuto").onclick=()=>{if(S.watch){clearInterval(S.watch);S.watch=null;side();return;}
@@ -483,25 +483,25 @@ inspect(el,d){
     S.watch=setInterval(async()=>{const r=await api(P()+"/watch",{json:{folder}}).catch(()=>null);if(r&&!r.idle)show(r);},2000);side();};
   if($("#bRev"))$("#bRev").onclick=()=>go("review");
   $("#bTrain").onclick=async()=>{const f=await pickFile("image/*");if(!f)return;const fd=new FormData();fd.append("image",f);toast("Learning…");
-    const r=await api(P()+"/train",{method:"POST",body:fd});toast(`✔ Learned good board #${r.trained} · ${r.roi_fixed} boxes moved · ${r.learned} parts learned`,5000);await refresh();side();draw();};
+    const r=await api(P()+"/train",{method:"POST",body:fd});toast(`✓ Learned good board #${r.trained} · ${r.roi_fixed} boxes moved · ${r.learned} parts learned`,5000);await refresh();side();draw();};
 },
 review(el,d){
-  const r=S.result;if(!r){el.innerHTML=`<h2>✔ Review</h2><div class="hint">Run an inspection first</div>`;return;}
+  const r=S.result;if(!r){el.innerHTML=`<h2>✓ Review</h2><div class="hint">Run an inspection first</div>`;return;}
   const f=r.components.filter(c=>!c.ok);
-  if(!f.length){el.innerHTML=`<h2>✔ Review</h2><div class="banner pass">Nothing to review</div><button class="big pri" id="bAg">▶ Next board</button>`;$("#bAg").onclick=()=>go("inspect");return;}
+  if(!f.length){el.innerHTML=`<h2>✓ Review</h2><div class="banner pass">Nothing to review</div><button class="big pri" id="bAg">▶ Next board</button>`;$("#bAg").onclick=()=>go("inspect");return;}
   S.revIdx=Math.min(S.revIdx,f.length-1);const c=f[S.revIdx];S.sel=c.ref;
   const img=k=>`${P()}/runs/${r.run}/${encodeURIComponent(c.ref)}_${k}.png`;
-  el.innerHTML=`<h2>✔ Review <small style="color:var(--dim)">${S.revIdx+1} / ${f.length}</small></h2>
+  el.innerHTML=`<h2>✓ Review <small style="color:var(--dim)">${S.revIdx+1} / ${f.length}</small></h2>
    <div class="card cur"><div style="font-size:16px;font-weight:700">${c.ref} ${c.fails.map(t=>`<span class="tag">${t}</span>`).join("")}</div>
    <div style="color:var(--dim)">${c.ipn?`<b>${esc(c.ipn)}</b> · `:""}${c.part} · ${c.package}</div>
-   <div class="imgs"><div style="flex:1;text-align:center">GOOD<img src="${img("golden")}"></div><div style="font-size:16px;color:var(--dim)">➜</div><div style="flex:1;text-align:center">THIS BOARD<img src="${img("test")}"></div></div>
+   <div class="imgs"><div style="flex:1;text-align:center">GOOD<img src="${img("golden")}"></div><div style="font-size:16px;color:var(--dim)">→</div><div style="flex:1;text-align:center">THIS BOARD<img src="${img("test")}"></div></div>
    <div style="color:var(--dim);font-size:13px">present ${c.presence} ${c.polarity!=null?"· polarity "+c.polarity:""} ${c.ocv!=null?"· marking "+c.ocv:""} ${c.bridge!=null?"· bridge "+c.bridge:""} · offset ${c.offset_mm.join(", ")} mm</div></div>
-   <button class="big bad" id="bDef"><span class="ico">✖</span>Real defect</button>
-   <div style="color:var(--dim);margin-top:8px">✔ False call — why? (learns it)</div>
-   <div class="chk">${[["lighting","💡 Lighting / glare"],["flux","🧴 Flux / residue"],["variant","🔁 OK variant part"],["position","↔ Position OK"],["program","🔲 Box wrong"],["other","❔ Other"]].map(([k,t])=>`<button class="ok" data-fc="${k}">${t}</button>`).join("")}</div>
-   ${d.ai?`<button class="big" id="bAi">🤖 AI second opinion</button><div id="aiOut"></div>`:""}
+   <button class="big bad" id="bDef">Real defect</button>
+   <div style="color:var(--dim);margin-top:8px">✓ False call — why? (learns it)</div>
+   <div class="chk">${[["lighting","Lighting / glare"],["flux","Flux / residue"],["variant","OK variant part"],["position","↔ Position OK"],["program","Box wrong"],["other","Other"]].map(([k,t])=>`<button class="ok" data-fc="${k}">${t}</button>`).join("")}</div>
+   ${d.ai?`<button class="big" id="bAi">AI second opinion</button><div id="aiOut"></div>`:""}
    <div class="row"><button id="bPrev">◀ Prev</button><button id="bNx">Next ▶</button></div>`;
-  const fb=async(v,reason="")=>{await api(P()+"/feedback",{json:{run:r.run,ref:c.ref,verdict:v,reason}});toast(v=="false_call"?"✔ Learned — similar images will pass":"✖ Logged as defect");
+  const fb=async(v,reason="")=>{await api(P()+"/feedback",{json:{run:r.run,ref:c.ref,verdict:v,reason}});toast(v=="false_call"?"✓ Learned — similar images will pass":"✕ Logged as defect");
     c._done=v;if(S.revIdx<f.length-1)S.revIdx++;side();draw();};
   $("#bDef").onclick=()=>fb("defect");el.querySelectorAll("[data-fc]").forEach(b=>b.onclick=()=>fb("false_call",b.dataset.fc));
   $("#bPrev").onclick=()=>{S.revIdx=Math.max(0,S.revIdx-1);side();draw();};$("#bNx").onclick=()=>{S.revIdx++;side();draw();};
@@ -521,19 +521,19 @@ list(el,d){
      ${bc.not_in_bom.length?`<div>In layout, not in BOM (${bc.not_in_bom.length}): ${bc.not_in_bom.map(esc).join(", ")}</div>`:""}
      ${bc.smd_not_in_layout.length?`<div>SMD in BOM, not in layout (${bc.smd_not_in_layout.length}): ${bc.smd_not_in_layout.map(esc).join(", ")}</div>`:""}
      ${bc.warnings.map(w=>`<div>${esc(w)}</div>`).join("")}</div>`:"";
-  el.innerHTML=`<h2>📋 Parts (${comps.length})</h2>
+  el.innerHTML=`<h2>Parts (${comps.length})</h2>
    ${chk}${Object.keys(bom).length?`<div class="tiles"><div class="tile"><b>${Object.keys(bom).length}</b><span>BOM refs</span></div><div class="tile"><b style="color:var(--warn)">${todo.length}</b><span>SMD still to box</span></div></div>`:""}
-   <div class="row"><button id="lAuto">🧹 Delete auto-found</button><button id="lNot">✂ Delete not in BOM</button></div>
-   <div class="row"><button id="lTh">⏭ Skip through-hole</button><button id="lSel">🗑 Delete ticked</button><button id="lClr" class="bad">✖ Clear all</button></div>
-   <input id="lQ" placeholder="🔍 filter (ref, IPN, package)" value="${esc(S.listQ||"")}" style="width:100%;margin:6px 0">
+   <div class="row"><button id="lAuto">Delete auto-found</button><button id="lNot">Delete not in BOM</button></div>
+   <div class="row"><button id="lTh">Skip through-hole</button><button id="lSel">Delete ticked</button><button id="lClr" class="bad">✕ Clear all</button></div>
+   <input id="lQ" placeholder="filter (ref, IPN, package)" value="${esc(S.listQ||"")}" style="width:100%;margin:6px 0">
    <div style="max-height:52vh;overflow:auto"><table style="width:100%;font-size:14px;border-collapse:collapse">
    ${rows.map(c=>`<tr style="border-bottom:1px solid var(--line);${c.enabled?"":"opacity:.45"}"><td><input type="checkbox" data-t="${esc(c.ref)}"></td>
      <td><a data-go="${esc(c.ref)}" style="cursor:pointer;font-weight:700;color:var(--acc)">${esc(c.ref)}</a></td><td style="font-size:12px">${esc(c.ipn||"")}</td>
      <td style="font-size:12px;color:var(--dim)">${esc(c.package)}</td><td>${tag(c)}</td>
-     <td><button data-en="${esc(c.ref)}" style="padding:4px 8px">${c.enabled?"✔":"✖"}</button></td><td><button data-del="${esc(c.ref)}" style="padding:4px 8px">🗑</button></td></tr>`).join("")}</table></div>
+     <td><button data-en="${esc(c.ref)}" style="padding:4px 8px">${c.enabled?"✓":"✕"}</button></td><td><button data-del="${esc(c.ref)}" style="padding:4px 8px" title="Delete">✕</button></td></tr>`).join("")}</table></div>
    ${todo.length?`<div style="margin-top:10px;color:var(--dim)">Still to box (SMD): ${todo.slice(0,40).map(esc).join(", ")}${todo.length>40?"…":""}</div>
-   <button class="big pri" id="lTeach">➕ Teach them — click parts on the board</button>`:""}`;
-  const bulk=async(action,refs)=>{const r=await api(P()+"/parts/bulk",{json:{action,refs}});toast(`🗑 ${r.removed} removed`);await refresh();side();draw();};
+   <button class="big pri" id="lTeach">Teach them — click parts on the board</button>`:""}`;
+  const bulk=async(action,refs)=>{const r=await api(P()+"/parts/bulk",{json:{action,refs}});toast(`${r.removed} removed`);await refresh();side();draw();};
   $("#lAuto").onclick=()=>bulk("auto");$("#lNot").onclick=()=>bulk("not_in_bom");$("#lTh").onclick=()=>bulk("skip_th");
   $("#lClr").onclick=()=>{if(confirm("Delete ALL part boxes? (fiducials kept)"))bulk("clear_all");};
   $("#lSel").onclick=()=>{const t=[...el.querySelectorAll("[data-t]:checked")].map(x=>x.dataset.t);if(t.length)bulk("delete",t);};
@@ -550,13 +550,13 @@ async wizard(el,d){
   document.getElementById("side").style.width="640px";
   const fd=new FormData();fd.append("file",W.file);fd.append("fmt",JSON.stringify(W.fmt));
   const p=await api("/api/bom/preview",{method:"POST",body:fd});
-  if(p.fmt&&p.fmt._matched&&!W.seen){W.fmt={...p.fmt};delete W.fmt._matched;W.seen=1;toast("🧩 Saved format '"+p.fmt._matched+"' recognised");}
+  if(p.fmt&&p.fmt._matched&&!W.seen){W.fmt={...p.fmt};delete W.fmt._matched;W.seen=1;toast("Saved format '"+p.fmt._matched+"' recognised");}
   const f=W.fmt,cols=f.columns||p.guess,skip=+(f.skip_rows||0),hr=f.header_row==null?0:+f.header_row;
   const opt=(sel)=>`<option value="">—</option>`+p.header.map((h,i)=>`<option value="${i}" ${sel===i?"selected":""}>${i+1}: ${esc(h||"(blank)")}</option>`).join("");
   const FL=[["ref","Designator *"],["x","X *"],["y","Y *"],["rot","Rotation"],["package","Package"],["part","Value / Comment"],["ipn","IPN"],["side","Side / Layer"]];
   const raw=p.raw.slice(0,12).map((r,i)=>{const cls=i<skip?"opacity:.35;text-decoration:line-through":i==skip+hr?"background:#1d3550;font-weight:700":"";
     return `<tr style="${cls}"><td style="color:var(--dim)">${i+1}</td>${r.slice(0,9).map(c=>`<td>${esc(c)}</td>`).join("")}</tr>`}).join("");
-  el.innerHTML=`<h2>🧩 Map placement file <small style="color:var(--dim);font-size:14px">${esc(W.file.name)}</small></h2>
+  el.innerHTML=`<h2>Map placement file <small style="color:var(--dim);font-size:14px">${esc(W.file.name)}</small></h2>
    <div class="row"><span>Split by</span><select id="wDel">${["auto","comma","semicolon","tab","space","pipe"].map(k=>`<option ${k==(f.delimiter||"auto")?"selected":""}>${k}</option>`).join("")}</select>
      <span style="color:var(--dim);font-size:13px">using: ${p.delimiter_used}</span></div>
    <div class="row"><span>Skip top rows</span><button data-n="skip_rows,-1">−</button><b style="text-align:center">${skip}</b><button data-n="skip_rows,1">＋</button></div>
@@ -568,14 +568,14 @@ async wizard(el,d){
      <span>Rot +</span><select id="wRot">${[0,90,180,270].map(a=>`<option ${a==(+f.rot_offset||0)?"selected":""}>${a}</option>`).join("")}</select></div>
    <div class="row"><label><input type="checkbox" id="wFx" ${f.flip_x?"checked":""}> Flip X</label><label><input type="checkbox" id="wFy" ${f.flip_y?"checked":""}> Flip Y</label><label><input type="checkbox" id="wBot" ${f.bottom_skip!==false?"checked":""}> Skip bottom side</label></div>
    <div style="color:var(--dim);font-size:13px">Drop rows where…</div>
-   ${(f.drop||[]).map((r,i)=>`<div class="row" style="font-size:13px"><span>${esc(p.header[r.col]||"col "+(r.col+1))} ${r.op} ${esc(r.value||"")}</span><button data-del="${i}">✖</button></div>`).join("")}
+   ${(f.drop||[]).map((r,i)=>`<div class="row" style="font-size:13px"><span>${esc(p.header[r.col]||"col "+(r.col+1))} ${r.op} ${esc(r.value||"")}</span><button data-del="${i}">✕</button></div>`).join("")}
    <div class="row"><select id="dCol">${p.header.map((h,i)=>`<option value="${i}">${esc(h||"col "+(i+1))}</option>`).join("")}</select>
      <select id="dOp"><option>empty</option><option>equals</option><option>contains</option><option>regex</option></select><input id="dVal" placeholder="value" style="width:90px"><button id="dAdd">＋</button></div>
    <h3>Result: ${p.count} parts ${p.units?`· ${p.units}`:""}</h3>
-   ${p.error?`<div class="hint" style="border-color:var(--bad)">⚠ ${esc(p.error)}</div>`:`<div style="font-size:12px;color:var(--dim)">${(p.warnings||[]).join(" · ")}</div>
+   ${p.error?`<div class="hint" style="border-color:var(--bad)"><b>Error</b> · ${esc(p.error)}</div>`:`<div style="font-size:12px;color:var(--dim)">${(p.warnings||[]).join(" · ")}</div>
    <div style="overflow:auto;max-height:170px;font-size:12px;background:#0b0e12;border-radius:8px"><table style="white-space:nowrap">${p.parsed.slice(0,10).map(c=>`<tr><td><b>${esc(c.ref)}</b></td><td>${c.x}</td><td>${c.y}</td><td>${c.rot}°</td><td>${esc(c.package)}</td><td>${esc(c.part)}</td><td>${esc(c.ipn||"")}</td></tr>`).join("")}</table></div>`}
    <div class="row"><input id="wName" placeholder="Format name (e.g. Altium CAS)" value="${esc(W.name||"")}"></div>
-   <button class="big ok" id="wGo" ${p.error?"disabled":""}>✔ Import ${p.count} parts + save format</button>
+   <button class="big ok" id="wGo" ${p.error?"disabled":""}>✓ Import ${p.count} parts + save format</button>
    <button class="big" id="wBack">◀ Back</button>`;
   const upd=(k,v)=>{W.fmt={...W.fmt,[k]:v};side();};
   $("#wDel").onchange=e=>upd("delimiter",e.target.value);
@@ -589,22 +589,22 @@ async wizard(el,d){
   $("#wBack").onclick=()=>{document.getElementById("side").style.width="";S.wiz=null;go("program");};
   $("#wGo").onclick=async()=>{const fd=new FormData();fd.append("file",W.file);fd.append("fmt",JSON.stringify({...W.fmt,columns:cols}));
     if(W.name)fd.append("format",W.name);const r=await api(P()+"/import",{method:"POST",body:fd});
-    toast(`✔ ${r.count} parts imported${W.name?" · format '"+W.name+"' saved — used automatically next time":""}`,5000);
+    toast(`✓ ${r.count} parts imported${W.name?" · format '"+W.name+"' saved — used automatically next time":""}`,5000);
     document.getElementById("side").style.width="";S.wiz=null;await refresh();go("program");};
 },
 async library(el,d){
   const lib=await api("/api/library");
   if(!S.libPkg){
     const counts={};d.components.forEach(c=>counts[c.package]=(counts[c.package]||0)+1);
-    el.innerHTML=`<h2>📚 Parts library</h2><div class="hint">Tune a <b>package</b> once — every part using it follows. Tune a single part in 🔲 ROIs.</div>
-      <button class="big" id="bApplyLib">⬇ Use shared library (${Object.keys(lib).length} saved)</button>
+    el.innerHTML=`<h2>Parts library</h2><div class="hint">Tune a <b>package</b> once — every part using it follows. Tune a single part in ROIs.</div>
+      <button class="big" id="bApplyLib">↓ Use shared library (${Object.keys(lib).length} saved)</button>
       ${Object.keys(d.packages).filter(k=>d.packages[k].kind!="fiducial").sort((a,b)=>(counts[b]||0)-(counts[a]||0)).map(k=>{const p=d.packages[k];
         return `<div class="card" data-pk="${esc(k)}" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center">
         <div><b>${esc(k)}</b><br><span style="color:var(--dim);font-size:13px">${p.kind} · ${(+p.body_l).toFixed(1)}×${(+p.body_w).toFixed(1)} mm · ${p.pads.length} pads</span></div>
         <div style="text-align:right"><b style="font-size:16px">${counts[k]||0}</b><br><span style="font-size:12px;color:var(--dim)">parts</span>
         ${Object.keys(p.th||{}).length?'<br><span class="tag w">tuned</span>':''}${lib[k]?'<br><span class="tag" style="background:var(--acc)">in library</span>':''}</div></div>`}).join("")}`;
     el.querySelectorAll("[data-pk]").forEach(c=>c.onclick=()=>{S.libPkg=c.dataset.pk;side();});
-    $("#bApplyLib").onclick=async()=>{const r=await api(P()+"/library/apply",{method:"POST"});toast(`✔ ${r.updated.length} packages updated from library`);await refresh();side();draw();};
+    $("#bApplyLib").onclick=async()=>{const r=await api(P()+"/library/apply",{method:"POST"});toast(`✓ ${r.updated.length} packages updated from library`);await refresh();side();draw();};
     return;}
   const k=S.libPkg,p=d.packages[k];const own={...(p.th||{})};
   const ch={presence:true,polarity:p.polarized,ocv:p.marking,offset:true,bridge:p.pads.length>=4,...(p.checks||{})};
@@ -612,68 +612,68 @@ async library(el,d){
   el.innerHTML=`<button id="bBack">◀ All packages</button><h2>${esc(k)}</h2>
     <div style="color:var(--dim)">${parts.length} parts: ${parts.slice(0,12).map(c=>c.ref).join(", ")}${parts.length>12?"…":""}</div>
     <div style="color:var(--dim);margin-top:10px">Checks for all ${esc(k)}</div>
-    <div class="chk">${CHECKS.map(([c,t])=>`<button data-c="${c}" class="${ch[c]?"on":""}">${ch[c]?"✔":"✖"} ${t}</button>`).join("")}</div>
-    <h3>🎚 Package tuning</h3>${tuneBox(d.thresholds,own,"p")}
-    <div class="row"><button class="big" id="bFitP">✨ Auto-fit size</button><button class="big pri" id="bSaveLib">💾 Save to library</button></div>`;
+    <div class="chk">${CHECKS.map(([c,t])=>`<button data-c="${c}" class="${ch[c]?"on":""}">${ch[c]?"✓":"✕"} ${t}</button>`).join("")}</div>
+    <h3>Package tuning</h3>${tuneBox(d.thresholds,own,"p")}
+    <div class="row"><button class="big" id="bFitP">Auto-fit size</button><button class="big pri" id="bSaveLib">Save to library</button></div>`;
   $("#bBack").onclick=()=>{S.libPkg=null;side();};
   wireTune(el,own,async o=>{await api(P()+"/tune/package/"+encodeURIComponent(k),{method:"PUT",json:{th:o}});await refresh();side();},"p");
   el.querySelectorAll("[data-c]").forEach(b=>b.onclick=async()=>{await api(P()+"/tune/package/"+encodeURIComponent(k),{method:"PUT",json:{checks:{...ch,[b.dataset.c]:!ch[b.dataset.c]}}});await refresh();side();});
-  $("#bFitP").onclick=async()=>{const r=await api(P()+"/autofit/"+encodeURIComponent(k),{method:"POST"});toast(`✨ ${r.body_l} × ${r.body_w} mm`);await refresh();side();draw();};
-  $("#bSaveLib").onclick=async()=>{const r=await api(P()+"/library/save/"+encodeURIComponent(k),{method:"POST"});toast(`💾 Saved — library has ${r.count} packages`);side();};
+  $("#bFitP").onclick=async()=>{const r=await api(P()+"/autofit/"+encodeURIComponent(k),{method:"POST"});toast(`${r.body_l} × ${r.body_w} mm`);await refresh();side();draw();};
+  $("#bSaveLib").onclick=async()=>{const r=await api(P()+"/library/save/"+encodeURIComponent(k),{method:"POST"});toast(`Saved — library has ${r.count} packages`);side();};
 },
 async stats(el,d){
-  el.innerHTML="<h2>📊 Stats</h2>…";const s=await api(P()+"/stats");const mx=Math.max(1,...s.top_refs.map(x=>x[1]));
+  el.innerHTML="<h2>Stats</h2>…";const s=await api(P()+"/stats");const mx=Math.max(1,...s.top_refs.map(x=>x[1]));
   const bars=(arr)=>arr.length?arr.map(([k,v])=>`<div class="bar" style="width:${20+80*v/Math.max(1,...arr.map(x=>x[1]))}%">${k||"?"} · ${v}</div>`).join(""):'<div style="color:var(--dim)">none yet</div>';
-  el.innerHTML=`<h2>📊 Stats</h2>
+  el.innerHTML=`<h2>Stats</h2>
    <div class="tiles"><div class="tile"><b>${s.boards}</b><span>boards</span></div><div class="tile"><b>${s.fpy??"–"}%</b><span>first pass yield</span></div>
    <div class="tile"><b>${s.false_call_rate??"–"}%</b><span>false call rate</span></div><div class="tile"><b>${s.avg_cycle_s??"–"}s</b><span>avg cycle</span></div></div>
    <div style="display:flex;gap:3px;margin:12px 0;height:30px">${s.recent.map(x=>`<div title="${x.run}" style="flex:1;border-radius:3px;background:${x.ok?"var(--ok)":"var(--bad)"}"></div>`).join("")}</div>
-   <a class="big" href="${P()}/export.csv" download style="display:flex;justify-content:center;gap:12px;text-decoration:none;color:var(--txt);background:var(--panel2);border-radius:8px;padding:10px 14px;font-size:14px;font-weight:600;margin:5px 0">⬇ Export results (Excel CSV)</a><h3>False call causes</h3>${bars(s.false_call_reasons||[])}<h3>Defect type</h3>${bars(s.by_type)}<h3>Worst parts</h3>${bars(s.top_refs)}<h3>By package</h3>${bars(s.by_package)}
-   ${d.ai?`<button class="big pri" id="bSum">🤖 AI summary & next actions</button><div id="aiOut"></div>`:`<div style="color:var(--dim)">🤖 Add an AI key in ⚙ for automatic summaries</div>`}`;
+   <a class="big" href="${P()}/export.csv" download style="display:flex;justify-content:center;gap:12px;text-decoration:none;color:var(--txt);background:var(--panel2);border-radius:8px;padding:10px 14px;font-size:14px;font-weight:600;margin:5px 0">↓ Export results (Excel CSV)</a><h3>False call causes</h3>${bars(s.false_call_reasons||[])}<h3>Defect type</h3>${bars(s.by_type)}<h3>Worst parts</h3>${bars(s.top_refs)}<h3>By package</h3>${bars(s.by_package)}
+   ${d.ai?`<button class="big pri" id="bSum">AI summary & next actions</button><div id="aiOut"></div>`:`<div style="color:var(--dim)">Add an AI key in for automatic summaries</div>`}`;
   if($("#bSum"))$("#bSum").onclick=async()=>{$("#aiOut").innerHTML='<div class="hint">Thinking…</div>';const a=await api(P()+"/ai/summary",{method:"POST"});$("#aiOut").innerHTML=`<div class="hint" style="white-space:pre-wrap">${esc(a.text)}</div>`;};
 },
 async settings(el,d){
   const a=await api("/api/settings");const t=d?d.thresholds:null;
   const sl=(k,lbl,min,max,step)=>`<label class="sl">${lbl}: <b id="v_${k}">${t[k]}</b></label><input type="range" data-k="${k}" min="${min}" max="${max}" step="${step}" value="${t[k]}">`;
-  el.innerHTML=`<h2>⚙ Settings</h2>${t?`<h3>Sensitivity</h3>
+  el.innerHTML=`<h2>Settings</h2>${t?`<h3>Sensitivity</h3>
    ${sl("presence","Missing part (higher = stricter)",.3,.9,.01)}${sl("polarity_margin","Polarity margin (lower = stricter)",0,.3,.01)}
    ${sl("ocv","Marking match",.1,.9,.01)}${sl("offset_mm","Max offset mm",.05,1,.05)}${sl("bridge","Solder bridge (lower = stricter)",.4,3,.1)}
-   <button class="big ${d.compare&&d.compare.enabled?"ok":""}" id="bCmp">${d.compare&&d.compare.enabled?"✔":"✖"} Foreign object (FOD) check</button>
+   <button class="big ${d.compare&&d.compare.enabled?"ok":""}" id="bCmp">${d.compare&&d.compare.enabled?"✓":"✕"} Foreign object (FOD) check</button>
    ${d.compare&&d.compare.enabled?`<label class="sl">FOD sensitivity (higher = finds smaller/fainter, more false calls): <b id="v_fod">${d.compare.sensitivity??0.5}</b></label><input type="range" id="fod" min="0" max="1" step="0.05" value="${d.compare.sensitivity??0.5}">`:""}${sl("search_mm","Search range mm",.2,2,.1)}`:""}
-   <h3>📷 Camera</h3>
-   <div class="row"><select id="camSel"><option>searching…</option></select><button id="bCamTest">👁 Test shot</button></div>
+   <h3>Camera</h3>
+   <div class="row"><select id="camSel"><option>searching…</option></select><button id="bCamTest">Test shot</button></div>
    <label style="display:flex;gap:8px;align-items:center;margin:6px 0"><input type="checkbox" id="camLock" ${(a.camera||{}).lock_exposure?"checked":""}> Lock exposure (stops brightness drifting)</label>
    <div id="camPrev"></div>
-   <h3>💾 Programs</h3>
-   ${d?`<a class="big" href="${P()}/backup.zip" download style="display:flex;justify-content:center;gap:12px;text-decoration:none;color:var(--txt);background:var(--panel2);border-radius:8px;padding:10px 14px;font-size:14px;font-weight:600;margin:5px 0">💾 Backup this program (zip)</a>`:""}
-   <button class="big" id="bRestore">📂 Restore program from zip</button>
-   <h3>🤖 Advanced — AI assistant (optional)</h3>
+   <h3>Programs</h3>
+   ${d?`<a class="big" href="${P()}/backup.zip" download style="display:flex;justify-content:center;gap:12px;text-decoration:none;color:var(--txt);background:var(--panel2);border-radius:8px;padding:10px 14px;font-size:14px;font-weight:600;margin:5px 0">Backup this program (zip)</a>`:""}
+   <button class="big" id="bRestore">Restore program from zip</button>
+   <h3>Advanced — AI assistant (optional)</h3>
    <div class="hint" style="font-size:14px">AOI works fully without this. When on, stats (no images, no customer data) are sent to the Claude API for summaries; single defect crops only when you press “second opinion”.</div>
-   <button class="big ${a.enabled?"ok":""}" id="bAiOn">${a.enabled?"✔ AI on":"✖ AI off"}</button>
+   <button class="big ${a.enabled?"ok":""}" id="bAiOn">${a.enabled?"✓ AI on":"✕ AI off"}</button>
    <input id="key" type="password" placeholder="${a.has_key?"key saved ••••":"API key"}" style="width:100%;margin:6px 0">
-   <input id="model" value="${a.model}" style="width:100%;margin:6px 0"><button class="big" id="bSave">💾 Save AI settings</button>`;
-  el.querySelectorAll("input[type=range]").forEach(r=>r.onchange=async()=>{$("#v_"+r.dataset.k).textContent=r.value;await api(P()+"/settings",{method:"PUT",json:{thresholds:{[r.dataset.k]:r.value}}});await refresh();toast("✔ Saved");});
-  if($("#fod"))$("#fod").onchange=async e=>{$("#v_fod").textContent=e.target.value;await api(P()+"/settings",{method:"PUT",json:{compare:{sensitivity:+e.target.value}}});toast("✔ Saved");};
+   <input id="model" value="${a.model}" style="width:100%;margin:6px 0"><button class="big" id="bSave">Save AI settings</button>`;
+  el.querySelectorAll("input[type=range]").forEach(r=>r.onchange=async()=>{$("#v_"+r.dataset.k).textContent=r.value;await api(P()+"/settings",{method:"PUT",json:{thresholds:{[r.dataset.k]:r.value}}});await refresh();toast("✓ Saved");});
+  if($("#fod"))$("#fod").onchange=async e=>{$("#v_fod").textContent=e.target.value;await api(P()+"/settings",{method:"PUT",json:{compare:{sensitivity:+e.target.value}}});toast("✓ Saved");};
   if($("#bCmp"))$("#bCmp").onclick=async()=>{await api(P()+"/settings",{method:"PUT",json:{compare:{enabled:!(d.compare&&d.compare.enabled)}}});await refresh();side();};
   api("/api/cameras").then(cs=>{$("#camSel").innerHTML=cs.length?cs.map(c=>`<option value="${c.index}" ${c.index==((a.camera||{}).index||0)?"selected":""}>Camera ${c.index} — ${c.width}×${c.height}</option>`).join(""):"<option>No camera found</option>";}).catch(()=>{});
-  const camSave=async()=>{await api("/api/settings",{json:{camera:{...(a.camera||{}),index:+$("#camSel").value||0,lock_exposure:$("#camLock").checked}}});toast("✔ Camera saved");};
+  const camSave=async()=>{await api("/api/settings",{json:{camera:{...(a.camera||{}),index:+$("#camSel").value||0,lock_exposure:$("#camLock").checked}}});toast("✓ Camera saved");};
   $("#camSel").onchange=camSave;$("#camLock").onchange=camSave;
-  $("#bCamTest").onclick=()=>{$("#camPrev").innerHTML=`<img src="/api/camera/preview.jpg?cam=${$("#camSel").value}&t=${Date.now()}" style="width:100%;border-radius:8px" onerror="this.replaceWith('⚠ no picture')">`;};
-  $("#bRestore").onclick=async()=>{const f=await pickFile(".zip");if(!f)return;const fd=new FormData();fd.append("file",f);const r=await api("/api/restore",{method:"POST",body:fd});toast("✔ Restored "+r.name);await loadPrograms(r.name);};
+  $("#bCamTest").onclick=()=>{$("#camPrev").innerHTML=`<img src="/api/camera/preview.jpg?cam=${$("#camSel").value}&t=${Date.now()}" style="width:100%;border-radius:8px" onerror="this.replaceWith('! no picture')">`;};
+  $("#bRestore").onclick=async()=>{const f=await pickFile(".zip");if(!f)return;const fd=new FormData();fd.append("file",f);const r=await api("/api/restore",{method:"POST",body:fd});toast("✓ Restored "+r.name);await loadPrograms(r.name);};
   $("#bAiOn").onclick=async()=>{await api("/api/settings",{json:{enabled:!a.enabled}});if(S.prog)await refresh();side();};
-  $("#bSave").onclick=async()=>{const b={model:$("#model").value};if($("#key").value)b.api_key=$("#key").value;await api("/api/settings",{json:b});toast("✔ Saved");side();};
+  $("#bSave").onclick=async()=>{const b={model:$("#model").value};if($("#key").value)b.api_key=$("#key").value;await api("/api/settings",{json:b});toast("✓ Saved");side();};
 }};
 const TUNE=[["presence","Missing part (higher = stricter)",.2,.95,.01],["min_on_pad","On pad min (taught parts)",.2,.95,.05],
   ["offset_mm","Max offset mm",.05,1.5,.05],["polarity_margin","Polarity margin (lower = stricter)",0,.4,.01],
   ["ocv","Marking match",.05,.9,.01],["bridge","Solder bridge (lower = stricter)",.3,3,.1],["search_mm","Search range mm",.1,2,.1]];
-const CHECKS=[["presence","⬛ Missing"],["polarity","➕ Polarity"],["ocv","🔤 Marking"],["offset","↔ Offset"],["bridge","🔗 Bridge"]];
+const CHECKS=[["presence","Missing"],["polarity","Polarity"],["ocv","Marking"],["offset","↔ Offset"],["bridge","Bridge"]];
 function tuneBox(base,own,idp){ // base = inherited values, own = this level's overrides
   return TUNE.map(([k,t,a,b,st])=>{const v=own[k]??base[k]??0.5;const set=own[k]!=null;
     return `<label class="sl">${t}: <b id="${idp}v_${k}">${(+v).toFixed(2)}</b> ${set?`<a data-reset="${k}" style="color:var(--warn);cursor:pointer">↺ inherited</a>`:`<span style="color:var(--dim)">(inherited)</span>`}</label>
     <input type="range" data-tk="${k}" min="${a}" max="${b}" step="${st}" value="${v}">`}).join("");}
 function wireTune(el,own,save,idp){
   el.querySelectorAll("[data-tk]").forEach(r=>{r.oninput=()=>{$("#"+idp+"v_"+r.dataset.tk).textContent=(+r.value).toFixed(2)};
-    r.onchange=async()=>{own[r.dataset.tk]=+r.value;await save(own);toast("✔ Saved");}});
+    r.onchange=async()=>{own[r.dataset.tk]=+r.value;await save(own);toast("✓ Saved");}});
   el.querySelectorAll("[data-reset]").forEach(a=>a.onclick=async()=>{delete own[a.dataset.reset];await save(own);});}
 const esc=s=>s.replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
 
@@ -793,13 +793,13 @@ window.onmouseup=async e=>{const d=drag;drag=null;
   if(!d||d.moved||e.target!==cv||!S.data)return;const[x,y]=toImg(e);
   if(S.step=="align"&&S.fidPick&&!e.altKey){const ref=S.fidPick;S.fidPick=null;S.fidSel=ref;side();fidTeach(ref,x,y);return;}
   if(S.step=="align"&&S.fidPick){const ref=S.fidPick;S.fidPick=null;S.fidSel=ref;const r=await api(P()+"/fiducials/mark",{json:{ref,px:x,py:y,snap:false}});
-    const n=Object.keys(r.marks||{}).length;toast(r.fit?`✔ ${ref} set · max error ${r.fit.max_mm} mm`:`✔ ${ref} set — pick ${Math.max(0,2-n)} more`,3000);
+    const n=Object.keys(r.marks||{}).length;toast(r.fit?`✓ ${ref} set · max error ${r.fit.max_mm} mm`:`✓ ${ref} set — pick ${Math.max(0,2-n)} more`,3000);
     const next=S.data.components.filter(c=>c.fiducial).map(c=>c.ref).find(f=>!(r.marks||{})[f]);if(!r.fit&&next)S.fidPick=next;
     await refresh();side();draw();return;}
   if(S.step=="align"&&S.teachRef){S.teach.push({ref:S.teachRef,px:x,py:y});S.teachRef=null;draw();
-    if(S.teach.length>=2){await api(P()+"/teach",{json:{points:S.teach}});toast("✔ Aligned");S.teach=[];await refresh();draw();}side();return;}
-  if(S.step=="rois"&&S.teachMode){const r=await api(P()+"/parts",{json:{px:x,py:y,ref:S.teachRef2||undefined}});S.teachRef2=null;S.sel=null;await refresh();side();draw();toast("➕ "+r.ref+" added — next: "+(S.data.next_ref||"done"));return;
-    S.sel=r.ref;await refresh();side();draw();toast("➕ "+r.ref+" added — adjust size/position if needed");return;}
+    if(S.teach.length>=2){await api(P()+"/teach",{json:{points:S.teach}});toast("✓ Aligned");S.teach=[];await refresh();draw();}side();return;}
+  if(S.step=="rois"&&S.teachMode){const r=await api(P()+"/parts",{json:{px:x,py:y,ref:S.teachRef2||undefined}});S.teachRef2=null;S.sel=null;await refresh();side();draw();toast(""+r.ref+" added — next: "+(S.data.next_ref||"done"));return;
+    S.sel=r.ref;await refresh();side();draw();toast(""+r.ref+" added — adjust size/position if needed");return;}
   let best=null,bd=1e9;(S.data.overlay||[]).forEach(o=>{const dd=Math.hypot(o.cx-x,o.cy-y);if(dd<bd){bd=dd;best=o;}});
   if(best&&bd<Math.max(best.body[0],best.body[1])*best.ppm+20/S.view.s){
     if(S.step=="review"&&S.result){const f=S.result.components.filter(c=>!c.ok);const i=f.findIndex(c=>c.ref==best.ref);if(i>=0){S.revIdx=i;side();draw();return;}}

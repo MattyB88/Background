@@ -396,6 +396,7 @@ def test_fiducial_marks_adjust_and_origin(tmp_path, monkeypatch):
         p.mark_fiducial(f["ref"], m["px"] + 3, m["py"] - 2, snap=True)
         m2 = p.data["fid_marks"][f["ref"]]
         assert math.hypot(m2["px"] - m["px"], m2["py"] - m["py"]) < 1.0
+        M0 = p.M.copy()
         # overlay adjust moves every ROI, reset brings it back
         o = p.overlay()[0]
         p.set_adjust(ddx=1.0, drot=0)

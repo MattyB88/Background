@@ -707,6 +707,27 @@ class Program:
     # ------------------------------------------------ fiducials
     FID_DEFAULTS = {"polarity": "auto", "threshold": None, "size_mm": None, "search_mm": 2.5, "shape": "auto", "min_score": 0.3}
 
+    def layout_points(self, y_up=None):
+        """Pad + body centres of every placed part (mm_src frame) - used to check an alignment against the image."""
+        yu = self.data["y_up"] if y_up is None else y_up
+        out = []
+        for c0 in self.data["components"]:
+            if c0["fiducial"] or not c0.get("enabled", True):
+                continue
+            c, pk = self.eff(c0)
+            r = math.radians(c["rot"])
+            cx, cy = c["x"] + c.get("dx", 0), c["y"] + c.get("dy", 0)
+            out.append(vision.mm_src(cx, cy, yu))
+            for px, py, _, _ in pk.pads[:8]:
+                out.append(vision.mm_src(cx + px * math.cos(r) - py * math.sin(r), cy + px * math.sin(r) + py * math.cos(r), yu))
+        return out
+
+    def align_confidence(self, img=None):
+        img = self.golden() if img is None else img
+        if img is None or self.M is None:
+            return None
+        return vision.layout_evidence(vision.evidence_map(vision.prep(img)), self.M, np.float64(self.layout_points()))
+
     def fid_params(self):
         return {**self.FID_DEFAULTS, **(self.data.get("fid_params") or {})}
 
@@ -748,11 +769,26 @@ class Program:
                 if span > 5:
                     est = max(bw, bh) / span
                     pr, ah = (est * 0.7, est * 1.08), ang
-            M = None
-            for hint in ((pr, ah), (None, None)) if pr else ((None, None),):
+            M, y = None, yu
+            coarse = None
+            # 1) whole-layout alignment (all parts, no fiducial needed), 2) local fiducial search from there
+            if pr:
+                lr = vision.layout_register(img, {True: self.layout_points(True), False: self.layout_points(False)},
+                                            (pr[0], pr[1] * 1.05), ah)
+                if lr:
+                    Mc, y_l, _ = lr
+                    ev = vision.layout_evidence(vision.evidence_map(vision.prep(img)), Mc, np.float64(self.layout_points(y_l)))
+                    if ev and ev >= 1.15:
+                        M = Mc
+                        coarse = (Mc, ev)
+                        self.data["y_up"] = yu = y_l
+                        par = {**par, "search_mm": max(par["search_mm"], 4.0)}
+            for hint in (((pr, ah), (None, None)) if pr else ((None, None),)) if M is None else ():
                 for y in (yu, not yu):
                     M, _ = vision.auto_fiducials(img, fids, self.data["components"], y, d0, max_cands=250 if hint[0] else 120,
-                                                 ppm_range=hint[0], angle_hint=hint[1])
+                                                 ppm_range=hint[0], angle_hint=hint[1], evidence_src=self.layout_points(y))
+                    if M is not None and (vision.auto_fiducials.confidence or 0) < 1.15:
+                        M = None  # dots fit, but the parts don't land on anything - keep looking
                     if M is not None:
                         break
                 if M is not None:
@@ -771,25 +807,27 @@ class Program:
                 raise ValueError("Could not find the fiducials automatically - click each one on the image (or adjust threshold / polarity)")
         ppm = vision.px_per_mm(M)
         out = []
+        todo, cl = [], []
         for f in fids:
-            if marks.get(f["ref"], {}).get("source") == "manual" and not params.get("overwrite"):
-                out.append({"ref": f["ref"], **marks[f["ref"]]})
+            if marks.get(f["ref"], {}).get("source") in ("manual", "taught") and not params.get("overwrite"):
                 continue
             d, shape = self._fid_geom(f, par)
             pred = vision.apply(M, [vision.mm_src(f["x"], f["y"], yu)])[0]
-            r = None
-            sr = par["search_mm"]
-            while r is None and sr <= max(par["search_mm"], 24):  # widen the search until a good dot turns up
-                r = vision.find_fiducial(chans, pred, d / 2 * ppm, sr * ppm, par["polarity"], par["threshold"], shape,
-                                         channel=par.get("channel", "auto"))
-                if r and r["score"] < par["min_score"]:
-                    r = None
-                sr *= 2
+            sr = par["search_mm"] if coarse or self.M0 is not None else max(par["search_mm"], 6)
+            c = vision.find_fiducial(chans, pred, d / 2 * ppm, sr * ppm, par["polarity"], par["threshold"], shape,
+                                     channel=par.get("channel", "auto"), topk=5)
+            c = [x for x in c if x["score"] >= par["min_score"] * 0.6]
+            todo.append((f, pred))
+            cl.append(c)
+        # choose the dots as a set: they must sit in the layout's fiducial geometry, not just look like dots
+        chosen = vision.consistent_fids([vision.mm_src(f["x"], f["y"], yu) for f, _ in todo], cl, ppm_hint=ppm) if todo else []
+        for (f, pred), r in zip(todo, chosen):
             if r:
                 marks[f["ref"]] = {**r, "source": "auto"}
             else:
                 marks.pop(f["ref"], None)
-            out.append({"ref": f["ref"], **(marks.get(f["ref"]) or {"missing": True, "pred": [float(pred[0]), float(pred[1])]})})
+        for f in fids:
+            out.append({"ref": f["ref"], **(marks.get(f["ref"]) or {"missing": True})})
         # sanity: two auto dots must agree with the current scale / rotation guess
         got = [f for f in fids if f["ref"] in marks]
         if len(got) == 2 and not params.get("fresh"):
@@ -803,6 +841,16 @@ class Program:
                 out = [{"ref": f["ref"], **(marks.get(f["ref"]) or {"missing": True})} for f in fids]
         self.data["fid_marks"] = marks
         fit = self.fit_fiducials() if sum(1 for f in fids if f["ref"] in marks) >= 2 else None
+        bad_fit = fit is None or (fit.get("confidence") or 0) < 1.15 or (len(fit.get("used", [])) >= 3 and (fit.get("max_mm") or 0) > 0.6)
+        if coarse and bad_fit:
+            # the dots found disagree with where the parts are: keep the layout alignment, let the user confirm dots
+            self.data["transform"] = coarse[0].tolist()
+            self.data["fid_marks"] = {k: v for k, v in marks.items() if v.get("source") in ("manual", "taught")}
+            out = [{"ref": f["ref"], "missing": True} for f in fids]
+            fit = {"confidence": coarse[1], "layout_only": True, "residual_mm": {}, "used": [], "ppm": round(vision.px_per_mm(coarse[0]), 3),
+                   "rotation": round(math.degrees(math.atan2(coarse[0][1, 0], coarse[0][0, 0])), 3), "max_mm": None}
+            self.data["fid_fit"] = fit
+            self.save()
         return {"marks": out, "fit": fit, "params": par}
 
     TEACH_DEFAULTS = {"polarity": "auto", "threshold": None, "blur": 3, "rmin_px": None, "rmax_px": None,
@@ -985,7 +1033,9 @@ class Program:
         self.data["transform"] = M.tolist()
         self.data["adjust"] = {"dx": 0.0, "dy": 0.0, "rot": 0.0, "scale": 1.0}
         self.data["fiducials"] = [fids[i]["ref"] for i in used]
-        info = {"residual_mm": {fids[i]["ref"]: round(res[i], 3) for i in range(len(fids))},
+        self.data["transform"] = M.tolist()
+        conf = self.align_confidence()
+        info = {"confidence": conf, "residual_mm": {fids[i]["ref"]: round(res[i], 3) for i in range(len(fids))},
                 "used": [fids[i]["ref"] for i in used], "ppm": round(vision.px_per_mm(M), 3),
                 "rotation": round(math.degrees(math.atan2(M[1, 0], M[0, 0])), 3),
                 "max_mm": round(max(res[i] for i in used), 3)}
