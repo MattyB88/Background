@@ -705,7 +705,7 @@ class Program:
         self.save()
 
     # ------------------------------------------------ fiducials
-    FID_DEFAULTS = {"polarity": "auto", "threshold": None, "size_mm": None, "search_mm": 2.5, "shape": "auto", "min_score": 0.45}
+    FID_DEFAULTS = {"polarity": "auto", "threshold": None, "size_mm": None, "search_mm": 2.5, "shape": "auto", "min_score": 0.3}
 
     def fid_params(self):
         return {**self.FID_DEFAULTS, **(self.data.get("fid_params") or {})}
@@ -728,6 +728,7 @@ class Program:
         if img is None:
             raise ValueError("Load the golden board image first")
         gray = vision.prep(img)
+        chans = vision.fid_channels(img)
         fids = self.fid_list()
         if not fids:
             raise ValueError("No fiducials in the program - use 2 part centres instead (click them)")
@@ -737,8 +738,26 @@ class Program:
         if M is None or params.get("fresh"):
             M = None
             d0 = self._fid_geom(fids[0], par)[0]
-            for y in (yu, not yu):
-                M, _ = vision.auto_fiducials(img, fids, self.data["components"], y, d0)
+            # the board outline bounds the scale and rotation, which stops look-alike vias fooling the search
+            pr, ah = None, None
+            bo = vision.board_outline(img)
+            if bo is not None:
+                (_, (bw, bh), ang) = bo[0]
+                pts = np.float64([(c["x"], c["y"]) for c in self.data["components"]])
+                span = max(np.ptp(pts[:, 0]), np.ptp(pts[:, 1]))
+                if span > 5:
+                    est = max(bw, bh) / span
+                    pr, ah = (est * 0.7, est * 1.08), ang
+            M = None
+            for hint in ((pr, ah), (None, None)) if pr else ((None, None),):
+                for y in (yu, not yu):
+                    M, _ = vision.auto_fiducials(img, fids, self.data["components"], y, d0, max_cands=250 if hint[0] else 120,
+                                                 ppm_range=hint[0], angle_hint=hint[1])
+                    if M is not None:
+                        break
+                if M is not None:
+                    break
+            for y in ((y,) if M is not None else ()):
                 if M is not None:
                     self.data["y_up"] = yu = y
                     break
@@ -761,7 +780,8 @@ class Program:
             r = None
             sr = par["search_mm"]
             while r is None and sr <= max(par["search_mm"], 24):  # widen the search until a good dot turns up
-                r = vision.find_fiducial(gray, pred, d / 2 * ppm, sr * ppm, par["polarity"], par["threshold"], shape)
+                r = vision.find_fiducial(chans, pred, d / 2 * ppm, sr * ppm, par["polarity"], par["threshold"], shape,
+                                         channel=par.get("channel", "auto"))
                 if r and r["score"] < par["min_score"]:
                     r = None
                 sr *= 2
@@ -786,7 +806,7 @@ class Program:
         return {"marks": out, "fit": fit, "params": par}
 
     TEACH_DEFAULTS = {"polarity": "auto", "threshold": None, "blur": 3, "rmin_px": None, "rmax_px": None,
-                      "roundness": 0.55, "search_mm": 2.5, "min_match": 0.5, "min_score": 0.4}
+                      "roundness": 0.55, "search_mm": 2.5, "min_match": 0.5, "min_score": 0.4, "channel": "auto"}
 
     def fid_teach(self, ref):
         return {**self.TEACH_DEFAULTS, **(self.data.get("fid_teach") or {}).get(ref, {})}
@@ -802,15 +822,17 @@ class Program:
         import base64
         f = next(c for c in self.fid_list() if c["ref"] == ref)
         par = {**self.fid_teach(ref), **(params or {})}
-        gray = vision.prep(image if image is not None else self.golden())
+        src_img = image if image is not None else self.golden()
+        chans = vision.fid_channels(src_img)
         ppm = vision.px_per_mm(self.M) if self.M is not None else 10.0
         r = self._fid_r_px(f)
         _, shape = self._fid_geom(f, self.fid_params())
         sr = par["search_mm"] * ppm
         tpl = self._fid_template(ref) if par.get("use_template", True) else None
-        hit = vision.find_fiducial(gray, (px, py), r, sr, par["polarity"], par["threshold"], shape, blur=par["blur"],
+        hit = vision.find_fiducial(chans, (px, py), r, sr, par["polarity"], par["threshold"], shape, blur=par["blur"],
                                    rmin=par["rmin_px"], rmax=par["rmax_px"], roundness=par["roundness"],
-                                   template=tpl, min_match=par["min_match"] if tpl is not None else 0.0)
+                                   template=tpl, min_match=par["min_match"] if tpl is not None else 0.0, channel=par["channel"])
+        gray = chans[hit["channel"] if hit and hit.get("channel") in chans else (par["channel"] if par["channel"] in chans else "gray")]
         if hit and hit["score"] < par["min_score"]:
             hit = {**hit, "weak": True}
         R = int(max(sr, r * 3, 20))
@@ -835,14 +857,29 @@ class Program:
 
     def _fid_template(self, ref):
         p = self.dir / f"fid_{_safe(ref)}.png"
-        return cv2.imread(str(p), cv2.IMREAD_GRAYSCALE) if p.exists() else None
+        if not p.exists():
+            return None
+        t = cv2.imread(str(p), cv2.IMREAD_GRAYSCALE)
+        ch = (self.data.get("fid_teach") or {}).get(ref, {}).get("channel", "gray")
+        return {ch: t}
 
     def fid_suggest(self, ref, px, py):
         f = next(c for c in self.fid_list() if c["ref"] == ref)
-        s = vision.suggest_fid(vision.prep(self.golden()), (px, py), self._fid_r_px(f))
-        if not s:
+        chans, r0 = vision.fid_channels(self.golden()), self._fid_r_px(f)
+        best = None
+        for ch, im in chans.items():  # measure on each channel, keep the one where a mark of the expected size stands out
+            s = vision.suggest_fid(im, (px, py), r0)
+            if not s:
+                continue
+            hit = vision.find_fiducial(im, (px, py), r0, r0 * 3, s["polarity"], None, blur=3, rmin=s["rmin_px"], rmax=s["rmax_px"])
+            sc = (hit or {}).get("score", 0) * (1.0 if 0.5 < s["r_px"] / r0 < 2 else 0.5)
+            if best is None or sc > best[0]:
+                best = (sc, ch, s)
+        if not best:
             raise ValueError("No mark found there - click right on the fiducial")
-        return {"polarity": s["polarity"], "threshold": None, "rmin_px": s["rmin_px"], "rmax_px": s["rmax_px"], "measured": s}
+        _, ch, s = best
+        return {"polarity": s["polarity"], "threshold": None, "rmin_px": s["rmin_px"], "rmax_px": s["rmax_px"], "channel": ch,
+                "measured": {**s, "channel": ch}}
 
     def fid_teach_save(self, ref, px, py, params):
         """OK in the teach dialog: must actually find the mark. Stores settings + a template of the mark."""
@@ -850,14 +887,14 @@ class Program:
         if not r["found"]:
             raise ValueError("Not found with these settings - adjust until FOUND ✓")
         h = r["hit"]
-        g = vision.prep(self.golden())
+        g = vision.fid_channels(self.golden())[h.get("channel", "gray")]
         s = int(max(6, h["r"] * 2.4))
         x0, y0 = int(round(h["px"])) - s // 2, int(round(h["py"])) - s // 2
         tpl = g[max(0, y0):y0 + s, max(0, x0):x0 + s]
         if tpl.shape == (s, s):
             cv2.imwrite(str(self.path(f"fid_{_safe(ref)}.png")), tpl)
         par = {k: params.get(k, v) for k, v in self.TEACH_DEFAULTS.items()}
-        par.update(polarity=h["polarity"], r_px=h["r"])
+        par.update(polarity=h["polarity"], r_px=h["r"], channel=h.get("channel", "gray"))
         self.data.setdefault("fid_teach", {})[ref] = par
         self.data.setdefault("fid_marks", {})[ref] = {"px": h["px"], "py": h["py"], "score": h["score"], "r": h["r"],
                                                      "polarity": h["polarity"], "source": "taught"}
@@ -908,7 +945,8 @@ class Program:
                 out.append({"ref": f["ref"], "px": px, "r": tch.get("r_px") or d / 2 * ppm, "search": tch["search_mm"] * ppm, "shape": shape,
                             "polarity": tch["polarity"], "threshold": tch["threshold"], "blur": tch["blur"], "rmin": tch["rmin_px"],
                             "rmax": tch["rmax_px"], "roundness": tch["roundness"], "template": tpl,
-                            "min_match": tch["min_match"] if tpl is not None else 0.0, "min_score": tch["min_score"]})
+                            "min_match": tch["min_match"] if tpl is not None else 0.0, "min_score": tch["min_score"],
+                            "channel": tch.get("channel", "auto")})
                 continue
             out.append({"ref": f["ref"], "px": px, "r": d / 2 * ppm, "search": max(par["search_mm"], 3.0) * ppm, "shape": shape,
                         "polarity": (m or {}).get("polarity", par["polarity"]), "threshold": par["threshold"]})
@@ -927,7 +965,7 @@ class Program:
                 d, shape = self._fid_geom(f, par)
                 M = self.M
                 r_px = d / 2 * vision.px_per_mm(M) if M is not None else 8
-                r = vision.find_fiducial(vision.prep(self.golden()), (px, py), r_px, max(3 * r_px, 12), par["polarity"], par["threshold"], shape)
+                r = vision.find_fiducial(vision.fid_channels(self.golden()), (px, py), r_px, max(3 * r_px, 12), par["polarity"], par["threshold"], shape)
                 if r and math.dist((r["px"], r["py"]), (px, py)) < max(3 * r_px, 12):
                     m.update(px=r["px"], py=r["py"], score=r["score"], r=r["r"], snapped=True)
             marks[ref] = m
@@ -1014,8 +1052,11 @@ class Program:
             self._log(result)
             return result
         cv2.imwrite(str(rdir / "board.jpg"), warped, [cv2.IMWRITE_JPEG_QUALITY, 88])
-        g, t = vision.prep(gold), vision.prep(warped)
-        lab = (cv2.cvtColor(gold, cv2.COLOR_BGR2LAB), cv2.cvtColor(warped, cv2.COLOR_BGR2LAB))
+        # focus / camera distance differ between shots: soften the sharper image so both match before comparing
+        gold_c, warped_c, sharp = vision.match_sharpness(gold, warped)
+        reg["sharpness"] = sharp
+        g, t = vision.prep(gold_c), vision.prep(warped_c)
+        lab = (cv2.cvtColor(gold_c, cv2.COLOR_BGR2LAB), cv2.cvtColor(warped_c, cv2.COLOR_BGR2LAB))
         M, ppm, yu = self.M, vision.px_per_mm(self.M), self.data["y_up"]
         bare = self.bare()
         for c in self.data["components"]:
@@ -1052,14 +1093,34 @@ class Program:
                 cv2.imwrite(str(rdir / f"{_safe(c['ref'])}_learn.png"), tt)  # grey crop used by false-call learning
             else:
                 cv2.imwrite(str(rdir / f"{_safe(c['ref'])}_learn.png"), tt)
+            R = cv2.getRotationMatrix2D((0.0, 0.0), ang, 1.0)[:, :2]
+            oi = R.T @ np.float64(r.get("offset_mm") or [0, 0])  # part-frame offset -> image frame
             result["components"].append({"ref": c["ref"], "package": c["package"], "part": c["part"], "ipn": c.get("ipn", ""),
-                                         "cx": ctr[0], "cy": ctr[1], "angle": ang, **r})
+                                         "cx": ctr[0], "cy": ctr[1], "angle": ang, **r, "_oi": oi.tolist(), "_th": th["offset_mm"],
+                                         "_chk_off": (c.get("checks") or {}).get("offset", True)})
+        self._local_offsets(result["components"], ppm)
+        # an unpopulated board (or the wrong build stage) is not a pile of tombstones
+        comp = [c for c in result["components"] if "box" not in c]
+        absent = [c for c in comp if set(c["fails"]) & {"MISSING", "TOMBSTONE", "BILLBOARD", "WRONG PART"}]
+        if len(comp) >= 10 and len(absent) > 0.6 * len(comp) and (reg.get("match") or 0) > 0.5:
+            for c in absent:
+                c["fails"] = ["MISSING"] + [f for f in c["fails"] if f not in ("MISSING", "TOMBSTONE", "BILLBOARD", "WRONG PART", "OFFSET", "MARKING", "POLARITY", "BRIDGE")]
+            result["board_state"] = "unpopulated"
         if self.data.get("compare", {}).get("enabled"):
             self._compare(gold, warped, rdir, result)
         fails = [c for c in result["components"] if not c["ok"]]
         result.update(ok=not fails, n_fail=len(fails), cycle_s=round(time.time() - t0, 3))
         nparts = sum(1 for c in result["components"] if "box" not in c)
-        if nparts >= 5 and len(fails) > 0.4 * nparts:
+        so = sum(1 for c in result["components"] if c.get("ocv_skipped"))
+        sb = sum(1 for c in result["components"] if c.get("bridge_skipped"))
+        if so or sb:
+            result["notes"] = [f"Image is {ppm:.1f} px/mm: " + ", ".join(x for x in (
+                f"marking check skipped on {so} part(s)" if so else "", f"bridge check skipped on {sb} fine-pitch part(s)" if sb else "") if x)
+                + " - move the camera closer / use more pixels (≈15+ px/mm) to enable them."]
+        if result.get("board_state") == "unpopulated":
+            result["warning"] = (f"{len(fails)} of {nparts} parts missing - the board is aligned, so this looks like a bare / "
+                                 "unpopulated board (or the wrong build stage for this program).")
+        elif nparts >= 5 and len(fails) > 0.4 * nparts:
             result["warning"] = (f"{len(fails)} of {nparts} parts failed - this is usually alignment, lighting or the wrong "
                                  "program, not real defects. Check the fiducials (Align → Verify on a board) before trusting this result.")
         (rdir / "result.json").write_text(json.dumps(result))
@@ -1067,6 +1128,28 @@ class Program:
             self._log(result)
         self._prune_runs()
         return result
+
+    @staticmethod
+    def _local_offsets(comps, ppm, radius_mm=25.0):
+        """Offset relative to neighbouring parts: a photo that is slightly warped / stretched moves every part in an
+        area the same way, a mis-placed part moves on its own. Removes OFFSET calls that are just leftover warp."""
+        pts = [(c, np.float64([c["cx"], c["cy"]]), np.float64(c["_oi"])) for c in comps if "_oi" in c]
+        good = [(p, o) for c, p, o in pts if c.get("match") is not None and (c.get("match") or 0) > 0.55
+                and not (set(c["fails"]) - {"OFFSET"})]
+        for c, p, o in pts:
+            nb = [oo for pp, oo in good if 0 < np.linalg.norm(pp - p) < radius_mm * ppm]
+            if len(nb) >= 3:
+                med = np.median(np.float64(nb), axis=0)
+                loc = o - med
+                c["offset_local_mm"] = [round(float(loc[0]), 3), round(float(loc[1]), 3)]
+                if "OFFSET" in c["fails"] and float(np.hypot(*loc)) <= c["_th"]:
+                    c["fails"] = [f for f in c["fails"] if f != "OFFSET"]
+                elif c["_chk_off"] and "OFFSET" not in c["fails"] and not c["fails"] and float(np.hypot(*loc)) > c["_th"] * 1.5:
+                    c["fails"] = ["OFFSET"]  # moved against its neighbours
+                c["ok"] = not c["fails"]
+        for c in comps:
+            for k in ("_oi", "_th", "_chk_off"):
+                c.pop(k, None)
 
     # ------------------------------------------------ whole-board golden compare
     def tol_map(self):

@@ -123,7 +123,7 @@ def blob_candidates(gray, max_r, polarity="auto"):
                 (bx, by), (bw_, bh_), _ = cv2.minAreaRect(c)
                 asp = min(bw_, bh_) / max(1e-6, max(bw_, bh_))
                 fill = a / max(1e-6, bw_ * bh_)
-                if asp < 0.75 or (circ < 0.72 and fill < 0.85):
+                if asp < 0.7 or (circ < 0.65 and fill < 0.85):
                     continue
                 m = cv2.moments(c)
                 x, y, r = m["m10"] / m["m00"], m["m01"] / m["m00"], math.sqrt(a / math.pi)
@@ -134,10 +134,12 @@ def blob_candidates(gray, max_r, polarity="auto"):
                 yy, xx = np.mgrid[y0:y1, x0:x1]
                 d = np.hypot(xx - x, yy - y)
                 inner, ring = patch[d < r * 0.7], patch[(d > r * 1.4) & (d < r * 2.2)]
+                if ring.size > 8:  # a board edge next to the mark: judge against the brighter half of the ring
+                    ring = ring[ring >= np.median(ring)] if np.ptp(ring) > 60 else ring
                 if inner.size < 3 or ring.size < 3:
                     continue
                 con = (inner.mean() - ring.mean()) / 255
-                if con < 0.08:
+                if con < 0.04:
                     continue
                 out.append((float(x), float(y), float(r), float(min(circ, 1) * asp * min(1, con * 3))))
     out.sort(key=lambda c: -c[3])
@@ -148,7 +150,7 @@ def blob_candidates(gray, max_r, polarity="auto"):
     return keep
 
 
-def auto_fiducials(img, fids, comps, y_up=True, fid_diam_mm=1.0, polarity="auto", max_cands=120):
+def auto_fiducials(img, fids, comps, y_up=True, fid_diam_mm=1.0, polarity="auto", max_cands=120, ppm_range=None, angle_hint=None):
     """Find fiducials without a known scale: hypothesise from candidate pairs, verify on all fiducials.
 
     Works on a downscaled copy for speed; returns (M, matched_px) in full-resolution px or (None, [])."""
@@ -160,6 +162,11 @@ def auto_fiducials(img, fids, comps, y_up=True, fid_diam_mm=1.0, polarity="auto"
     src = [mm_src(q["x"], q["y"], y_up) for q in fids]
     all_src = np.float64([mm_src(c["x"], c["y"], y_up) for c in comps])
     cands = blob_candidates(gs, max_r=min(h, w) / 25, polarity=polarity)[:max_cands]
+    if img.ndim == 3:
+        cu = fid_channels(cv2.resize(img, (w, h), interpolation=cv2.INTER_AREA))["copper"]
+        for c in blob_candidates(cu, max_r=min(h, w) / 25, polarity="bright")[:max_cands]:
+            if all(math.dist(c[:2], k[:2]) > max(3, k[2]) for k in cands):
+                cands.append(c)
     for x, y, r in find_round_marks(gs, max_r=int(min(h, w) / 25))[:60]:
         if all(math.dist((x, y), c[:2]) > max(3, r) for c in cands):
             cands.append((x, y, r, 0.3))
@@ -177,15 +184,24 @@ def auto_fiducials(img, fids, comps, y_up=True, fid_diam_mm=1.0, polarity="auto"
         s = math.dist(cxy[a], cxy[b]) / dsrc
         if not 0.3 < s * fid_diam_mm / (ra + rb) < 3.0:
             continue
+        if ppm_range and not ppm_range[0] * f <= s <= ppm_range[1] * f:
+            continue
         M = similarity_from_pairs([src[i0], src[i1]], [cxy[a], cxy[b]])
+        if angle_hint is not None:
+            da = (math.degrees(math.atan2(M[1, 0], M[0, 0])) - angle_hint) % 90
+            if min(da, 90 - da) > 6:
+                continue
         p = apply(M, all_src)
+        span = np.ptp(p, axis=0)
+        if max(span[0] / w, span[1] / h) < 0.5:  # the layout must fill a sensible part of the photo
+            continue
         if np.mean((p[:, 0] > -2) & (p[:, 0] < w + 2) & (p[:, 1] > -2) & (p[:, 1] < h + 2)) < 0.9:
             continue
         pf = apply(M, src)
         dd = np.linalg.norm(pf[:, None, :] - cxy[None, :, :], axis=2)
         j = dd.argmin(1)
         d = dd[np.arange(len(src)), j]
-        tol = max(2.0, 0.5 * (ra + rb) / 2)
+        tol = max(2.0, 0.5 * (ra + rb) / 2, 0.8 * px_per_mm(M))  # layouts / lenses are rarely perfect: ~0.8 mm
         ok = d < tol
         score = float(cq[j[ok]].sum() - (d[ok] / tol).sum() * 0.2)
         if (int(ok.sum()), score) > (best[0], best[1]):
@@ -217,8 +233,33 @@ def fid_binary(win, polarity, thresh, blur):
     return bw, int(t if polarity != "dark" else 255 - t)
 
 
+def fid_channels(img):
+    """Images the fiducial finder can work on: 'gray' (brightness) and 'copper' (bare copper / gold vs green or
+    blue solder mask: LAB a*+b*, so a dull pad that is the same grey as the mask still stands out)."""
+    if img.ndim == 2:
+        return {"gray": img}
+    lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB).astype(np.float32)
+    cu = np.clip((lab[..., 1] - 128) * 3 + (lab[..., 2] - 128) * 2 + 128, 0, 255).astype(np.uint8)
+    return {"gray": prep(img), "copper": cu}
+
+
 def find_fiducial(gray, pred, r_px, search_px, polarity="auto", thresh=None, shape="circle",
-                  blur=3, rmin=None, rmax=None, roundness=0.55, template=None, min_match=0.0):
+                  blur=3, rmin=None, rmax=None, roundness=0.55, template=None, min_match=0.0, channel="auto"):
+    if isinstance(gray, dict):  # several channels: use the chosen one, or the best of all
+        names = [c for c in gray if channel in ("auto", c)] or list(gray)
+        best = None
+        for n in names:
+            tp = template.get(n) if isinstance(template, dict) else (template if n == "gray" else None)
+            r = find_fiducial(gray[n], pred, r_px, search_px, polarity, thresh, shape, blur, rmin, rmax, roundness,
+                              tp, min_match if tp is not None else 0.0)
+            if r and (best is None or r["score"] > best["score"] * (1.15 if n != "gray" else 1 / 1.15)):
+                best = {**r, "channel": n}
+        return best
+    return _find_fiducial(gray, pred, r_px, search_px, polarity, thresh, shape, blur, rmin, rmax, roundness, template, min_match)
+
+
+def _find_fiducial(gray, pred, r_px, search_px, polarity="auto", thresh=None, shape="circle",
+                   blur=3, rmin=None, rmax=None, roundness=0.55, template=None, min_match=0.0):
     """Best fiducial blob near *pred* (px). r_px = expected radius (half side for squares).
 
     polarity: bright | dark | auto; thresh: 0-255 or None (Otsu + a few brighter levels).
@@ -261,7 +302,7 @@ def find_fiducial(gray, pred, r_px, search_px, polarity="auto", thresh=None, sha
                 rnd = (min(1.0, fill / 0.85) if shape == "square" else min(1.0, circ / 0.85)) * aspect
                 if rnd < roundness:
                     continue
-                size = math.exp(-2.5 * abs(math.sqrt(a / exp_area) - 1))
+                size = math.exp(-1.2 * abs(math.sqrt(a / exp_area) - 1))
                 m = cv2.moments(c)
                 if m["m00"] <= 0:
                     continue
@@ -271,7 +312,7 @@ def find_fiducial(gray, pred, r_px, search_px, polarity="auto", thresh=None, sha
                 cv2.drawContours(mask, [c], -1, 255, -1)
                 ring = cv2.dilate(mask, np.ones((max(3, int(r_px)) | 1,) * 2, np.uint8)) & ~mask
                 inside, outside = cv2.mean(img, mask)[0], cv2.mean(img, ring)[0] if ring.any() else 0
-                con = min(1.0, max(0.0, (inside - outside) / 60))
+                con = min(1.0, max(0.0, (inside - outside) / max(25.0, 2.5 * float(win.std()))))
                 score = rnd * size * (0.4 + 0.6 * con) * (1 - 0.5 * min(1, dist))
                 mt = None
                 if template is not None:
@@ -384,7 +425,7 @@ def refine_ecc_h(g, t, H, scale=0.5):
         return H, False
 
 
-def _fid_refine(t, H, fids):
+def _fid_refine(t, H, fids, chans=None):
     """Find the program fiducials in the test image where H (test->golden) predicts them, then correct H so they
     land exactly on the golden fiducials. Returns (H, max residual px, n) or None."""
     if not fids or H is None:
@@ -396,10 +437,10 @@ def _fid_refine(t, H, fids):
         pred = happly(Hi, [f["px"]])[0]
         best = None
         for sr in (f["search"], f["search"] * 3):
-            best = find_fiducial(t, pred, f["r"], sr, f.get("polarity", "auto"), f.get("threshold"), f.get("shape", "circle"),
+            best = find_fiducial(chans or t, pred, f["r"], sr, f.get("polarity", "auto"), f.get("threshold"), f.get("shape", "circle"),
                                  blur=f.get("blur", 3), rmin=f.get("rmin"), rmax=f.get("rmax"), roundness=f.get("roundness", 0.55),
-                                 template=f.get("template"), min_match=f.get("min_match", 0.0))
-            if best and best["score"] >= f.get("min_score", 0.4):
+                                 template=f.get("template"), min_match=f.get("min_match", 0.0), channel=f.get("channel", "auto"))
+            if best and best["score"] >= f.get("min_score", 0.3):
                 break
             best = None
         details.append({"ref": f.get("ref"), "found": bool(best), **({k: best[k] for k in ("score", "match", "r")} if best else {})})
@@ -478,6 +519,7 @@ def register(golden, test, anchors_px, patch=60, prefer=None, fids=None, min_sco
     if not cands:
         return None, {"ok": False, "method": "none", "msg": "Board not found - check position / lighting"}
     best, tried = None, []
+    chans = fid_channels(test) if fids else None
     _fid_refine.last = []
     fid_detail = []
     for name, H in cands:
@@ -486,7 +528,7 @@ def register(golden, test, anchors_px, patch=60, prefer=None, fids=None, min_sco
         H2, refined = refine_ecc_h(g, t, H)
         if refined and align_score(g, t, H2) >= s0 - 0.01:
             H, method = H2, method + "+ecc"
-        fr = _fid_refine(t, H, fids)
+        fr = _fid_refine(t, H, fids, chans)
         det = list(getattr(_fid_refine, "last", []))
         fid_res = None
         if fr and align_score(g, t, fr[0]) >= align_score(g, t, H) - 0.02:
@@ -555,6 +597,29 @@ def register_outline(g_img, t_img, g, t):
     return best[1] if best[0] > 0.3 else None
 
 
+def sharpness(img):
+    g = prep(img) if img.ndim == 3 else img
+    return float(cv2.Laplacian(cv2.GaussianBlur(g, (3, 3), 0), cv2.CV_32F).var())
+
+
+def match_sharpness(a, b, tol=1.25):
+    """Blur whichever of a / b is sharper until both have similar detail. Returns (a, b, info)."""
+    sa, sb = sharpness(a), sharpness(b)
+    info = {"golden": round(sa, 1), "board": round(sb, 1), "blurred": None}
+    if min(sa, sb) <= 0 or max(sa, sb) / min(sa, sb) < tol:
+        return a, b, info
+    sharp_is_a = sa > sb
+    src, target = (a, sb) if sharp_is_a else (b, sa)
+    out, sig = src, 0.0
+    for s_ in (0.5, 0.7, 0.9, 1.1, 1.4, 1.8, 2.3, 3.0):
+        cand = cv2.GaussianBlur(src, (0, 0), s_)
+        out, sig = cand, s_
+        if sharpness(cand) <= target * 1.05:
+            break
+    info["blurred"] = {"image": "golden" if sharp_is_a else "board", "sigma": sig}
+    return (out, b, info) if sharp_is_a else (a, out, info)
+
+
 def refine_ecc(g, t, M, scale=0.5):
     """Sub-pixel whole-image refinement of test->golden affine M (ECC). Returns (M, ok)."""
     try:
@@ -606,7 +671,8 @@ def grad(g):
     return cv2.magnitude(gx, gy)
 
 
-DEFAULTS = {"bridge": 1.2, "presence": 0.6, "polarity_margin": 0.08, "ocv": 0.45, "offset_mm": 0.35, "search_mm": 0.8}
+DEFAULTS = {"bridge": 1.2, "presence": 0.6, "polarity_margin": 0.08, "ocv": 0.45, "offset_mm": 0.35, "search_mm": 0.8,
+            "ocv_min_ppm": 12.0, "bridge_min_gap_px": 3.0}
 
 
 def _body_slice(shape, pkg, ppm, frac=0.8):
@@ -715,14 +781,20 @@ def inspect_component(golden, test, center, angle, pkg: Package, ppm, refs=(), t
     else:
         if checks.get("offset") and math.hypot(dx_mm, dy_mm) > th["offset_mm"]:
             fails.append("OFFSET")
-        if checks.get("ocv"):
+        if checks.get("ocv") and ppm < th.get("ocv_min_ppm", 12):
+            out["ocv_skipped"] = f"image resolution {ppm:.1f} px/mm is too low to read markings (needs ~{th.get('ocv_min_ppm', 12):g})"
+        elif checks.get("ocv"):
             bs = _mm_slice(tpl.shape, pkg.ocv_roi, ppm) if pkg.ocv_roi else _body_slice(tpl.shape, pkg, ppm, 0.7)
             sm = lambda a: cv2.GaussianBlur(a, (0, 0), 1.2)  # tolerate focus / JPEG differences
             ocv = max(ncc(grad(sm(found[bs])), grad(sm(t[bs]))) for t in templates) if found[bs].size > 16 else 1.0
             out["ocv"] = round(ocv, 3)
             if ocv < th["ocv"]:
                 fails.append("MARKING")
-    if checks.get("bridge", len(pkg.pads) >= 4) and "MISSING" not in fails:
+    gaps = pad_gaps(pkg) if checks.get("bridge", len(pkg.pads) >= 4) else []
+    min_gap_px = min((min(g[2], g[3]) / 0.6 for g in gaps), default=0) * ppm
+    if gaps and min_gap_px < th.get("bridge_min_gap_px", 3.0):
+        out["bridge_skipped"] = f"lead gap is only {min_gap_px:.1f} px at this resolution - too small to judge bridges"
+    elif checks.get("bridge", len(pkg.pads) >= 4) and "MISSING" not in fails:
         b = bridge_score(found, tpl, pkg, ppm)
         out["bridge"] = round(b, 2)
         if b > th["bridge"]:
