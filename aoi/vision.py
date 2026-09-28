@@ -31,10 +31,16 @@ def similarity_from_pairs(src, dst):
         k = vd / vs
         t = complex(e, f) - k * complex(a, b)
         return np.float64([[k.real, -k.imag, t.real], [k.imag, k.real, t.imag]])
-    M, _ = cv2.estimateAffinePartial2D(src, dst, method=cv2.LMEDS)
-    if M is None:
-        raise ValueError("Could not fit transform")
-    return M
+    # least-squares similarity (all points count equally)
+    zs = src[:, 0].astype(np.float64) + 1j * src[:, 1]
+    zd = dst[:, 0].astype(np.float64) + 1j * dst[:, 1]
+    ms, md = zs.mean(), zd.mean()
+    den = float(np.sum(np.abs(zs - ms) ** 2))
+    if den < 1e-12:
+        raise ValueError("Reference points coincide")
+    k = np.sum(np.conj(zs - ms) * (zd - md)) / den
+    t = md - k * ms
+    return np.float64([[k.real, -k.imag, t.real], [k.imag, k.real, t.imag]])
 
 
 def mm_src(x, y, y_up=True):
@@ -95,54 +101,175 @@ def refine_center(gray, p, r):
     return (x0 + m["m10"] / m["m00"], y0 + m["m01"] / m["m00"])
 
 
-def auto_fiducials(img, fids, comps, y_up=True, fid_diam_mm=1.0):
+def blob_candidates(gray, max_r, polarity="auto"):
+    """Round, isolated bright/dark blobs at several threshold levels: (x, y, r, quality)."""
+    g = cv2.GaussianBlur(gray, (3, 3), 0)
+    h, w = g.shape
+    out = []
+    pols = ("bright", "dark") if polarity == "auto" else (polarity,)
+    for pol in pols:
+        im = g if pol == "bright" else 255 - g
+        levels = sorted({int(np.percentile(im, q)) for q in (80, 90, 96, 99, 99.7)} |
+                        {int(cv2.threshold(im, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[0])})
+        for t in levels:
+            _, bw = cv2.threshold(im, t, 255, cv2.THRESH_BINARY)
+            cnts, _ = cv2.findContours(bw, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+            for c in cnts:
+                a = cv2.contourArea(c)
+                if a < 10 or a > math.pi * max_r * max_r:
+                    continue
+                per = cv2.arcLength(c, True) + 1e-6
+                circ = 4 * math.pi * a / per ** 2
+                (bx, by), (bw_, bh_), _ = cv2.minAreaRect(c)
+                asp = min(bw_, bh_) / max(1e-6, max(bw_, bh_))
+                fill = a / max(1e-6, bw_ * bh_)
+                if asp < 0.75 or (circ < 0.72 and fill < 0.85):
+                    continue
+                m = cv2.moments(c)
+                x, y, r = m["m10"] / m["m00"], m["m01"] / m["m00"], math.sqrt(a / math.pi)
+                # isolation: ring around the blob should be clearly darker (bright) / lighter (dark)
+                R = int(r * 2.2) + 2
+                x0, y0, x1, y1 = max(0, int(x) - R), max(0, int(y) - R), min(w, int(x) + R + 1), min(h, int(y) + R + 1)
+                patch = im[y0:y1, x0:x1].astype(np.float32)
+                yy, xx = np.mgrid[y0:y1, x0:x1]
+                d = np.hypot(xx - x, yy - y)
+                inner, ring = patch[d < r * 0.7], patch[(d > r * 1.4) & (d < r * 2.2)]
+                if inner.size < 3 or ring.size < 3:
+                    continue
+                con = (inner.mean() - ring.mean()) / 255
+                if con < 0.08:
+                    continue
+                out.append((float(x), float(y), float(r), float(min(circ, 1) * asp * min(1, con * 3))))
+    out.sort(key=lambda c: -c[3])
+    keep = []
+    for c in out:
+        if all(math.dist(c[:2], k[:2]) > max(3, k[2]) for k in keep):
+            keep.append(c)
+    return keep
+
+
+def auto_fiducials(img, fids, comps, y_up=True, fid_diam_mm=1.0, polarity="auto", max_cands=120):
     """Find fiducials without a known scale: hypothesise from candidate pairs, verify on all fiducials.
 
-    Returns (M, matched_px) or (None, []).
-    """
+    Works on a downscaled copy for speed; returns (M, matched_px) in full-resolution px or (None, [])."""
     gray = prep(img)
-    h, w = gray.shape
-    src = [mm_src(f["x"], f["y"], y_up) for f in fids]
+    H0, W0 = gray.shape
+    f = min(1.0, 1600.0 / max(H0, W0))
+    gs = cv2.resize(gray, None, fx=f, fy=f, interpolation=cv2.INTER_AREA) if f < 1 else gray
+    h, w = gs.shape
+    src = [mm_src(q["x"], q["y"], y_up) for q in fids]
     all_src = np.float64([mm_src(c["x"], c["y"], y_up) for c in comps])
-    cands = find_round_marks(gray, max_r=int(min(h, w) / 25))
+    cands = blob_candidates(gs, max_r=min(h, w) / 25, polarity=polarity)[:max_cands]
+    for x, y, r in find_round_marks(gs, max_r=int(min(h, w) / 25))[:60]:
+        if all(math.dist((x, y), c[:2]) > max(3, r) for c in cands):
+            cands.append((x, y, r, 0.3))
     if len(cands) < 2:
         return None, []
     cxy = np.float64([(c[0], c[1]) for c in cands])
-    # anchor on the two fiducials furthest apart
+    cq = np.float64([c[3] for c in cands])
     i0, i1 = max(itertools.combinations(range(len(src)), 2), key=lambda ij: math.dist(src[ij[0]], src[ij[1]]))
-    best = (-1, 1e18, None, None)
+    dsrc = math.dist(src[i0], src[i1])
+    best = (-1, -1e18, None, None)
     for a, b in itertools.permutations(range(len(cands)), 2):
         ra, rb = cands[a][2], cands[b][2]
-        if not 0.66 < ra / rb < 1.5:
+        if not 0.6 < ra / rb < 1.66:
             continue
-        try:
-            M = similarity_from_pairs([src[i0], src[i1]], [cxy[a], cxy[b]])
-        except ValueError:
+        s = math.dist(cxy[a], cxy[b]) / dsrc
+        if not 0.3 < s * fid_diam_mm / (ra + rb) < 3.0:
             continue
-        s = px_per_mm(M)
-        if not 0.4 < s * fid_diam_mm / (ra + rb) < 2.5:
-            continue
+        M = similarity_from_pairs([src[i0], src[i1]], [cxy[a], cxy[b]])
         p = apply(M, all_src)
-        if np.mean((p[:, 0] > 0) & (p[:, 0] < w) & (p[:, 1] > 0) & (p[:, 1] < h)) < 0.98:
+        if np.mean((p[:, 0] > -2) & (p[:, 0] < w + 2) & (p[:, 1] > -2) & (p[:, 1] < h + 2)) < 0.9:
             continue
         pf = apply(M, src)
-        d = np.linalg.norm(pf[:, None, :] - cxy[None, :, :], axis=2).min(1)
-        tol = max(3.0, 0.4 * (ra + rb) / 2)
-        inl = int((d < tol).sum())
-        res = float(d[d < tol].sum())
-        if (inl, -res) > (best[0], -best[1]):
-            best = (inl, res, M, [tuple(cxy[np.linalg.norm(cxy - q, axis=1).argmin()]) for q in pf])
+        dd = np.linalg.norm(pf[:, None, :] - cxy[None, :, :], axis=2)
+        j = dd.argmin(1)
+        d = dd[np.arange(len(src)), j]
+        tol = max(2.0, 0.5 * (ra + rb) / 2)
+        ok = d < tol
+        score = float(cq[j[ok]].sum() - (d[ok] / tol).sum() * 0.2)
+        if (int(ok.sum()), score) > (best[0], best[1]):
+            best = (int(ok.sum()), score, M, [tuple(cxy[k]) for k in j])
     if best[2] is None:
         return None, []
-    # refine on all inlier fiducials (sub-pixel blob centroids)
-    M = best[2]
+    M = best[2].copy()
+    M /= 1.0  # to full resolution
+    M[:, :] = M / f
     r_px = 0.5 * fid_diam_mm * px_per_mm(M)
-    pts = [refine_center(gray, p, r_px) for p in best[3]]
+    pts = [refine_center(gray, (p[0] / f, p[1] / f), r_px) for p in best[3]]
     pf = apply(M, src)
-    keep = [i for i in range(len(src)) if math.dist(pf[i], pts[i]) < max(3.0, 0.2 * px_per_mm(M))]
+    keep = [i for i in range(len(src)) if math.dist(pf[i], pts[i]) < max(3.0, 0.3 * px_per_mm(M))]
     if len(keep) >= 2:
         M = similarity_from_pairs([src[i] for i in keep], [pts[i] for i in keep])
     return M, [pts[i] if i in keep else tuple(apply(M, [src[i]])[0]) for i in range(len(src))]
+
+
+def find_fiducial(gray, pred, r_px, search_px, polarity="auto", thresh=None, shape="circle"):
+    """Best fiducial blob near *pred* (px). r_px = expected radius (half side for squares).
+
+    polarity: bright | dark | auto; thresh: 0-255 or None (Otsu in the search window).
+    Returns {px, py, score 0-1, r, thresh, polarity} or None."""
+    H, W = gray.shape
+    x, y, R = int(round(pred[0])), int(round(pred[1])), int(max(search_px, r_px * 2.5, 8))
+    x0, y0, x1, y1 = max(0, x - R), max(0, y - R), min(W, x + R + 1), min(H, y + R + 1)
+    win = gray[y0:y1, x0:x1]
+    if win.size < 25:
+        return None
+    win = cv2.GaussianBlur(win, (3, 3), 0)
+    exp_area = (4.0 if shape == "square" else math.pi) * r_px * r_px
+    best = None
+    for pol in (("bright", "dark") if polarity == "auto" else (polarity,)):
+        img = win if pol == "bright" else 255 - win
+        ts = [int(thresh) if pol == "bright" else 255 - int(thresh)] if thresh is not None else \
+            [int(cv2.threshold(img, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[0])]
+        if thresh is None:  # a few levels around Otsu: fiducials are often brighter than the pads around them
+            ts += [min(250, ts[0] + d) for d in (20, 40, 70)]
+        for t in ts:
+            _, bw = cv2.threshold(img, t, 255, cv2.THRESH_BINARY)
+            cnts, _ = cv2.findContours(bw, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
+            for c in cnts:
+                a = cv2.contourArea(c)
+                if a < max(6, exp_area * 0.3) or a > exp_area * 3:
+                    continue
+                per = cv2.arcLength(c, True) + 1e-6
+                circ = 4 * math.pi * a / per ** 2
+                (bx, by), (bw_, bh_), _ = cv2.minAreaRect(c)
+                fill = a / max(1e-6, bw_ * bh_)
+                aspect = min(bw_, bh_) / max(1e-6, max(bw_, bh_))
+                if shape == "square":
+                    sh = min(1.0, fill / 0.85) * aspect
+                else:
+                    sh = min(1.0, circ / 0.85) * aspect
+                size = math.exp(-2.5 * abs(math.sqrt(a / exp_area) - 1))
+                m = cv2.moments(c)
+                if m["m00"] <= 0:
+                    continue
+                cx, cy = x0 + m["m10"] / m["m00"], y0 + m["m01"] / m["m00"]
+                dist = math.dist((cx, cy), pred) / max(1.0, R)
+                # contrast: blob vs ring around it
+                mask = np.zeros(win.shape, np.uint8)
+                cv2.drawContours(mask, [c], -1, 255, -1)
+                ring = cv2.dilate(mask, np.ones((max(3, int(r_px)) | 1,) * 2, np.uint8)) & ~mask
+                inside, outside = cv2.mean(img, mask)[0], cv2.mean(img, ring)[0] if ring.any() else 0
+                con = min(1.0, max(0.0, (inside - outside) / 60))
+                score = sh * size * (0.4 + 0.6 * con) * (1 - 0.5 * min(1, dist))
+                if best is None or score > best["score"]:
+                    best = {"px": float(cx), "py": float(cy), "score": round(float(score), 3), "r": round(math.sqrt(a / math.pi), 1),
+                            "thresh": int(t if pol == "bright" else 255 - t), "polarity": pol}
+    return best
+
+
+def fit_marks(src, dst, reject_mm=None):
+    """Similarity fit with residuals. Drops the worst point while it is > reject_mm off and >2 points remain."""
+    idx = list(range(len(src)))
+    while True:
+        M = similarity_from_pairs([src[i] for i in idx], [dst[i] for i in idx])
+        ppm = px_per_mm(M)
+        res = [math.dist(apply(M, [src[i]])[0], dst[i]) / ppm for i in range(len(src))]
+        worst = max(idx, key=lambda i: res[i])
+        if reject_mm is None or len(idx) <= 2 or res[worst] <= reject_mm:
+            return M, res, idx
+        idx.remove(worst)
 
 
 # ---------------------------------------------------------------- registration

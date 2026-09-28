@@ -184,3 +184,66 @@ def resize(pkg_dict, body_l=None, body_w=None):
                         for cx, cy, pl, pw in pkg_dict["pads"]]
     pkg_dict["body_l"], pkg_dict["body_w"] = round(l, 3), round(w, 3)
     return pkg_dict
+
+
+# ---------------------------------------------------------------- Mycronic machine geometry (pck.gen)
+def _lead_pads(g, centred):
+    """Pads [cx, cy, l, w] of one P051/P052 lead group. (x, y) = first lead (or group centre when *centred*)."""
+    import math
+    a = math.radians(g.get("angle", 0))
+    u = (math.cos(a), math.sin(a))              # lead axis
+    if g["x"] * u[0] + g["y"] * u[1] < 0:
+        u = (-u[0], -u[1])                      # point outward
+    s = (-u[1], u[0])                           # pins run counter-clockwise
+    n, pitch, ln, wd = g.get("n", 1), g.get("pitch", 0) or 0, g.get("len", 0.3) or 0.3, g.get("wid", 0.3) or 0.3
+    x0, y0 = g["x"], g["y"]
+    if centred:
+        x0 -= s[0] * pitch * (n - 1) / 2
+        y0 -= s[1] * pitch * (n - 1) / 2
+    horiz = abs(u[0]) >= abs(u[1])
+    pads = []
+    for i in range(n):
+        x, y = x0 + s[0] * pitch * i, y0 + s[1] * pitch * i
+        d = x * u[0] + y * u[1]                 # move half a lead length toward the body centre
+        k = -1 if d > 0 else 1
+        x, y = x + k * u[0] * ln / 2, y + k * u[1] * ln / 2
+        pads.append([round(x, 4), round(y, 4), ln if horiz else wd, wd if horiz else ln])
+    return pads
+
+
+def from_machine(name, m):
+    """Package from a parsed pck.gen entry (real body + lead geometry, Mycronic 0-degree orientation)."""
+    groups = [g for g in m.get("leads", []) if g.get("type", "").upper() not in ("BGA", "BGAB", "FLIP")]
+    best = None
+    for centred in (False, True):
+        pads = [p for g in groups for p in _lead_pads(g, centred)]
+        if pads:
+            off = abs(sum(p[0] for p in pads) / len(pads)) + abs(sum(p[1] for p in pads) / len(pads))
+            if best is None or off < best[0] - 1e-6:
+                best = (off, pads)
+    pads = best[1] if best else []
+    L, W = (m.get("body") or [2.0, 1.25])[:2]
+    L, W = max(L, W), min(L, W)
+    import math
+    if groups and all(g.get("n", 1) == 1 for g in groups) and len(groups) == 2:
+        along_y = abs(groups[0]["y"] - groups[1]["y"]) > abs(groups[0]["x"] - groups[1]["x"])
+    elif groups:
+        g = max(groups, key=lambda g: g.get("n", 1))
+        along_y = abs(math.cos(math.radians(g.get("angle", 0)))) > 0.7  # pitch runs along Y
+    else:
+        along_y = False
+    bl, bw = (W, L) if along_y else (L, W)
+    ptype = m.get("type", "")
+    nleads = len(pads)
+    kind = "chip" if ptype == "PT_TWO_POLE" else "bga" if "BGA" in ptype else "ic" if nleads >= 3 else "generic"
+    polar = nleads >= 3 or "BGA" in ptype
+    pk = Package(name, round(bl, 3), round(bw, 3), pads, polar, nleads >= 5 or "BGA" in ptype, kind)
+    return pk
+
+
+def rot90_cw(d):
+    """Package dict turned -90 deg: derived (IPC-ish, chips along X) -> Mycronic 0-degree (chips along Y)."""
+    d = dict(d)
+    d["body_l"], d["body_w"] = d["body_w"], d["body_l"]
+    d["pads"] = [[cy, -cx, w, l] for cx, cy, l, w in d.get("pads", [])]
+    return d

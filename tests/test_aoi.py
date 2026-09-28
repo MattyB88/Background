@@ -203,7 +203,7 @@ def test_bare_board_autoprogram(tmp_path, monkeypatch):
             c["x"] += 0.5
             c["y"] -= 0.4  # sloppy placement file
     p = Program("bare")
-    p.import_placements(parsed)
+    p.import_placements(parsed, origin="file")
     p.set_golden(synth.render())
     p.auto_teach()
     info = p.set_bare(synth.render(allmiss, light=0.9, angle=0.6, offset=(44, 33), seed=4))
@@ -331,3 +331,77 @@ def test_mydata_robust_encodings():
     csv_txt = pnp_import.to_csv(pnp_import.parse(MYDATA))
     back = pnp_import.parse(csv_txt)
     assert {c["ref"] for c in back["components"]} >= {"C9", "D1", "R53", "IC1"}
+
+
+MULTI_GEN = """F1 BOARD_A
+F3 0 0 circle 1.0
+F3 50000 30000 circle 1.0
+F8 10000 5000 0 0 N N R1K
+F9 R1
+F1 BOARD_B
+F3 0 0 TH_SQ_1mm
+F3 20000 0 TH_SQ_1mm
+F8 1000 2000 90000 0 N N SOIC8IC
+F9 U1
+F8 3000 2000 0 0 N N R1K
+F9 R2
+"""
+
+
+def test_multi_board_gen_and_machine_lib():
+    try:
+        pnp_import.parse_mydata(MULTI_GEN)
+        assert False
+    except ValueError as e:
+        assert [b["name"] for b in e.boards] == ["BOARD_A", "BOARD_B"]
+    r = pnp_import.parse_mydata(MULTI_GEN, "BOARD_B", {"SOIC8IC": {"package": "SOIC8", "description": "IC"}})
+    refs = [c["ref"] for c in r["components"]]
+    assert refs == ["FID1", "FID2", "U1", "R2"]
+    assert r["components"][0]["fid_shape"] == "square" and r["components"][0]["fid_diam"] == 1.0
+    assert r["components"][2]["package"] == "SOIC8"
+    pck = pnp_import.parse_pck("""P00 SOIC8
+P000 PT_TWO_SYM
+P01 5450 5350 5450 8000 1900 2000 1750
+P051 GULLWING 4 -4000 1875 180000
+P052 1800 1800 1800 800 800 800 1250 1400 600 200
+P051 GULLWING 4 4000 -1875 0
+P052 1800 1800 1800 800 800 800 1250 1400 600 200
+""")
+    from aoi.packages import from_machine
+    pk = from_machine("SOIC8", pck["SOIC8"])
+    assert len(pk.pads) == 8 and pk.polarized
+    assert abs(sum(p[0] for p in pk.pads)) < 1e-6 and abs(sum(p[1] for p in pk.pads)) < 1e-6
+    assert pk.pads[0][:2] == [-3.1, 1.875]
+
+
+def test_fiducial_marks_adjust_and_origin(tmp_path, monkeypatch):
+    import math
+    import numpy as np
+    monkeypatch.setattr("aoi.program.ROOT", tmp_path)
+    from aoi.program import Program
+    if True:
+        p = Program("fid")
+        p.import_placements(pnp_import.parse(synth.csv_text()))
+        xs = [c["x"] for c in p.data["components"]]
+        ys = [c["y"] for c in p.data["components"]]
+        assert min(xs) == 0 and min(ys) == 0  # bottom-left origin
+        p.set_golden(synth.render())
+        r = p.find_fiducials(fresh=True, overwrite=True)
+        assert r["fit"] and r["fit"]["max_mm"] < 0.1
+        M0 = p.M.copy()
+        # manual click near a fiducial snaps onto it
+        f = p.fid_list()[0]
+        m = p.data["fid_marks"][f["ref"]]
+        p.mark_fiducial(f["ref"], m["px"] + 3, m["py"] - 2, snap=True)
+        m2 = p.data["fid_marks"][f["ref"]]
+        assert math.hypot(m2["px"] - m["px"], m2["py"] - m["py"]) < 1.0
+        # overlay adjust moves every ROI, reset brings it back
+        o = p.overlay()[0]
+        p.set_adjust(ddx=1.0, drot=0)
+        o2 = p.overlay()[0]
+        assert abs((o2["cx"] - o["cx"]) - o["ppm"]) < 0.01
+        p.set_adjust(reset=True)
+        assert np.allclose(p.M, M0)
+        # rough placement always gives a transform
+        p.rough_place()
+        assert p.M is not None

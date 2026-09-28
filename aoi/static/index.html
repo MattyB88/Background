@@ -86,7 +86,7 @@ a.big{font-size:14px !important;padding:10px 14px !important;border:1px solid va
 <input type="file" id="fileIn" hidden>
 <script>
 const $=s=>document.querySelector(s);
-const STEPS=[["program","📄","Program"],["board","🖼","Board"],["align","🎯","Align"],["rois","🔲","ROIs"],["inspect","▶","Inspect"],["review","✔","Review"]];
+const STEPS=[["program","📄","Program"],["board","🖼","Board"],["align","🎯","Align"],["rois","🎛","Fine-tune"],["inspect","▶","Inspect"],["review","✔","Review"]];
 let S={prog:null,data:null,step:"program",img:null,imgSrc:null,view:{s:1,x:0,y:0},sel:null,teach:[],result:null,revIdx:0,watch:null};
 
 async function api(path,opt={}){
@@ -137,6 +137,15 @@ function side(){
     $("#bDemo").onclick=demo;return;}
   (PANELS[S.step]||(()=>{}))(el,d);
 }
+function pickBoard(boards,cb){const m=document.createElement("div");
+  m.style.cssText="position:fixed;inset:0;background:#000a;z-index:50;display:flex;align-items:center;justify-content:center";
+  m.innerHTML=`<div style="background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;width:min(460px,92vw);max-height:80vh;overflow:auto">
+   <h2>Which board?</h2><input id="pbq" placeholder="filter…" style="width:100%;margin-bottom:6px">
+   <div id="pbl">${boards.map(b=>`<button class="big" data-b="${esc(b.name)}" style="justify-content:space-between"><b>${esc(b.name)}</b><small>${b.parts} parts · ${b.fiducials} fids</small></button>`).join("")}</div>
+   <button id="pbx">Cancel</button></div>`;document.body.appendChild(m);
+  m.querySelectorAll("[data-b]").forEach(b=>b.onclick=()=>{m.remove();cb(b.dataset.b);});
+  m.querySelector("#pbx").onclick=()=>m.remove();
+  m.querySelector("#pbq").oninput=e=>m.querySelectorAll("[data-b]").forEach(b=>b.style.display=b.dataset.b.toLowerCase().includes(e.target.value.toLowerCase())?"":"none");}
 async function demo(){toast("Building demo…");await api("/api/demo",{method:"POST"});await loadPrograms("DEMO_BOARD");}
 
 const PANELS={
@@ -144,6 +153,8 @@ program(el,d){
   el.innerHTML=`<h2>📄 Placement data</h2>
    <div class="hint">Load the MY9 layout (<b>.gen</b>) or a placement CSV / TXT / .pos. Packages are made automatically.</div>
    <button class="big pri" id="bImp"><span class="ico">📂</span>Import file</button>
+   <label style="display:flex;gap:6px;align-items:center;margin:2px 0 6px"><input type="checkbox" id="orgBL" checked> Origin 0,0 = bottom-left of the layout</label>
+   <button class="big" id="bMach"><span class="ico">🏭</span>Machine library (pck.gen + cmp.cmp)</button><div id="machInfo" style="color:var(--dim);font-size:12px;text-align:center"></div>
    <button class="big" id="bTr"><span class="ico">⇄</span>Translate .gen → CSV (download)</button>
    <button class="big" id="bWiz"><span class="ico">🧩</span>Odd file? Map columns (wizard)</button>
    <button class="big" id="bBom"><span class="ico">📦</span>Load BOM (IPN + designators, no XY)</button>
@@ -154,17 +165,24 @@ program(el,d){
    <div class="tile"><b>${d.components.filter(c=>c.fiducial).length}</b><span>fiducials</span></div>
    <div class="tile"><b>${d.components.filter(c=>c.enabled).length}</b><span>to inspect</span></div></div>
    <button class="big ok" id="bNext">Next ➜ Board image</button>`:""}`;
+  fetch("/api/machine_lib").then(r=>r.json()).then(m=>{if($("#machInfo"))$("#machInfo").textContent=m.packages||m.components?`Loaded: ${m.packages} packages · ${m.components} components (exact body + lead geometry)`:"Not loaded — packages are estimated from names";});
+  $("#bMach").onclick=async()=>{const fd=new FormData();const f=$("#fileIn");f.accept=".gen,.cmp,.txt,*";f.multiple=true;f.value="";
+    const files=await new Promise(res=>{f.onchange=()=>res([...f.files]);f.click();});f.multiple=false;if(!files.length)return;files.forEach(x=>fd.append("file",x));
+    const r=await api("/api/machine_lib",{method:"POST",body:fd});toast(`🏭 +${r.added_packages} packages, +${r.added_components} components — re-import the layout to use them`,6000);side();};
   $("#bImp").onclick=async()=>{const f=await pickFile(".gen,.csv,.txt,.pos,.tsv,.xy,.mnt,.lay");if(!f)return;
-    const fd=new FormData();fd.append("file",f);fd.append("units",$("#units").value);
-    const r=await api(P()+"/import",{method:"POST",body:fd});
-    toast(`✔ ${r.count} parts, ${r.packages} packages`+(r.warnings.length?" — "+r.warnings.join("; "):""),5000);await refresh();side();};
+    const send=async board=>{const fd=new FormData();fd.append("file",f);fd.append("units",$("#units").value);fd.append("origin",$("#orgBL").checked?"bottom_left":"file");if(board)fd.append("board",board);
+      const r=await fetch(P()+"/import",{method:"POST",body:fd});const j=await r.json();
+      if(!r.ok&&j.boards){pickBoard(j.boards,send);return;}if(!r.ok){toast("⚠ "+j.error);return;}
+      toast(`✔ ${j.board?j.board+": ":""}${j.count} parts, ${j.packages} packages`+(j.sources?` (${j.sources.machine} from machine lib)`:"")+(j.warnings.length?" — "+j.warnings.join("; "):""),6000);await refresh();side();draw();};
+    send(null);};
   $("#bBom").onclick=async()=>{const f=await pickFile(".csv,.txt,*");if(!f)return;const fd=new FormData();fd.append("file",f);
     const r=await api(P()+"/bom",{method:"POST",body:fd});await refresh();
     toast(`📦 BOM: ${r.refs} refs, ${r.smd} SMD, ${r.placed} matched`,6000);
     S.bomCheck=r;go("list");};
-  $("#bTr").onclick=async()=>{const f=await pickFile(".gen,.csv,.txt,.pos");if(!f)return;const fd=new FormData();fd.append("file",f);
-    const r=await fetch("/api/translate.csv",{method:"POST",body:fd});if(!r.ok){toast("⚠ "+((await r.json()).error||r.status));return;}
-    const a=document.createElement("a");a.href=URL.createObjectURL(await r.blob());a.download=f.name.replace(/\.[^.]+$/,"")+"_placements.csv";a.click();toast("⇄ Translated");};
+  $("#bTr").onclick=async()=>{const f=await pickFile(".gen,.csv,.txt,.pos");if(!f)return;
+    const send=async board=>{const fd=new FormData();fd.append("file",f);if(board)fd.append("board",board);
+    const r=await fetch("/api/translate.csv",{method:"POST",body:fd});if(!r.ok){const j=await r.json();if(j.boards){pickBoard(j.boards,send);return;}toast("⚠ "+(j.error||r.status));return;}
+    const a=document.createElement("a");a.href=URL.createObjectURL(await r.blob());a.download=f.name.replace(/\.[^.]+$/,"")+(board?"_"+board:"")+"_placements.csv";a.click();toast("⇄ Translated");};send(null);};
   $("#bWiz").onclick=async()=>{const f=await pickFile(".csv,.txt,.pos,.tsv,.xy,*");if(!f)return;S.wiz={file:f,fmt:{}};go("wizard");};
   $("#bPhoto").onclick=async()=>{const f=await pickFile("image/*");if(!f)return;const bm=prompt("Board length in mm (optional - makes tolerances real mm)","");const fd=new FormData();fd.append("image",f);toast("Finding parts…");
     const r=await api(P()+"/from_photo"+(bm?`?board_mm=${encodeURIComponent(bm)}`:""),{method:"POST",body:fd});toast(`✔ ${r.parts} parts, ${r.holes} holes · ${r.ppm} px/mm — now train with good boards`,6000);
@@ -189,35 +207,106 @@ board(el,d){
   if($("#bNext"))$("#bNext").onclick=()=>go("align");
 },
 align(el,d){
-  const fids=d.components.filter(c=>c.fiducial);
-  const cand=(fids.length>=2?fids:d.components).map(c=>c.ref);
-  const want=S.teach.length<2?cand.filter(r=>!S.teach.find(t=>t.ref==r))[0]:null;
-  S.teachRef=S.teachRef&&!S.teach.find(t=>t.ref==S.teachRef)?S.teachRef:want;
+  const fids=d.components.filter(c=>c.fiducial),marks=d.fid_marks||{},fit=d.fid_fit,par={polarity:"auto",threshold:null,size_mm:null,search_mm:2.5,shape:"auto",min_score:.25,...(d.fid_params||{})};
+  const a={dx:0,dy:0,rot:0,scale:1,...(d.adjust||{})};S.step_mm=S.step_mm||0.2;S.step_deg=S.step_deg||0.5;
+  const st=f=>{const m=marks[f.ref];if(!m)return`<span class="tag" style="background:#555">not set</span>`;
+    const res=fit&&fit.residual_mm?fit.residual_mm[f.ref]:null;
+    return `<span class="tag" style="background:${m.source=="manual"?"var(--warn)":"var(--ok)"};color:#000">${m.source=="manual"?"manual":"auto "+Math.round((m.score||0)*100)+"%"}</span>${res!=null?`<small style="color:${res>.15?"var(--bad)":"var(--dim)"}">${res.toFixed(3)} mm</small>`:""}`;};
   el.innerHTML=`<h2>🎯 Align</h2>
-   ${d.transform?`<div class="hint" style="border-color:var(--ok)">✔ Aligned. Blue boxes should sit on the parts.</div>`:""}
-   <button class="big pri" id="bAuto"><span class="ico">✨</span>Auto-find fiducials</button>
-   ${d.transform&&!S.teach.length?`<div style="color:var(--dim);margin:8px 0">Boxes off? Click <b style="color:var(--warn)">${S.teachRef||"—"}</b> on the image to re-teach</div>`:`<div class="hint big">👆 Click the centre of <span style="color:var(--warn)">${S.teachRef||"—"}</span> on the image</div>`}
-   <div class="row"><span>Reference</span><select id="tref">${cand.map(r=>`<option ${r==S.teachRef?"selected":""}>${r}</option>`).join("")}</select></div>
-   <div>${S.teach.map(t=>`<span class="tag" style="background:var(--warn);color:#000">✓ ${t.ref}</span>`).join("")}</div>
-   <div class="row"><button id="bFlip">↕ Flip Y (${d.y_up?"Y up":"Y down"})</button><button id="bClr">↺ Restart</button></div>
+   ${!d.has_golden?`<div class="hint">Load the golden image first (Board step)</div>`:""}
+   <div class="hint">1 Rough-place the layout · 2 Snap / click fiducials · 3 Fine-tune</div>
+   <b style="display:block;margin-top:6px">1 · Rough place</b>
+   <button class="big pri" id="aRough"><span class="ico">🗺</span>Place layout on image</button>
+   <div class="row"><button id="aR90m" title="Rotate layout 90° anticlockwise">⟲ 90°</button><button id="aR90p" title="Rotate 90° clockwise">⟳ 90°</button><button id="bFlip" title="Mirror Y">↕ ${d.y_up?"Y up":"Y down"}</button></div>
+   <label style="display:flex;gap:6px;align-items:center;margin:4px 0"><input type="checkbox" id="aDrag" ${S.dragLayout?"checked":""}> ✋ Drag layout with mouse (wheel = scale, Shift+wheel = rotate)</label>
+   <b style="display:block;margin-top:8px">2 · Fiducials</b>
+   <div class="row"><button id="aSnap" class="pri">🎯 Snap near overlay</button><button id="aAuto">✨ Search whole image</button></div>
+   <table style="width:100%;font-size:12px;border-collapse:collapse">${fids.map(f=>`<tr style="border-top:1px solid var(--line);${S.fidSel==f.ref?"background:var(--panel2)":""}">
+     <td><b>${f.ref}</b><br><small style="color:var(--dim)">${f.x.toFixed(2)}, ${f.y.toFixed(2)}</small></td><td>${st(f)}</td>
+     <td style="text-align:right;white-space:nowrap"><button data-fp="${f.ref}" class="${S.fidPick==f.ref?"ok":""}" title="Click it on the image">👆 Pick</button><button data-fs="${f.ref}" title="Select to nudge">✥</button><button data-fx="${f.ref}" title="Clear">✕</button></td></tr>`).join("")||`<tr><td class="hint">No fiducials in the layout — click 2 part centres below</td></tr>`}</table>
+   ${S.fidPick?`<div class="hint big">👆 Click the centre of <span style="color:var(--warn)">${S.fidPick}</span> (it snaps to the dot) — Alt+click = no snap</div>`:""}
+   ${S.fidSel&&marks[S.fidSel]?`<div style="text-align:center;color:var(--dim)">Nudge ${S.fidSel} (1 px)</div><div class="pad"><span></span><button data-fn="0,-1">▲</button><span></span><button data-fn="-1,0">◀</button><button id="fSnap" title="Snap to blob">◎</button><button data-fn="1,0">▶</button><span></span><button data-fn="0,1">▼</button><span></span></div>`:""}
+   ${fit?`<div class="tiles"><div class="tile"><b style="color:${fit.max_mm>.15?"var(--warn)":"var(--ok)"}">${fit.max_mm.toFixed(3)}</b><span>max error mm</span></div><div class="tile"><b>${fit.ppm}</b><span>px / mm</span></div><div class="tile"><b>${fit.rotation}°</b><span>rotation</span></div></div>`:""}
+   <details ${S.fidOpen?"open":""} id="fDet"><summary style="cursor:pointer">🔧 Finder settings</summary>
+    <div class="row"><span>Dot</span><select id="fPol">${["auto","bright","dark"].map(v=>`<option ${par.polarity==v?"selected":""}>${v}</option>`).join("")}</select><select id="fShape">${["auto","circle","square"].map(v=>`<option ${par.shape==v?"selected":""}>${v}</option>`).join("")}</select></div>
+    <div class="row"><span>Threshold</span><label style="flex:0"><input type="checkbox" id="fTa" ${par.threshold==null?"checked":""}>auto</label><input type="range" id="fT" min="0" max="255" value="${par.threshold??128}" ${par.threshold==null?"disabled":""}><b id="fTv" style="flex:0;min-width:28px">${par.threshold??"—"}</b></div>
+    <div class="row"><span>Dot size mm</span><input type="number" id="fSz" step="0.1" min="0.2" placeholder="from .gen" value="${par.size_mm??""}"></div>
+    <div class="row"><span>Search ± mm</span><input type="range" id="fSr" min="0.5" max="20" step="0.5" value="${par.search_mm}"><b id="fSrv" style="flex:0;min-width:28px">${par.search_mm}</b></div>
+    <div class="row"><span>Min score</span><input type="range" id="fMs" min="0.05" max="0.9" step="0.05" value="${par.min_score}"><b id="fMsv" style="flex:0;min-width:28px">${par.min_score}</b></div>
+   </details>
+   <b style="display:block;margin-top:8px">3 · Fine-tune whole overlay</b>
+   <div class="row"><span>Step</span><select id="aStep">${[0.02,0.05,0.2,1,5].map(v=>`<option ${v==S.step_mm?"selected":""}>${v}</option>`).join("")}</select><span>mm</span><select id="aStepD">${[0.05,0.2,0.5,1,5].map(v=>`<option ${v==S.step_deg?"selected":""}>${v}</option>`).join("")}</select><span>°</span></div>
+   <div class="pad"><button data-ar="-1" title="Rotate anticlockwise">⟲</button><button data-am="0,-1">▲</button><button data-ar="1" title="Rotate clockwise">⟳</button><button data-am="-1,0">◀</button><button id="aReset" title="Reset adjustment">↺</button><button data-am="1,0">▶</button><button data-as="-1" title="Smaller">－</button><button data-am="0,1">▼</button><button data-as="1" title="Bigger">＋</button></div>
+   <div style="text-align:center;color:var(--dim);font-size:12px">offset ${a.dx.toFixed(2)}, ${a.dy.toFixed(2)} mm · ${a.rot.toFixed(2)}° · ×${a.scale.toFixed(4)} — keys: arrows move, [ ] rotate</div>
+   <details><summary style="cursor:pointer">No fiducials? Click 2 part centres</summary>
+    <div class="row"><span>Reference</span><select id="tref"><option value="">—</option>${d.components.map(c=>`<option ${c.ref==S.teachRef?"selected":""}>${c.ref}</option>`).join("")}</select></div>
+    <div>${S.teach.map(t=>`<span class="tag" style="background:var(--warn);color:#000">✓ ${t.ref}</span>`).join("")}</div></details>
    ${d.transform?`<button class="big ok" id="bNext">Next ➜ Check ROIs</button>`:""}`;
-  $("#tref").onchange=e=>{S.teachRef=e.target.value;side();};
-  $("#bAuto").onclick=async()=>{await api(P()+"/teach",{json:{auto:true}});toast("✔ Aligned");await refresh();side();draw();};
+  const adj=async b=>{const r=await api(P()+"/adjust",{method:"PUT",json:b});await refresh();side();draw();return r;};
+  S.adj=adj;
+  $("#aRough").onclick=()=>adj({rough:true}).then(()=>toast("🗺 Layout placed — drag / rotate to roughly match, then Snap"));
+  $("#aR90m").onclick=()=>adj({drot:-90});$("#aR90p").onclick=()=>adj({drot:90});
+  $("#aDrag").onchange=e=>{S.dragLayout=e.target.checked;};
+  const findP=()=>({polarity:$("#fPol").value,shape:$("#fShape").value,threshold:$("#fTa").checked?null:+$("#fT").value,size_mm:+$("#fSz").value||null,search_mm:+$("#fSr").value,min_score:+$("#fMs").value});
+  const find=async fresh=>{S.fidOpen=$("#fDet").open;const r=await api(P()+"/fiducials/find",{json:{...findP(),fresh,overwrite:true}});
+    const n=r.marks.filter(m=>!m.missing).length;toast(r.fit?`✔ ${n}/${r.marks.length} fiducials · max error ${r.fit.max_mm} mm`:`Found ${n}/${r.marks.length} — Pick the rest on the image`,4000);await refresh();side();draw();};
+  $("#aSnap").onclick=()=>d.transform?find(false):toast("Place the layout first (step 1) or use Search whole image");
+  $("#aAuto").onclick=()=>find(true);
+  $("#fTa").onchange=e=>{$("#fT").disabled=e.target.checked;$("#fTv").textContent=e.target.checked?"—":$("#fT").value;};
+  $("#fT").oninput=e=>$("#fTv").textContent=e.target.value;$("#fSr").oninput=e=>$("#fSrv").textContent=e.target.value;$("#fMs").oninput=e=>$("#fMsv").textContent=e.target.value;
+  el.querySelectorAll("[data-fp]").forEach(b=>b.onclick=()=>{S.fidPick=S.fidPick==b.dataset.fp?null:b.dataset.fp;S.fidSel=b.dataset.fp;side();});
+  el.querySelectorAll("[data-fs]").forEach(b=>b.onclick=()=>{S.fidSel=b.dataset.fs;side();draw();});
+  el.querySelectorAll("[data-fx]").forEach(b=>b.onclick=async()=>{await api(P()+"/fiducials/mark",{json:{ref:b.dataset.fx,remove:true}});await refresh();side();draw();});
+  el.querySelectorAll("[data-fn]").forEach(b=>b.onclick=async()=>{const m=marks[S.fidSel];const[x,y]=b.dataset.fn.split(",").map(Number);
+    await api(P()+"/fiducials/mark",{json:{ref:S.fidSel,px:m.px+x,py:m.py+y,snap:false}});await refresh();side();draw();});
+  if($("#fSnap"))$("#fSnap").onclick=async()=>{const m=marks[S.fidSel];await api(P()+"/fiducials/mark",{json:{ref:S.fidSel,px:m.px,py:m.py,snap:true}});await refresh();side();draw();};
+  $("#aStep").onchange=e=>S.step_mm=+e.target.value;$("#aStepD").onchange=e=>S.step_deg=+e.target.value;
+  el.querySelectorAll("[data-am]").forEach(b=>b.onclick=()=>{const[x,y]=b.dataset.am.split(",").map(Number);adj({ddx:x*S.step_mm,ddy:y*S.step_mm});});
+  el.querySelectorAll("[data-ar]").forEach(b=>b.onclick=()=>adj({drot:+b.dataset.ar*S.step_deg}));
+  el.querySelectorAll("[data-as]").forEach(b=>b.onclick=()=>adj({dscale:+b.dataset.as*0.002}));
+  $("#aReset").onclick=()=>adj({reset:true});
   $("#bFlip").onclick=async()=>{await api(P()+"/settings",{method:"PUT",json:{y_up:!d.y_up}});S.teach=[];await refresh();side();draw();};
-  $("#bClr").onclick=()=>{S.teach=[];side();draw();};
+  $("#tref").onchange=e=>{S.teachRef=e.target.value||null;S.fidPick=null;side();};
   if($("#bNext"))$("#bNext").onclick=()=>go("rois");
 },
 rois(el,d){
   const c=S.sel&&d.components.find(c=>c.ref==S.sel);
-  if(!c){el.innerHTML=`<h2>🔲 ROIs</h2><div class="hint big">👆 Click a part on the image to adjust it</div>
+  if(!c){el.innerHTML=`<h2>🎛 Fine-tune</h2><div class="hint big">👆 Click a part on the image to adjust it</div>
     <button class="big ${S.teachMode?"ok":""}" id="bTeachMode"><span class="ico">➕</span>${S.teachMode?"Teaching: click parts to add":"Teach parts (click to add)"}</button>
     ${S.teachMode&&d.bom?`<div class="hint big">👆 Click <span style="color:var(--warn)">${esc(S.teachRef2||d.next_ref||"—")}</span> ${d.bom[S.teachRef2||d.next_ref]?`<small style="font-size:14px">${esc(d.bom[S.teachRef2||d.next_ref].ipn)}</small>`:""}</div>
       <div class="row"><span>or pick</span><select id="tRef"><option value="">next in BOM</option>${Object.keys(d.bom).filter(r=>!d.bom[r].th&&!d.components.some(c=>c.ref==r)).map(r=>`<option ${r==S.teachRef2?"selected":""}>${esc(r)}</option>`).join("")}</select></div>`:""}
     <div class="tiles"><div class="tile"><b>${d.components.filter(c=>c.enabled).length}</b><span>inspected</span></div><div class="tile"><b>${Object.keys(d.packages).length}</b><span>packages</span></div></div>
+    <details class="card" ${S.ftOpen!==false?"open":""} id="ftW"><summary style="cursor:pointer;font-weight:700">⊕ Whole layout — move / rotate</summary>
+     <div class="row"><span>Step</span><select id="ftS">${[0.02,0.05,0.2,1].map(v=>`<option ${v==(S.step_mm||0.2)?"selected":""}>${v}</option>`).join("")}</select><span>mm</span><select id="ftD">${[0.05,0.2,0.5,1].map(v=>`<option ${v==(S.step_deg||0.5)?"selected":""}>${v}</option>`).join("")}</select><span>°</span></div>
+     <div class="pad"><button data-wr="-1">⟲</button><button data-wm="0,-1">▲</button><button data-wr="1">⟳</button><button data-wm="-1,0">◀</button><button id="ftR">↺</button><button data-wm="1,0">▶</button><button data-ws="-1">－</button><button data-wm="0,1">▼</button><button data-ws="1">＋</button></div></details>
+    <details class="card" open><summary style="cursor:pointer;font-weight:700">📦 Package — fixes every part of that type</summary>
+     <select id="ftP" style="width:100%;margin:6px 0"><option value="">— choose package (or click a part) —</option>${Object.keys(d.packages).filter(k=>d.packages[k].kind!="fiducial").sort().map(k=>`<option ${k==S.hlPkg?"selected":""} value="${esc(k)}">${esc(k)} (${d.components.filter(c=>c.package==k).length})</option>`).join("")}</select>
+     ${S.hlPkg&&d.packages[S.hlPkg]?(()=>{const pk=d.packages[S.hlPkg];return `<div style="color:var(--dim);font-size:12px;text-align:center">${pk.body_l.toFixed(2)} × ${pk.body_w.toFixed(2)} mm · ${pk.pads.length} pads · ${pk.source||""} — highlighted purple</div>
+     <div class="row"><button data-pr="-90">⟳ 90°</button><button data-pr="90">⟲ 90°</button><button data-pr="180">180°</button></div>
+     <div class="row"><button data-pb="body_l,-1">L −</button><button data-pb="body_l,1">L ＋</button><button data-pb="body_w,-1">W −</button><button data-pb="body_w,1">W ＋</button></div>
+     <div class="row"><button data-pp="span,-1">↔ −</button><button data-pp="span,1">↔ ＋</button><button data-pp="size,-1">pad −</button><button data-pp="size,1">pad ＋</button></div>
+     <div class="row"><button id="ftFit">✨ Auto-fit</button><button id="ftLib">🎚 Thresholds / checks</button></div>`;})():""}</details>
+    <div class="hint">👆 Click any part for its own offset / Z rotation. Annoying false calls? Mark them in Review → it learns.</div>
     <button class="big pri" id="bFitAll"><span class="ico">✨</span>Auto-fit ALL package sizes</button>
     <div id="fitOut"></div>
     <button class="big ok" id="bNext">Next ➜ Inspect</button>`;$("#bNext").onclick=()=>go("inspect");
     $("#bTeachMode").onclick=()=>{S.teachMode=!S.teachMode;side();};
+    const adj=async b=>{await api(P()+"/adjust",{method:"PUT",json:b});await refresh();side();draw();};S.adj=adj;
+    $("#ftW").ontoggle=e=>S.ftOpen=e.target.open;
+    $("#ftS").onchange=e=>S.step_mm=+e.target.value;$("#ftD").onchange=e=>S.step_deg=+e.target.value;
+    el.querySelectorAll("[data-wm]").forEach(b=>b.onclick=()=>{const[x,y]=b.dataset.wm.split(",").map(Number);adj({ddx:x*(S.step_mm||.2),ddy:y*(S.step_mm||.2)});});
+    el.querySelectorAll("[data-wr]").forEach(b=>b.onclick=()=>adj({drot:+b.dataset.wr*(S.step_deg||.5)}));
+    el.querySelectorAll("[data-ws]").forEach(b=>b.onclick=()=>adj({dscale:+b.dataset.ws*0.002}));
+    $("#ftR").onclick=()=>adj({reset:true});
+    $("#ftP").onchange=e=>{S.hlPkg=e.target.value||null;side();draw();};
+    if(S.hlPkg&&d.packages[S.hlPkg]){const pn=S.hlPkg,pk=d.packages[pn],U=P()+"/package/"+encodeURIComponent(pn);
+      const upd=async j=>{await api(U,{method:"PUT",json:j});await refresh();side();draw();};
+      el.querySelectorAll("[data-pr]").forEach(b=>b.onclick=()=>upd({rotate_parts:+b.dataset.pr}));
+      el.querySelectorAll("[data-pb]").forEach(b=>b.onclick=()=>{const[k,g]=b.dataset.pb.split(",");upd({[k]:Math.max(.1,+(pk[k]*(1+.05*g)).toFixed(3))});});
+      el.querySelectorAll("[data-pp]").forEach(b=>b.onclick=()=>{const[k,g]=b.dataset.pp.split(",");const f=1+.05*g;
+        upd({pads:pk.pads.map(([x,y,l,w])=>k=="span"?[+(x*f).toFixed(4),+(y*f).toFixed(4),l,w]:[x,y,+(l*f).toFixed(4),+(w*f).toFixed(4)])});});
+      $("#ftFit").onclick=async()=>{const r=await api(P()+"/autofit/"+encodeURIComponent(pn),{method:"POST"});toast(`✨ ${pn}: ${r.body_l} × ${r.body_w} mm`);await refresh();side();draw();};
+      $("#ftLib").onclick=()=>{go("library");S.libPkg=pn;side();};}
     if($("#tRef"))$("#tRef").onchange=e=>{S.teachRef2=e.target.value||null;side();};
     $("#bFitAll").onclick=async()=>{$("#fitOut").innerHTML='<div class="hint">Measuring…</div>';
       const r=await api(P()+"/autofit_all",{method:"POST"});await refresh();draw();
@@ -227,8 +316,12 @@ rois(el,d){
   const pk=d.packages[c.package];const ch={presence:true,polarity:pk.polarized,ocv:pk.marking,offset:true,bridge:pk.pads.length>=4,...(c.checks||{})};
   el.innerHTML=`<h2>${c.ref} <small style="color:var(--dim);font-size:15px">${c.ipn?esc(c.ipn)+" · ":""}${c.part}</small></h2>
    <div class="row"><span>Package</span><select id="pk">${Object.keys(d.packages).map(p=>`<option ${p==c.package?"selected":""}>${p}</option>`).join("")}</select></div>
-   <div style="text-align:center;color:var(--dim)">Move ROI (0.05 mm)</div>
-   <div class="pad"><span></span><button data-m="0,1">▲</button><span></span><button data-m="-1,0">◀</button><button id="bRot" title="Rotate 90°">⟳</button><button data-m="1,0">▶</button><span></span><button data-m="0,-1">▼</button><span></span></div>
+   <div class="row"><span>Step</span><select id="rStep">${[0.02,0.05,0.1,0.25,1].map(v=>`<option ${v==(S.rstep||0.05)?"selected":""}>${v}</option>`).join("")}</select><span>mm</span><select id="rStepD">${[0.5,1,2,5,15].map(v=>`<option ${v==(S.rstepd||1)?"selected":""}>${v}</option>`).join("")}</select><span>°</span></div>
+   <div class="pad"><button data-r="-1" title="Rotate anticlockwise (step)">⟲</button><button data-m="0,-1">▲</button><button data-r="1" title="Rotate clockwise (step)">⟳</button><button data-m="-1,0">◀</button><button id="bRot" title="Rotate 90°">90°</button><button data-m="1,0">▶</button><button id="bR180" title="Rotate 180° (polarity)">180°</button><button data-m="0,1">▼</button><button id="bRz" title="Reset offset">↺</button></div>
+   <div style="text-align:center;color:var(--dim);font-size:12px">Z ${(+c.rot).toFixed(1)}° · offset ${(+c.dx).toFixed(2)}, ${(+c.dy).toFixed(2)} mm</div>
+   <button id="bRotPk" style="width:100%" title="Machine package 0° differs? Turn every part of this package">⟳ Turn ALL ${esc(c.package)} parts 90°</button>
+   <div style="text-align:center;color:var(--dim);margin-top:6px">Leads / pads — all <b>${esc(c.package)}</b></div>
+   <div class="row"><button data-pd="span,-1" title="Pads closer together">span −</button><button data-pd="span,1">span ＋</button><button data-pd="size,-1">pad −</button><button data-pd="size,1">pad ＋</button></div>
    <div style="text-align:center;color:var(--dim)">Body size — all <b>${c.package}</b> (${pk.body_l.toFixed(2)} × ${pk.body_w.toFixed(2)} mm)</div>
    <button class="big pri" id="bFit"><span class="ico">✨</span>Auto-fit size from image</button>
    <div class="row"><button data-b="body_l,-1">L −</button><button data-b="body_l,1">L ＋</button><button data-b="body_w,-1">W −</button><button data-b="body_w,1">W ＋</button></div>
@@ -240,8 +333,14 @@ rois(el,d){
    <button class="big ${c.enabled?"":"pri"}" id="bEn">${c.enabled?"🚫 Skip this part":"✔ Inspect this part"}</button>
    <button class="big" id="bDone">✔ Done</button>`;
   const put=async b=>{const r=await api(P()+"/component/"+encodeURIComponent(c.ref),{method:"PUT",json:b});S.data.overlay=r.overlay;await refresh();side();draw();};
-  el.querySelectorAll("[data-m]").forEach(b=>b.onclick=()=>{const[x,y]=b.dataset.m.split(",").map(Number);put({dx:+(c.dx+x*.05).toFixed(3),dy:+(c.dy+y*.05).toFixed(3)});});
-  $("#bRot").onclick=()=>put({rot:(c.rot+90)%360});
+  $("#rStep").onchange=e=>S.rstep=+e.target.value;$("#rStepD").onchange=e=>S.rstepd=+e.target.value;
+  el.querySelectorAll("[data-m]").forEach(b=>b.onclick=()=>{const[x,y]=b.dataset.m.split(",").map(Number);const k=S.rstep||0.05;put({nudge_mm:[x*k,y*k]});});
+  el.querySelectorAll("[data-r]").forEach(b=>b.onclick=()=>put({drot:-b.dataset.r*(S.rstepd||1)}));
+  $("#bRot").onclick=()=>put({drot:-90});$("#bR180").onclick=()=>put({drot:180});$("#bRz").onclick=()=>put({dx:0,dy:0});
+  $("#bRotPk").onclick=async()=>{await api(P()+"/package/"+encodeURIComponent(c.package),{method:"PUT",json:{rotate_parts:-90}});await refresh();side();draw();};
+  el.querySelectorAll("[data-pd]").forEach(b=>b.onclick=async()=>{const[k,sg]=b.dataset.pd.split(",");const f=1+.05*sg;
+    const pads=pk.pads.map(([x,y,l,w])=>k=="span"?[+(x*f).toFixed(4),+(y*f).toFixed(4),l,w]:[x,y,+(l*f).toFixed(4),+(w*f).toFixed(4)]);
+    await api(P()+"/package/"+encodeURIComponent(c.package),{method:"PUT",json:{pads}});await refresh();side();draw();});
   $("#bFit").onclick=async()=>{const r=await api(P()+"/autofit/"+encodeURIComponent(c.package),{method:"POST"});
     toast(`✨ ${c.package}: ${r.body_l} × ${r.body_w} mm (measured on ${r.measured})`,4000);await refresh();side();draw();};
   el.querySelectorAll("[data-b]").forEach(b=>b.onclick=async()=>{const[k,s]=b.dataset.b.split(",");const v=Math.max(.1,+(pk[k]*(1+.05*s)).toFixed(3));
@@ -486,12 +585,13 @@ function draw(){
   const label=(txt,x,y,sel)=>{const fs=Math.max(11,15/v.s);ctx.font=`800 ${fs}px system-ui`;const tw=ctx.measureText(txt).width;
     ctx.fillStyle=sel?"#c77dff":"#e0181b";ctx.fillRect(x,y-fs-6/v.s,tw+10/v.s,fs+6/v.s);ctx.fillStyle="#fff";ctx.fillText(txt,x+5/v.s,y-5/v.s);};
   const fails=[];
+  const lo=S.layDrag||{x:0,y:0};ctx.save();ctx.translate(lo.x,lo.y);
   (S.data.overlay||[]).forEach(o=>{
     const r=res[o.ref];
     if(showRes&&r&&!r.ok){fails.push([o,r]);return;}
     if(showRes&&(!o.enabled||o.fiducial))return;           // results view: only what matters
     let col=o.fiducial?"#ffb020":!o.enabled?"#666":"#3aa0ff";
-    if(r)col="#2ecc71";if(o.ref==S.sel)col="#c77dff";
+    if(r)col="#2ecc71";if(o.ref==S.sel||(S.step=="rois"&&S.hlPkg&&o.package==S.hlPkg))col="#c77dff";
     ctx.save();ctx.translate(o.cx,o.cy);ctx.rotate(o.angle*Math.PI/180);const k=o.ppm;
     ctx.globalAlpha=showRes?.45:1;ctx.lineWidth=Math.max(1,1.5/v.s);ctx.strokeStyle=col;
     if(o.fiducial){ctx.beginPath();ctx.arc(0,0,k*.9,0,7);ctx.stroke();}
@@ -501,6 +601,14 @@ function draw(){
     if(!showRes&&(v.s>0.6||o.ref==S.sel||o.fiducial)){ctx.font=`bold ${Math.max(10,13/v.s)}px system-ui`;ctx.fillStyle=col;
       ctx.fillText(o.ref,o.cx+o.body[0]*o.ppm/2+3/v.s,o.cy-o.body[1]*o.ppm/2);}
   });
+  if(!showRes&&S.data.origin_px){const[o0,ox,oy]=S.data.origin_px;ctx.lineWidth=2.5/v.s;  // board origin (bottom-left) + axes
+    [[ox,"#ff4d4d","X"],[oy,"#2ecc71","Y"]].forEach(([p,c,t])=>{ctx.strokeStyle=ctx.fillStyle=c;ctx.beginPath();ctx.moveTo(o0[0],o0[1]);ctx.lineTo(p[0],p[1]);ctx.stroke();ctx.font=`bold ${14/v.s}px system-ui`;ctx.fillText(t,p[0]+4/v.s,p[1]);});
+    ctx.fillStyle="#fff";ctx.beginPath();ctx.arc(o0[0],o0[1],4/v.s,0,7);ctx.fill();ctx.fillText("0,0",o0[0]+6/v.s,o0[1]+16/v.s);}
+  ctx.restore();
+  if(S.step=="align"&&S.data.fid_marks)Object.entries(S.data.fid_marks).forEach(([ref,m])=>{const man=m.source=="manual",R=Math.max(m.r||8,8/v.s);
+    ctx.strokeStyle=man?"#ffb020":"#2ecc71";ctx.lineWidth=(ref==S.fidSel?3:2)/v.s;ctx.beginPath();ctx.arc(m.px,m.py,R,0,7);
+    ctx.moveTo(m.px-R*1.8,m.py);ctx.lineTo(m.px+R*1.8,m.py);ctx.moveTo(m.px,m.py-R*1.8);ctx.lineTo(m.px,m.py+R*1.8);ctx.stroke();
+    ctx.font=`bold ${13/v.s}px system-ui`;ctx.fillStyle=ctx.strokeStyle;ctx.fillText(ref+(m.score!=null?" "+Math.round(m.score*100)+"%":""),m.px+R*1.9,m.py-R);});
   // dim the board a little so red faults pop, then draw faults on top
   if(showRes&&(fails.length||S.result.components.some(c=>c.box&&!c.ok))){ctx.save();ctx.setTransform(1,0,0,1,0,0);ctx.fillStyle="#0006";ctx.fillRect(0,0,cv.width,cv.height);ctx.restore();
 }
@@ -515,12 +623,23 @@ function draw(){
   S.teach.forEach(t=>{ctx.strokeStyle="#ffb020";ctx.lineWidth=3/v.s;ctx.beginPath();ctx.arc(t.px,t.py,12/v.s,0,7);ctx.moveTo(t.px-20/v.s,t.py);ctx.lineTo(t.px+20/v.s,t.py);ctx.moveTo(t.px,t.py-20/v.s);ctx.lineTo(t.px,t.py+20/v.s);ctx.stroke();});
 }
 function toImg(e){const r=cv.getBoundingClientRect();return[(e.clientX-r.left-S.view.x)/S.view.s,(e.clientY-r.top-S.view.y)/S.view.s];}
-cv.onwheel=e=>{e.preventDefault();const r=cv.getBoundingClientRect(),mx=e.clientX-r.left,my=e.clientY-r.top,f=e.deltaY<0?1.2:1/1.2;
+cv.onwheel=e=>{e.preventDefault();
+  if(layMode()){clearTimeout(S._wt);S._acc=S._acc||{r:0,s:0};if(e.shiftKey)S._acc.r+=(e.deltaY>0?1:-1)*S.step_deg;else S._acc.s+=(e.deltaY>0?-1:1)*0.005;
+    S._wt=setTimeout(()=>{const a=S._acc;S._acc=null;S.adj({drot:a.r,dscale:a.s});},150);return;}const r=cv.getBoundingClientRect(),mx=e.clientX-r.left,my=e.clientY-r.top,f=e.deltaY<0?1.2:1/1.2;
   S.view.x=mx-(mx-S.view.x)*f;S.view.y=my-(my-S.view.y)*f;S.view.s*=f;draw();};
 let drag=null;
-cv.onmousedown=e=>{drag={x:e.clientX,y:e.clientY,vx:S.view.x,vy:S.view.y,moved:false};};
-window.onmousemove=e=>{if(!drag)return;const dx=e.clientX-drag.x,dy=e.clientY-drag.y;if(Math.abs(dx)+Math.abs(dy)>4)drag.moved=true;if(drag.moved){S.view.x=drag.vx+dx;S.view.y=drag.vy+dy;draw();}};
-window.onmouseup=async e=>{const d=drag;drag=null;if(!d||d.moved||e.target!==cv||!S.data)return;const[x,y]=toImg(e);
+const layMode=()=>S.step=="align"&&S.dragLayout&&S.data&&S.data.transform;
+const ppmNow=()=>(S.data.overlay&&S.data.overlay[0]&&S.data.overlay[0].ppm)||10;
+cv.onmousedown=e=>{drag={x:e.clientX,y:e.clientY,vx:S.view.x,vy:S.view.y,moved:false,lay:layMode()};};
+window.onmousemove=e=>{if(!drag)return;const dx=e.clientX-drag.x,dy=e.clientY-drag.y;if(Math.abs(dx)+Math.abs(dy)>4)drag.moved=true;
+  if(drag.moved){if(drag.lay)S.layDrag={x:dx/S.view.s,y:dy/S.view.s};else{S.view.x=drag.vx+dx;S.view.y=drag.vy+dy;}draw();}};
+window.onmouseup=async e=>{const d=drag;drag=null;
+  if(d&&d.lay&&d.moved&&S.layDrag){const k=ppmNow(),o=S.layDrag;await S.adj({ddx:o.x/k,ddy:o.y/k});S.layDrag=null;draw();return;}
+  if(!d||d.moved||e.target!==cv||!S.data)return;const[x,y]=toImg(e);
+  if(S.step=="align"&&S.fidPick){const ref=S.fidPick;S.fidPick=null;S.fidSel=ref;const r=await api(P()+"/fiducials/mark",{json:{ref,px:x,py:y,snap:!e.altKey}});
+    const n=Object.keys(r.marks||{}).length;toast(r.fit?`✔ ${ref} set · max error ${r.fit.max_mm} mm`:`✔ ${ref} set — pick ${Math.max(0,2-n)} more`,3000);
+    const next=S.data.components.filter(c=>c.fiducial).map(c=>c.ref).find(f=>!(r.marks||{})[f]);if(!r.fit&&next)S.fidPick=next;
+    await refresh();side();draw();return;}
   if(S.step=="align"&&S.teachRef){S.teach.push({ref:S.teachRef,px:x,py:y});S.teachRef=null;draw();
     if(S.teach.length>=2){await api(P()+"/teach",{json:{points:S.teach}});toast("✔ Aligned");S.teach=[];await refresh();draw();}side();return;}
   if(S.step=="rois"&&S.teachMode){const r=await api(P()+"/parts",{json:{px:x,py:y,ref:S.teachRef2||undefined}});S.teachRef2=null;S.sel=null;await refresh();side();draw();toast("➕ "+r.ref+" added — next: "+(S.data.next_ref||"done"));return;
@@ -528,9 +647,13 @@ window.onmouseup=async e=>{const d=drag;drag=null;if(!d||d.moved||e.target!==cv|
   let best=null,bd=1e9;(S.data.overlay||[]).forEach(o=>{const dd=Math.hypot(o.cx-x,o.cy-y);if(dd<bd){bd=dd;best=o;}});
   if(best&&bd<Math.max(best.body[0],best.body[1])*best.ppm+20/S.view.s){
     if(S.step=="review"&&S.result){const f=S.result.components.filter(c=>!c.ok);const i=f.findIndex(c=>c.ref==best.ref);if(i>=0){S.revIdx=i;side();draw();return;}}
-    S.sel=best.ref;if(S.step!="rois")go("rois");else{side();draw();}}};
+    S.sel=best.ref;S.hlPkg=best.package;if(S.step!="rois")go("rois");else{side();draw();}}};
 cv.ondblclick=()=>{fit();draw();};
-document.addEventListener("keydown",e=>{if(S.step=="review"&&S.result){if(e.key=="d")$("#bDef")?.click();if(e.key=="f")document.querySelector("[data-fc=other]")?.click();}
+document.addEventListener("keydown",e=>{
+  if((S.step=="align"||(S.step=="rois"&&!S.sel))&&S.data&&S.data.transform&&S.adj&&!/INPUT|SELECT/.test(document.activeElement.tagName)){
+    const m={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]}[e.key];const k=e.shiftKey?5:1;
+    if(m){e.preventDefault();S.adj({ddx:m[0]*S.step_mm*k,ddy:m[1]*S.step_mm*k});return;}
+    if(e.key=="["||e.key=="]"){S.adj({drot:(e.key=="]"?1:-1)*S.step_deg*k});return;}}if(S.step=="review"&&S.result){if(e.key=="d")$("#bDef")?.click();if(e.key=="f")document.querySelector("[data-fc=other]")?.click();}
   if(e.key==" "&&S.step=="inspect"){e.preventDefault();$("#bIn")?.click();}});
 fetch("/api/version").then(r=>r.json()).then(v=>$("#ver").textContent="v"+v.version).catch(()=>{});
 resize();loadPrograms().then(()=>{renderSteps();side();});

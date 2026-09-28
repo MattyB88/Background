@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import os
 from pathlib import Path
 
@@ -76,7 +77,8 @@ def camera_preview():
 @app.errorhandler(RuntimeError)
 @app.errorhandler(FileNotFoundError)
 def _err(e):
-    return jsonify(error=str(e)), 400
+    b = getattr(e, "boards", None)
+    return (jsonify(error=str(e), boards=b) if b else jsonify(error=str(e))), 400
 
 
 @app.errorhandler(400)
@@ -138,7 +140,7 @@ def _prog(name):
 def get_program(name):
     p = _prog(name)
     return jsonify({**p.data, "overlay": p.overlay(), "has_golden": (p.dir / "golden.png").exists(),
-                    "has_bare": (p.dir / "bare.png").exists(), "next_ref": p.next_bom_ref(),
+                    "has_bare": (p.dir / "bare.png").exists(), "next_ref": p.next_bom_ref(), "origin_px": p.origin_px(),
                     "ai": ai.available()})
 
 
@@ -159,10 +161,68 @@ def import_file(name):
             parsed = pnp_import.parse_with_format(text, fmt)
             parsed["warnings"].insert(0, f"Format '{name}' used")
         else:
-            parsed = pnp_import.parse(text, units=request.form.get("units", "auto"))
-    p.import_placements(parsed)
-    return jsonify(count=len(parsed["components"]), warnings=parsed["warnings"],
+            parsed = pnp_import.parse(text, units=request.form.get("units", "auto"), board=request.form.get("board") or None,
+                                      machine_cmp=Program.machine_lib()["components"])
+    src = p.import_placements(parsed, origin=request.form.get("origin", "bottom_left"))
+    return jsonify(count=len(parsed["components"]), warnings=parsed["warnings"], sources=src, board=parsed.get("board"),
                    packages=len(p.data["packages"]), fiducials=sum(c["fiducial"] for c in p.data["components"]))
+
+
+@app.get("/api/machine_lib")
+def machine_lib_get():
+    lib = Program.machine_lib()
+    return jsonify(packages=len(lib["packages"]), components=len(lib["components"]))
+
+
+@app.post("/api/machine_lib")
+def machine_lib_post():
+    """Upload Mycronic pck.gen (packages) and/or cmp.cmp (components). Content decides which is which."""
+    got = {"packages": {}, "components": {}}
+    for f in request.files.getlist("file"):
+        text = _decode(f.read())
+        if re.search(r"^\s*P00\s", text, re.M):
+            got["packages"].update(pnp_import.parse_pck(text))
+        if re.search(r"^\s*C00\s", text, re.M):
+            got["components"].update(pnp_import.parse_cmp(text))
+    if not got["packages"] and not got["components"]:
+        raise ValueError("No P00 packages or C00 components found - is this pck.gen / cmp.cmp?")
+    tot = Program.save_machine_lib(got["packages"], got["components"])
+    return jsonify(added_packages=len(got["packages"]), added_components=len(got["components"]), **tot)
+
+
+@app.get("/api/programs/<name>/fiducials")
+def fid_get(name):
+    p = _prog(name)
+    return jsonify(marks=p.data.get("fid_marks") or {}, params=p.fid_params(), fit=p.data.get("fid_fit"),
+                   adjust=p.data.get("adjust"))
+
+
+@app.post("/api/programs/<name>/fiducials/find")
+def fid_find(name):
+    p = _prog(name)
+    r = p.find_fiducials(**(request.json or {}))
+    return jsonify(**r, overlay=p.overlay())
+
+
+@app.post("/api/programs/<name>/fiducials/mark")
+def fid_mark(name):
+    p = _prog(name)
+    j = request.json
+    fit = p.mark_fiducial(j["ref"], j.get("px", 0), j.get("py", 0), snap=j.get("snap", True), remove=j.get("remove", False))
+    return jsonify(fit=fit, marks=p.data.get("fid_marks"), overlay=p.overlay())
+
+
+@app.put("/api/programs/<name>/adjust")
+def adjust(name):
+    p = _prog(name)
+    j = request.json or {}
+    if j.get("rough"):
+        p.rough_place(rotate=j.get("rotate"))
+    elif j.get("bake"):
+        p.bake_adjust()
+    else:
+        p.set_adjust(**j)
+    return jsonify(adjust=p.data["adjust"], overlay=p.overlay())
 
 
 @app.post("/api/programs/<name>/from_photo")
@@ -311,8 +371,9 @@ def bom_preview():
 def translate():
     """Any supported placement file (e.g. MYData .gen) -> standard CSV download."""
     f = request.files["file"]
-    parsed = pnp_import.parse(_decode(f.read()))
-    name = Path(f.filename or "layout").stem
+    parsed = pnp_import.parse(_decode(f.read()), board=request.form.get("board") or None,
+                              machine_cmp=Program.machine_lib()["components"])
+    name = Path(f.filename or "layout").stem + (("_" + re.sub(r"[^\w.-]+", "_", parsed["board"])) if parsed.get("board") else "")
     return pnp_import.to_csv(parsed), 200, {"Content-Type": "text/csv",
                                            "Content-Disposition": f'attachment; filename="{name}_placements.csv"'}
 
@@ -332,6 +393,8 @@ def golden(name):
         auto = True
     except ValueError:
         auto = False
+        if p.data["components"]:
+            p.rough_place()  # show the layout roughly so the user can drag / snap it
     return jsonify(ok=True, auto_aligned=auto, w=img.shape[1], h=img.shape[0])
 
 
@@ -377,6 +440,13 @@ def edit_component(name, ref):
             for k in ("enabled", "dx", "dy", "rot", "package", "checks", "th", "fiducial"):
                 if k in request.json:
                     c[k] = request.json[k]
+            if "nudge_mm" in request.json and p.M is not None:  # screen-direction nudge -> board mm
+                M = p.M
+                v = np.linalg.solve(M[:, :2], np.float64(request.json["nudge_mm"]) * float(np.hypot(M[0, 0], M[1, 0])))
+                c["dx"] = round(c.get("dx", 0) + float(v[0]), 4)
+                c["dy"] = round(c.get("dy", 0) + float(-v[1] if p.data["y_up"] else v[1]), 4)
+            if "drot" in request.json:
+                c["rot"] = round((c["rot"] + float(request.json["drot"])) % 360, 3)
             if c["package"] not in p.data["packages"]:
                 from .packages import derive
                 p.data["packages"][c["package"]] = derive(c["package"]).to_dict()
@@ -394,6 +464,10 @@ def edit_package(name, pkg):
     for k in ("polarized", "marking", "pads"):
         if k in request.json:
             d[k] = request.json[k]
+    if request.json.get("rotate_parts"):  # Z offset for every part of this package
+        for c in p.data["components"]:
+            if c["package"] == pkg:
+                c["rot"] = (c["rot"] + float(request.json["rotate_parts"])) % 360
     p.save()
     return jsonify(ok=True, overlay=p.overlay())
 

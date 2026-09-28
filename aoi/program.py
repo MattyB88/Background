@@ -12,7 +12,7 @@ import cv2
 import numpy as np
 
 from . import vision
-from .packages import Package, derive, resize
+from .packages import Package, derive, resize, from_machine, rot90_cw
 
 ROOT = Path(os.environ.get("AOI_DATA", Path.home() / "aoi_data"))
 MAX_REFS = 12
@@ -53,15 +53,34 @@ class Program:
         return q
 
     # ------------------------------------------------ setup
-    def import_placements(self, parsed):
+    def import_placements(self, parsed, origin="bottom_left"):
         comps = []
+        mydata = parsed.get("units") == "um" and parsed.get("board") is not None
+        mach = self.machine_lib()["packages"] if mydata else {}
+        # rebuild geometry on re-import, but keep packages the user has tuned
+        self.data["packages"] = {k: v for k, v in self.data["packages"].items() if v.get("th") or v.get("checks")}
+        src = {}
+        pts = [(c["x"], c["y"]) for c in parsed["components"]]
+        ox, oy = (min(p[0] for p in pts), min(p[1] for p in pts)) if origin == "bottom_left" and pts else (0.0, 0.0)
+        self.data["origin_shift"] = [ox, oy]
+        self.data["board"] = parsed.get("board") or ""
         for c in parsed["components"]:
+            c = {**c, "x": round(c["x"] - ox, 4), "y": round(c["y"] - oy, 4)}
             pkg_name = c["package"] or "UNKNOWN"
             if pkg_name not in self.data["packages"]:
                 lib = self.library()
                 # machine layouts carry long descriptions: derive geometry from the package name only
-                hint = "" if parsed.get("units") == "um" and parsed.get("board") is not None else c["part"]
-                self.data["packages"][pkg_name] = lib[pkg_name] if pkg_name in lib else derive(pkg_name, hint).to_dict()
+                hint = "" if mydata else c["part"]
+                if pkg_name in lib:
+                    d, src[pkg_name] = lib[pkg_name], "library"
+                elif pkg_name in mach and not c["ref"].upper().startswith("FID"):
+                    d, src[pkg_name] = from_machine(pkg_name, mach[pkg_name]).to_dict(), "machine"
+                else:
+                    d, src[pkg_name] = derive(pkg_name, hint).to_dict(), "derived"
+                    if mydata:  # Mycronic 0 deg: chips/ICs are turned 90 deg vs the derived (IPC) frame
+                        d = rot90_cw(d)
+                d["source"] = src[pkg_name]
+                self.data["packages"][pkg_name] = d
             fid = self.data["packages"][pkg_name]["kind"] == "fiducial" or c["ref"].upper().startswith("FID")
             kind = self.data["packages"][pkg_name]["kind"]
             polar_part = bool(re.search(r"\bLED\b|DIODE|ZENER|TVS|TRANSORB|SCHOTTKY|TANT|ELECTROLYTIC", (c.get("part") or "").upper()))
@@ -79,7 +98,11 @@ class Program:
                           "checks": own_checks, "th": {}})
         self.data["components"] = comps
         self.data["transform"] = None
+        self.data["fid_marks"] = {}
+        self.data["adjust"] = {"dx": 0.0, "dy": 0.0, "rot": 0.0, "scale": 1.0}
+        self.data["y_up"] = True
         self.save()
+        return {k: sum(1 for v in src.values() if v == k) for k in ("machine", "library", "derived")}
 
     def pkg(self, name) -> Package:
         return Package.from_dict(self.data["packages"][name])
@@ -106,17 +129,10 @@ class Program:
         return M
 
     def auto_teach(self):
-        img = self.golden()
-        comps = self.data["components"]
-        fids = [c for c in comps if c["fiducial"]]
-        if len(fids) < 2:
-            raise ValueError("Need 2+ fiducials in the program - click 2 parts instead")
-        for yu in (self.data["y_up"], not self.data["y_up"]):
-            M, pts = vision.auto_fiducials(img, fids, comps, yu)
-            if M is not None:
-                self.data["y_up"] = yu
-                return self.teach([{"ref": f["ref"], "px": p[0], "py": p[1]} for f, p in zip(fids, pts)])
-        raise ValueError("Fiducials not found automatically - click them on the image")
+        r = self.find_fiducials(fresh=True, overwrite=True)
+        if not r["fit"]:
+            raise ValueError("Fiducials not found automatically - click them on the image")
+        return self.M0
 
     def autofit(self, package):
         """Set body size of *package* from the golden image (median over all its placements)."""
@@ -294,6 +310,22 @@ class Program:
         return None, None
 
     @staticmethod
+    def machine_lib():
+        p = ROOT / "machine_lib.json"
+        return json.loads(p.read_text()) if p.exists() else {"packages": {}, "components": {}}
+
+    @staticmethod
+    def save_machine_lib(packages=None, components=None):
+        lib = Program.machine_lib()
+        if packages:
+            lib["packages"].update(packages)
+        if components:
+            lib["components"].update(components)
+        ROOT.mkdir(parents=True, exist_ok=True)
+        (ROOT / "machine_lib.json").write_text(json.dumps(lib))
+        return {"packages": len(lib["packages"]), "components": len(lib["components"])}
+
+    @staticmethod
     def library():
         p = ROOT / "library.json"
         return json.loads(p.read_text()) if p.exists() else {}
@@ -441,8 +473,198 @@ class Program:
         self.save()
 
     @property
-    def M(self):
+    def M0(self):
         return np.float64(self.data["transform"]) if self.data["transform"] else None
+
+    @property
+    def M(self):
+        """Fiducial transform + the user's overlay adjustment (move / rotate / scale in image space)."""
+        M = self.M0
+        a = self.data.get("adjust") or {}
+        if M is None or not any((a.get("dx"), a.get("dy"), a.get("rot"), (a.get("scale", 1) or 1) != 1)):
+            return M
+        ppm = vision.px_per_mm(M)
+        pts = [vision.mm_src(c["x"], c["y"], self.data["y_up"]) for c in self.data["components"]] or [(0, 0)]
+        cx, cy = vision.apply(M, pts).mean(0)
+        r, k = math.radians(a.get("rot", 0)), a.get("scale", 1) or 1
+        R = np.float64([[k * math.cos(r), -k * math.sin(r)], [k * math.sin(r), k * math.cos(r)]])
+        t = np.float64([cx, cy]) - R @ [cx, cy] + np.float64([a.get("dx", 0), a.get("dy", 0)]) * ppm
+        A = np.hstack([R, t[:, None]])
+        return np.vstack([A, [0, 0, 1]])[:2] @ np.vstack([M, [0, 0, 1]])
+
+    def origin_px(self):
+        """Board origin (0,0) and +X / +Y 10 mm axis ends in image px, for drawing."""
+        M = self.M
+        if M is None:
+            return None
+        yu = self.data["y_up"]
+        return vision.apply(M, [vision.mm_src(0, 0, yu), vision.mm_src(10, 0, yu), vision.mm_src(0, 10, yu)]).round(1).tolist()
+
+    def set_adjust(self, **kw):
+        a = {"dx": 0.0, "dy": 0.0, "rot": 0.0, "scale": 1.0, **(self.data.get("adjust") or {})}
+        if kw.get("reset"):
+            a = {"dx": 0.0, "dy": 0.0, "rot": 0.0, "scale": 1.0}
+        for k in ("dx", "dy", "rot", "scale"):
+            if k in kw:
+                a[k] = float(kw[k])
+            if "d" + k in kw:
+                a[k] = a[k] + float(kw["d" + k])
+        a["scale"] = min(5.0, max(0.2, a["scale"]))
+        a["rot"] = (a["rot"] + 180) % 360 - 180
+        self.data["adjust"] = a
+        self.save()
+        return a
+
+    def rough_place(self, rotate=None):
+        """First guess with no fiducials: fit the layout box into the golden image (turned 90 deg if that fits better)."""
+        img = self.golden()
+        if img is None:
+            raise ValueError("Load the golden board image first")
+        H, W = img.shape[:2]
+        yu = self.data["y_up"]
+        pts = np.float64([vision.mm_src(c["x"], c["y"], yu) for c in self.data["components"]])
+        lo, hi = pts.min(0), pts.max(0)
+        bw, bh = max(1.0, hi[0] - lo[0]), max(1.0, hi[1] - lo[1])
+        if rotate is None:
+            rotate = 90 if (W > H) != (bw > bh) else 0
+        rw, rh = (bh, bw) if rotate % 180 else (bw, bh)
+        s = 0.85 * min(W / rw, H / rh)
+        r = math.radians(rotate)
+        R = s * np.float64([[math.cos(r), -math.sin(r)], [math.sin(r), math.cos(r)]])
+        t = np.float64([W / 2, H / 2]) - R @ ((lo + hi) / 2)
+        self.data["transform"] = np.hstack([R, t[:, None]]).tolist()
+        self.data["adjust"] = {"dx": 0.0, "dy": 0.0, "rot": 0.0, "scale": 1.0}
+        self.data["fid_marks"] = {}
+        self.save()
+
+    def bake_adjust(self):
+        """Make the adjusted overlay the new base transform."""
+        M = self.M
+        self.data["transform"] = M.tolist() if M is not None else None
+        self.data["adjust"] = {"dx": 0.0, "dy": 0.0, "rot": 0.0, "scale": 1.0}
+        self.save()
+
+    # ------------------------------------------------ fiducials
+    FID_DEFAULTS = {"polarity": "auto", "threshold": None, "size_mm": None, "search_mm": 2.5, "shape": "auto", "min_score": 0.45}
+
+    def fid_params(self):
+        return {**self.FID_DEFAULTS, **(self.data.get("fid_params") or {})}
+
+    def fid_list(self):
+        return [c for c in self.data["components"] if c["fiducial"]]
+
+    def _fid_geom(self, f, par):
+        d = par["size_mm"] or f.get("fid_diam") or 1.0
+        shape = par["shape"] if par["shape"] != "auto" else f.get("fid_shape") or \
+            ("square" if "SQ" in (f.get("package") or "").upper() else "circle")
+        return d, shape
+
+    def find_fiducials(self, **params):
+        """Locate every fiducial. With an existing transform: local search at the predicted spot.
+        Otherwise: global hypothesis search first. Keeps manual marks unless overwrite."""
+        par = {**self.fid_params(), **{k: v for k, v in params.items() if k in self.FID_DEFAULTS}}
+        self.data["fid_params"] = par
+        img = self.golden()
+        if img is None:
+            raise ValueError("Load the golden board image first")
+        gray = vision.prep(img)
+        fids = self.fid_list()
+        if not fids:
+            raise ValueError("No fiducials in the program - use 2 part centres instead (click them)")
+        marks = self.data.setdefault("fid_marks", {})
+        yu = self.data["y_up"]
+        M = self.M
+        if M is None or params.get("fresh"):
+            M = None
+            d0 = self._fid_geom(fids[0], par)[0]
+            for y in (yu, not yu):
+                M, _ = vision.auto_fiducials(img, fids, self.data["components"], y, d0)
+                if M is not None:
+                    self.data["y_up"] = yu = y
+                    break
+            if M is None:
+                # partial manual marks can still give a coarse transform
+                have = [f for f in fids if f["ref"] in marks]
+                if len(have) >= 2:
+                    M = vision.similarity_from_pairs([vision.mm_src(f["x"], f["y"], yu) for f in have],
+                                                     [(marks[f["ref"]]["px"], marks[f["ref"]]["py"]) for f in have])
+            if M is None:
+                raise ValueError("Could not find the fiducials automatically - click each one on the image (or adjust threshold / polarity)")
+        ppm = vision.px_per_mm(M)
+        out = []
+        for f in fids:
+            if marks.get(f["ref"], {}).get("source") == "manual" and not params.get("overwrite"):
+                out.append({"ref": f["ref"], **marks[f["ref"]]})
+                continue
+            d, shape = self._fid_geom(f, par)
+            pred = vision.apply(M, [vision.mm_src(f["x"], f["y"], yu)])[0]
+            r = None
+            sr = par["search_mm"]
+            while r is None and sr <= max(par["search_mm"], 24):  # widen the search until a good dot turns up
+                r = vision.find_fiducial(gray, pred, d / 2 * ppm, sr * ppm, par["polarity"], par["threshold"], shape)
+                if r and r["score"] < par["min_score"]:
+                    r = None
+                sr *= 2
+            if r:
+                marks[f["ref"]] = {**r, "source": "auto"}
+            else:
+                marks.pop(f["ref"], None)
+            out.append({"ref": f["ref"], **(marks.get(f["ref"]) or {"missing": True, "pred": [float(pred[0]), float(pred[1])]})})
+        # sanity: two auto dots must agree with the current scale / rotation guess
+        got = [f for f in fids if f["ref"] in marks]
+        if len(got) == 2 and not params.get("fresh"):
+            src2 = [vision.mm_src(f["x"], f["y"], yu) for f in got]
+            M2 = vision.similarity_from_pairs(src2, [(marks[f["ref"]]["px"], marks[f["ref"]]["py"]) for f in got])
+            dr = abs((math.degrees(math.atan2(M2[1, 0], M2[0, 0]) - math.atan2(M[1, 0], M[0, 0]) * 180 / math.pi) + 180) % 360 - 180)
+            if abs(vision.px_per_mm(M2) / ppm - 1) > 0.08 or dr > 4:
+                for f in got:
+                    if marks[f["ref"]].get("source") == "auto":
+                        marks.pop(f["ref"], None)
+                out = [{"ref": f["ref"], **(marks.get(f["ref"]) or {"missing": True})} for f in fids]
+        self.data["fid_marks"] = marks
+        fit = self.fit_fiducials() if sum(1 for f in fids if f["ref"] in marks) >= 2 else None
+        return {"marks": out, "fit": fit, "params": par}
+
+    def mark_fiducial(self, ref, px, py, snap=True, remove=False):
+        """Manual fiducial position (click / nudge). snap=True refines to the blob under the click."""
+        marks = self.data.setdefault("fid_marks", {})
+        if remove:
+            marks.pop(ref, None)
+        else:
+            f = next(c for c in self.fid_list() if c["ref"] == ref)
+            m = {"px": float(px), "py": float(py), "score": None, "source": "manual"}
+            if snap:
+                par = self.fid_params()
+                d, shape = self._fid_geom(f, par)
+                M = self.M
+                r_px = d / 2 * vision.px_per_mm(M) if M is not None else 8
+                r = vision.find_fiducial(vision.prep(self.golden()), (px, py), r_px, max(3 * r_px, 12), par["polarity"], par["threshold"], shape)
+                if r and math.dist((r["px"], r["py"]), (px, py)) < max(3 * r_px, 12):
+                    m.update(px=r["px"], py=r["py"], score=r["score"], r=r["r"], snapped=True)
+            marks[ref] = m
+        self.save()
+        have = [f for f in self.fid_list() if f["ref"] in marks]
+        return self.fit_fiducials() if len(have) >= 2 else None
+
+    def fit_fiducials(self):
+        marks = self.data.get("fid_marks") or {}
+        fids = [f for f in self.fid_list() if f["ref"] in marks]
+        if len(fids) < 2:
+            raise ValueError("Mark at least 2 fiducials")
+        yu = self.data["y_up"]
+        src = [vision.mm_src(f["x"], f["y"], yu) for f in fids]
+        dst = [(marks[f["ref"]]["px"], marks[f["ref"]]["py"]) for f in fids]
+        M, res, used = vision.fit_marks(src, dst, reject_mm=0.5 if len(fids) >= 3 else None)
+        self.data["transform"] = M.tolist()
+        self.data["adjust"] = {"dx": 0.0, "dy": 0.0, "rot": 0.0, "scale": 1.0}
+        self.data["fiducials"] = [fids[i]["ref"] for i in used]
+        info = {"residual_mm": {fids[i]["ref"]: round(res[i], 3) for i in range(len(fids))},
+                "used": [fids[i]["ref"] for i in used], "ppm": round(vision.px_per_mm(M), 3),
+                "rotation": round(math.degrees(math.atan2(M[1, 0], M[0, 0])), 3),
+                "max_mm": round(max(res[i] for i in used), 3)}
+        self.data["fid_fit"] = info
+        self.save()
+        return info
 
     def overlay(self):
         """Component ROIs for drawing in the UI (golden px frame)."""

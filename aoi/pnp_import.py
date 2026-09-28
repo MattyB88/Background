@@ -37,10 +37,10 @@ def _split(line, delim):
     return [c.strip() for c in next(csv.reader([line], delimiter=delim))]
 
 
-def parse(text: str, units: str = "auto", y_up: bool = True) -> dict:
+def parse(text: str, units: str = "auto", y_up: bool = True, board=None, machine_cmp=None) -> dict:
     """Return {'components': [...], 'units': str, 'warnings': [...]}."""
     if is_mydata(text):
-        return parse_mydata(text)
+        return parse_mydata(text, board=board, machine_cmp=machine_cmp)
     lines = [l for l in text.splitlines() if l.strip() and not l.lstrip().startswith(("#", "//", ";"))]
     if not lines:
         raise ValueError("Empty placement file")
@@ -274,32 +274,72 @@ def is_mydata(text):
     return bool(re.search(r"^\s*F8\s+-?\d+(\.\d+)?\s+-?\d+", text, re.M)) and bool(re.search(r"^\s*F9\s", text, re.M))
 
 
-def parse_mydata(text):
-    """MYData layout export: F3 fiducials, F8 x y rot(mdeg) ... IPN / F9 ref, C00 IPN C01 package C02 description.
-    Coordinates are micrometres; rotation in thousandths of a degree. Only machine-placed parts are listed."""
-    comps, fids, comp_info, board = [], [], {}, ""
+def mydata_boards(text):
+    """Boards in a MYData layout file: [{name, parts, fiducials}] (a library export holds many)."""
+    out = []
+    for line in text.replace("\r", "").lstrip("\ufeff").splitlines():
+        t = line.strip().split(None, 1)
+        if not t:
+            continue
+        if t[0] == "F1":
+            out.append({"name": (t[1] if len(t) > 1 else "").strip(), "parts": 0, "fiducials": 0})
+        elif out and t[0] == "F9":
+            out[-1]["parts"] += 1
+        elif out and t[0] == "F3":
+            out[-1]["fiducials"] += 1
+    return out
+
+
+def _fid_shape(v):
+    """F3 x y <shape> [diam] -> (shape, diameter mm). Shapes: circle, TH_SQ, TH_SQ_1mm, TH_1mm ..."""
+    shape = v[2] if len(v) > 2 else "circle"
+    d = _num(v[3]) if len(v) > 3 else None
+    if d is None:
+        m = re.search(r"(\d+(?:\.\d+)?)\s*mm", shape, re.I)
+        d = float(m.group(1)) if m else 1.0
+    kind = "square" if re.search(r"SQ|RECT|SQUARE", shape, re.I) else "circle"
+    return kind, d
+
+
+def parse_mydata(text, board=None, machine_cmp=None):
+    """MYData layout export: F1 board, F3 fiducials, F8 x y rot(mdeg) ... IPN / F9 ref, C00 IPN C01 package C02 description.
+    Coordinates are micrometres; rotation in thousandths of a degree. Only machine-placed parts are listed.
+    A file with several F1 boards needs *board* (name); otherwise ValueError lists them."""
+    comps, fids, comp_info = [], [], {}
     pending = None
     cur = None
     text = text.replace("\r", "").lstrip("\ufeff")
+    boards = mydata_boards(text)
+    if board is None:
+        if len(boards) > 1:
+            e = ValueError(f"This .gen holds {len(boards)} boards - pick one")
+            e.boards = boards
+            raise e
+        board = boards[0]["name"] if boards else ""
+    elif boards and board not in [b["name"] for b in boards]:
+        raise ValueError(f"Board '{board}' not in file")
+    active = not boards  # no F1 at all: take everything
     for line in text.splitlines():
         t = line.strip().split(None, 1)
         if not t:
             continue
         key, rest = t[0], (t[1] if len(t) > 1 else "")
         if key == "F1":
-            board = rest.strip()
-        elif key == "F3":
+            active = rest.strip() == board
+            pending = None
+        elif key == "F3" and active:
             v = rest.split()
             if len(v) >= 2:
-                fids.append((float(v[0]) / 1000, float(v[1]) / 1000, float(v[3]) if len(v) > 3 else 1.0))
-        elif key == "F8":
+                shape, d = _fid_shape(v)
+                fids.append((float(v[0]) / 1000, float(v[1]) / 1000, d, shape))
+        elif key == "F8" and active:
             v = rest.split()
             if len(v) < 2:
                 continue
             ipn = next((t for t in reversed(v[3:]) if not re.fullmatch(r"[-\d.]+|[YNyn]", t)), "")
             pending = {"x": float(v[0]) / 1000, "y": float(v[1]) / 1000,
                        "rot": (float(v[2]) / 1000) % 360 if len(v) > 2 else 0.0, "ipn": ipn}
-        elif key == "F9" and pending:
+        elif key == "F9" and pending and active:
             pending["ref"] = rest.strip()
             comps.append(pending)
             pending = None
@@ -308,18 +348,67 @@ def parse_mydata(text):
             comp_info[cur] = {}
         elif key in ("C01", "C02") and cur:
             comp_info[cur][key] = rest.strip()
+    for k, v in (machine_cmp or {}).items():
+        comp_info.setdefault(k, {"C01": v.get("package", ""), "C02": v.get("description", "")})
     out = []
-    for i, (x, y, d) in enumerate(fids):
-        out.append({"ref": f"FID{i + 1}", "x": x, "y": y, "rot": 0.0, "part": "", "package": f"FIDUCIAL_{d:g}MM",
-                    "side": "top", "ipn": ""})
+    for i, (x, y, d, shape) in enumerate(fids):
+        out.append({"ref": f"FID{i + 1}", "x": x, "y": y, "rot": 0.0, "part": shape, "package": f"FIDUCIAL_{d:g}MM" + ("_SQ" if shape == "square" else ""),
+                    "side": "top", "ipn": "", "fid_diam": d, "fid_shape": shape})
     for c in comps:
         info = comp_info.get(c["ipn"], {})
         out.append({"ref": c["ref"], "x": round(c["x"], 4), "y": round(c["y"], 4), "rot": c["rot"],
                     "part": info.get("C02", c["ipn"]), "package": info.get("C01") or c["ipn"], "side": "top", "ipn": c["ipn"]})
     if not comps:
-        raise ValueError("No F8/F9 placements found in MYData file")
-    return {"components": out, "units": "um", "board": board,
+        raise ValueError(f"No F8/F9 placements found for board '{board}'")
+    return {"components": out, "units": "um", "board": board, "boards": [b["name"] for b in boards],
             "warnings": [f"MYData layout '{board}': {len(comps)} machine-placed parts, {len(fids)} fiducials"]}
+
+
+# ---------------------------------------------------------------- Mycronic machine libraries
+def parse_cmp(text):
+    """cmp.cmp component library: C00 IPN, C01 package, C02 description -> {ipn: {package, description}}."""
+    out, cur = {}, None
+    for line in text.replace("\r", "").lstrip("\ufeff").splitlines():
+        t = line.strip().split(None, 1)
+        if not t:
+            continue
+        if t[0] == "C00":
+            cur = (t[1] if len(t) > 1 else "").strip()
+            out[cur] = {"package": "", "description": ""}
+        elif cur and t[0] == "C01":
+            out[cur]["package"] = (t[1] if len(t) > 1 else "").strip()
+        elif cur and t[0] == "C02":
+            out[cur]["description"] = (t[1] if len(t) > 1 else "").strip()
+    return out
+
+
+def parse_pck(text):
+    """pck.gen package library -> {name: {type, body:[x,y] mm, height, leads:[{type,n,x,y,angle,len,wid,pitch}]}}.
+    P01 body X Y (µm) ..., P051 <type> <count> <x> <y> <angle mdeg>, P052 len*3 width*3 pitch ..."""
+    out, cur = {}, None
+    for line in text.replace("\r", "").lstrip("\ufeff").splitlines():
+        t = line.strip().split()
+        if not t:
+            continue
+        k = t[0]
+        if k == "P00":
+            cur = {"type": "", "body": None, "height": None, "leads": []}
+            out[" ".join(t[1:])] = cur
+        elif cur is None:
+            continue
+        elif k == "P000" and len(t) > 1:
+            cur["type"] = t[1]
+        elif k == "P01" and len(t) >= 3:
+            v = [_num(x) or 0 for x in t[1:]]
+            cur["body"] = [v[0] / 1000, v[1] / 1000]
+            cur["height"] = v[4] / 1000 if len(v) > 4 else None
+        elif k == "P051" and len(t) >= 6:
+            cur["leads"].append({"type": t[1], "n": int(_num(t[2]) or 1), "x": _num(t[3]) / 1000, "y": _num(t[4]) / 1000,
+                                 "angle": (_num(t[5]) or 0) / 1000})
+        elif k == "P052" and cur["leads"] and len(t) >= 8:
+            v = [_num(x) or 0 for x in t[1:]]
+            cur["leads"][-1].update(len=v[1] / 1000, wid=v[4] / 1000, pitch=v[6] / 1000)
+    return out
 
 
 def to_csv(parsed):
