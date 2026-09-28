@@ -70,3 +70,11 @@ BOM WITHOUT XY (e.g. Accentis export: Item Code, Qty, designators)
     tick + 🗑 delete, ✖ clear all, filter, ✔/✖ to switch a part on/off, click a ref to jump to it.
  "➕ Teach them": click each part on the board - it gets the next BOM ref + IPN automatically
     (or pick the ref from the list first). Then ✨ Auto-fit ALL package sizes.
+
+MY9 / MYData LAYOUT (.gen)  -  recommended
+------------------------------------------
+ Step 1 -> Import file -> pick the .gen straight from the machine export.
+ Expect: "MYData layout '...': N machine-placed parts, 3 fiducials".
+ If you see "0 fiducials" / only a few parts to inspect you are running an OLD copy - check the
+ version shown next to "PCBA AOI" top left (needs v1.5 or newer).
+ GEN_TO_CSV.bat : drag .gen files onto it -> standard placement CSV (for other tools / checking).

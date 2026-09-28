@@ -112,7 +112,8 @@ def parse(text: str, units: str = "auto", y_up: bool = True) -> dict:
 
 
 def parse_file(data: bytes, **kw) -> dict:
-    for enc in ("utf-8-sig", "utf-16", "latin-1"):
+    encs = ("utf-16", "utf-8-sig", "latin-1") if data[:2] in (b"\xff\xfe", b"\xfe\xff") or data[1:2] == b"\x00" else ("utf-8-sig", "utf-16", "latin-1")
+    for enc in encs:
         try:
             return parse(data.decode(enc), **kw)
         except UnicodeDecodeError:
@@ -269,7 +270,8 @@ def parse_bom(text):
 
 # ---------------------------------------------------------------- Mycronic MYData / TPSys layout (.gen)
 def is_mydata(text):
-    return bool(re.search(r"^\s*F8\s+-?\d+\s+-?\d+", text, re.M)) and "F9" in text
+    text = text.replace("\r", "")
+    return bool(re.search(r"^\s*F8\s+-?\d+(\.\d+)?\s+-?\d+", text, re.M)) and bool(re.search(r"^\s*F9\s", text, re.M))
 
 
 def parse_mydata(text):
@@ -278,6 +280,7 @@ def parse_mydata(text):
     comps, fids, comp_info, board = [], [], {}, ""
     pending = None
     cur = None
+    text = text.replace("\r", "").lstrip("\ufeff")
     for line in text.splitlines():
         t = line.strip().split(None, 1)
         if not t:
@@ -291,8 +294,11 @@ def parse_mydata(text):
                 fids.append((float(v[0]) / 1000, float(v[1]) / 1000, float(v[3]) if len(v) > 3 else 1.0))
         elif key == "F8":
             v = rest.split()
-            pending = {"x": float(v[0]) / 1000, "y": float(v[1]) / 1000, "rot": (float(v[2]) / 1000) % 360,
-                       "ipn": v[-1] if len(v) >= 6 else ""}
+            if len(v) < 2:
+                continue
+            ipn = next((t for t in reversed(v[3:]) if not re.fullmatch(r"[-\d.]+|[YNyn]", t)), "")
+            pending = {"x": float(v[0]) / 1000, "y": float(v[1]) / 1000,
+                       "rot": (float(v[2]) / 1000) % 360 if len(v) > 2 else 0.0, "ipn": ipn}
         elif key == "F9" and pending:
             pending["ref"] = rest.strip()
             comps.append(pending)
@@ -314,3 +320,14 @@ def parse_mydata(text):
         raise ValueError("No F8/F9 placements found in MYData file")
     return {"components": out, "units": "um", "board": board,
             "warnings": [f"MYData layout '{board}': {len(comps)} machine-placed parts, {len(fids)} fiducials"]}
+
+
+def to_csv(parsed):
+    """Translate any parsed placement data (e.g. a MYData .gen) to the standard template CSV."""
+    import io
+    out = io.StringIO()
+    w = csv.writer(out)
+    w.writerow(["IPN", "Comment", "Designator", "Package", "X", "Y", "Rotation"])
+    for c in parsed["components"]:
+        w.writerow([c.get("ipn", ""), c.get("part", ""), c["ref"], c.get("package", ""), c["x"], c["y"], c.get("rot", 0)])
+    return out.getvalue()

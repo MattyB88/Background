@@ -68,7 +68,7 @@ a.big{font-size:14px !important;padding:10px 14px !important;border:1px solid va
 </head>
 <body>
 <header>
-  <h1>◉ PCBA&nbsp;AOI</h1>
+  <h1>◉ PCBA&nbsp;AOI <small id="ver" style="font-weight:400;color:var(--dim);font-size:11px"></small></h1>
   <select id="prog" title="Program"></select>
   <nav class="steps" id="steps"></nav>
   <button id="bList" title="Parts list">📋</button>
@@ -142,8 +142,9 @@ async function demo(){toast("Building demo…");await api("/api/demo",{method:"P
 const PANELS={
 program(el,d){
   el.innerHTML=`<h2>📄 Placement data</h2>
-   <div class="hint">Load the PnP / MYData export (CSV, TXT, .pos). Packages are made automatically.</div>
+   <div class="hint">Load the MY9 layout (<b>.gen</b>) or a placement CSV / TXT / .pos. Packages are made automatically.</div>
    <button class="big pri" id="bImp"><span class="ico">📂</span>Import file</button>
+   <button class="big" id="bTr"><span class="ico">⇄</span>Translate .gen → CSV (download)</button>
    <button class="big" id="bWiz"><span class="ico">🧩</span>Odd file? Map columns (wizard)</button>
    <button class="big" id="bBom"><span class="ico">📦</span>Load BOM (IPN + designators, no XY)</button>
    <button class="big" id="bPhoto"><span class="ico">📷</span>No placement file? Build from photo</button>
@@ -153,7 +154,7 @@ program(el,d){
    <div class="tile"><b>${d.components.filter(c=>c.fiducial).length}</b><span>fiducials</span></div>
    <div class="tile"><b>${d.components.filter(c=>c.enabled).length}</b><span>to inspect</span></div></div>
    <button class="big ok" id="bNext">Next ➜ Board image</button>`:""}`;
-  $("#bImp").onclick=async()=>{const f=await pickFile(".csv,.txt,.pos,.tsv,.xy,*");if(!f)return;
+  $("#bImp").onclick=async()=>{const f=await pickFile(".gen,.csv,.txt,.pos,.tsv,.xy,.mnt,.lay");if(!f)return;
     const fd=new FormData();fd.append("file",f);fd.append("units",$("#units").value);
     const r=await api(P()+"/import",{method:"POST",body:fd});
     toast(`✔ ${r.count} parts, ${r.packages} packages`+(r.warnings.length?" — "+r.warnings.join("; "):""),5000);await refresh();side();};
@@ -161,6 +162,9 @@ program(el,d){
     const r=await api(P()+"/bom",{method:"POST",body:fd});await refresh();
     toast(`📦 BOM: ${r.refs} refs, ${r.smd} SMD, ${r.placed} matched`,6000);
     S.bomCheck=r;go("list");};
+  $("#bTr").onclick=async()=>{const f=await pickFile(".gen,.csv,.txt,.pos");if(!f)return;const fd=new FormData();fd.append("file",f);
+    const r=await fetch("/api/translate.csv",{method:"POST",body:fd});if(!r.ok){toast("⚠ "+((await r.json()).error||r.status));return;}
+    const a=document.createElement("a");a.href=URL.createObjectURL(await r.blob());a.download=f.name.replace(/\.[^.]+$/,"")+"_placements.csv";a.click();toast("⇄ Translated");};
   $("#bWiz").onclick=async()=>{const f=await pickFile(".csv,.txt,.pos,.tsv,.xy,*");if(!f)return;S.wiz={file:f,fmt:{}};go("wizard");};
   $("#bPhoto").onclick=async()=>{const f=await pickFile("image/*");if(!f)return;const bm=prompt("Board length in mm (optional - makes tolerances real mm)","");const fd=new FormData();fd.append("image",f);toast("Finding parts…");
     const r=await api(P()+"/from_photo"+(bm?`?board_mm=${encodeURIComponent(bm)}`:""),{method:"POST",body:fd});toast(`✔ ${r.parts} parts, ${r.holes} holes · ${r.ppm} px/mm — now train with good boards`,6000);
@@ -528,6 +532,7 @@ window.onmouseup=async e=>{const d=drag;drag=null;if(!d||d.moved||e.target!==cv|
 cv.ondblclick=()=>{fit();draw();};
 document.addEventListener("keydown",e=>{if(S.step=="review"&&S.result){if(e.key=="d")$("#bDef")?.click();if(e.key=="f")document.querySelector("[data-fc=other]")?.click();}
   if(e.key==" "&&S.step=="inspect"){e.preventDefault();$("#bIn")?.click();}});
+fetch("/api/version").then(r=>r.json()).then(v=>$("#ver").textContent="v"+v.version).catch(()=>{});
 resize();loadPrograms().then(()=>{renderSteps();side();});
 </script>
 </body>

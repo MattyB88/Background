@@ -34,7 +34,7 @@ def main(csvs):
         zipfile.ZipFile(w).extractall(sp)
     shutil.copytree(ROOT / "aoi", OUT / "aoi", ignore=shutil.ignore_patterns("__pycache__"))
     (OUT / "START_AOI.bat").write_text(
-        '@echo off\r\ntitle PCBA AOI\r\ncd /d "%~dp0"\r\nset AOI_DATA=%~dp0aoi_data\r\n'
+        '@echo off\r\ntitle PCBA AOI - close this window to stop\r\ncd /d "%~dp0"\r\nset AOI_DATA=%~dp0aoi_data\r\n'
         'echo Starting AOI... browser will open. Close this window to stop.\r\n'
         'start "" http://localhost:5050\r\n"%~dp0python\\python.exe" -m aoi.app\r\npause\r\n')
     # test material: user's placement files + simulated board images for each
@@ -65,6 +65,10 @@ def main(csvs):
                                                "\r\n".join(f"  {r}: {k.upper()}" for r, k in pick.items()) + "\r\n")
     shutil.copy(ROOT / "docs" / "USB_README.txt", OUT / "READ_ME_FIRST.txt")
     shutil.copytree(ROOT / "docs" / "templates", OUT / "csv_templates")
+    shutil.copytree(ROOT / "tools", OUT / "tools", ignore=shutil.ignore_patterns("__pycache__", "build_usb_bundle.py"))
+    (OUT / "GEN_TO_CSV.bat").write_text(
+        '@echo off\r\nREM Drag one or more MYData .gen files onto this file -> _placements.csv next to each\r\n'
+        'cd /d "%~dp0"\r\n"%~dp0python\\python.exe" tools\\gen2csv.py %*\r\npause\r\n')
     shutil.make_archive(str(OUT), "zip", OUT.parent, OUT.name)
     print("Built", OUT.with_suffix(".zip"), f"{OUT.with_suffix('.zip').stat().st_size / 1e6:.0f} MB")
 

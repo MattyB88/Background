@@ -89,6 +89,12 @@ def index():
     return send_file(Path(__file__).parent / "static" / "index.html")
 
 
+@app.get("/api/version")
+def version():
+    from . import __version__
+    return jsonify(version=__version__)
+
+
 @app.get("/api/programs")
 def programs():
     return jsonify(list_programs())
@@ -267,7 +273,8 @@ def train(name):
 
 
 def _decode(data):
-    for enc in ("utf-8-sig", "utf-16", "latin-1"):
+    utf16 = data[:2] in (b"\xff\xfe", b"\xfe\xff") or data[1:2] == b"\x00"
+    for enc in (("utf-16", "utf-8-sig", "latin-1") if utf16 else ("utf-8-sig", "utf-16", "latin-1")):
         try:
             return data.decode(enc)
         except UnicodeDecodeError:
@@ -298,6 +305,16 @@ def bom_preview():
     except ValueError as e:
         out.update(error=str(e), parsed=[], count=0)
     return jsonify(out)
+
+
+@app.post("/api/translate.csv")
+def translate():
+    """Any supported placement file (e.g. MYData .gen) -> standard CSV download."""
+    f = request.files["file"]
+    parsed = pnp_import.parse(_decode(f.read()))
+    name = Path(f.filename or "layout").stem
+    return pnp_import.to_csv(parsed), 200, {"Content-Type": "text/csv",
+                                           "Content-Disposition": f'attachment; filename="{name}_placements.csv"'}
 
 
 @app.get("/api/formats")
@@ -489,7 +506,8 @@ def ai_opinion(name):
 
 def main():
     port = int(os.environ.get("AOI_PORT", 5050))
-    print(f"AOI running - open http://localhost:{port}   (data: {ROOT})")
+    from . import __version__
+    print(f"PCBA AOI {__version__} running - open http://localhost:{port}   (data: {ROOT})")
     app.run("0.0.0.0", port, threaded=True)
 
 

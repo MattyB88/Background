@@ -321,3 +321,13 @@ def test_mydata_gen(tmp_path, monkeypatch):
     assert comps["FID1"]["fiducial"] and comps["IC1"]["enabled"]
     assert p.data["packages"]["TQFP44-0.80"]["kind"] == "qfp" and not p.data["packages"]["0805-05"]["polarized"]
     assert comps["D1"]["checks"]["polarity"] and comps["R53"]["checks"] is None
+
+
+def test_mydata_robust_encodings():
+    for data in (MYDATA.replace("\n", "\r\n").encode("utf-16"), ("﻿" + MYDATA).encode("utf-8"),
+                 MYDATA.replace("\n", "\r\n").encode("latin-1")):
+        r = pnp_import.parse_file(data)
+        assert len(r["components"]) == 7 and sum(c["ref"].startswith("FID") for c in r["components"]) == 3
+    csv_txt = pnp_import.to_csv(pnp_import.parse(MYDATA))
+    back = pnp_import.parse(csv_txt)
+    assert {c["ref"] for c in back["components"]} >= {"C9", "D1", "R53", "IC1"}
