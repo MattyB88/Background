@@ -39,6 +39,8 @@ def _split(line, delim):
 
 def parse(text: str, units: str = "auto", y_up: bool = True) -> dict:
     """Return {'components': [...], 'units': str, 'warnings': [...]}."""
+    if is_mydata(text):
+        return parse_mydata(text)
     lines = [l for l in text.splitlines() if l.strip() and not l.lstrip().startswith(("#", "//", ";"))]
     if not lines:
         raise ValueError("Empty placement file")
@@ -263,3 +265,52 @@ def parse_bom(text):
         for x in rl:
             refs[x] = {"ipn": ipn, "th": th}
     return {"items": items, "refs": refs, "warnings": warn}
+
+
+# ---------------------------------------------------------------- Mycronic MYData / TPSys layout (.gen)
+def is_mydata(text):
+    return bool(re.search(r"^\s*F8\s+-?\d+\s+-?\d+", text, re.M)) and "F9" in text
+
+
+def parse_mydata(text):
+    """MYData layout export: F3 fiducials, F8 x y rot(mdeg) ... IPN / F9 ref, C00 IPN C01 package C02 description.
+    Coordinates are micrometres; rotation in thousandths of a degree. Only machine-placed parts are listed."""
+    comps, fids, comp_info, board = [], [], {}, ""
+    pending = None
+    cur = None
+    for line in text.splitlines():
+        t = line.strip().split(None, 1)
+        if not t:
+            continue
+        key, rest = t[0], (t[1] if len(t) > 1 else "")
+        if key == "F1":
+            board = rest.strip()
+        elif key == "F3":
+            v = rest.split()
+            if len(v) >= 2:
+                fids.append((float(v[0]) / 1000, float(v[1]) / 1000, float(v[3]) if len(v) > 3 else 1.0))
+        elif key == "F8":
+            v = rest.split()
+            pending = {"x": float(v[0]) / 1000, "y": float(v[1]) / 1000, "rot": (float(v[2]) / 1000) % 360,
+                       "ipn": v[-1] if len(v) >= 6 else ""}
+        elif key == "F9" and pending:
+            pending["ref"] = rest.strip()
+            comps.append(pending)
+            pending = None
+        elif key == "C00":
+            cur = rest.strip()
+            comp_info[cur] = {}
+        elif key in ("C01", "C02") and cur:
+            comp_info[cur][key] = rest.strip()
+    out = []
+    for i, (x, y, d) in enumerate(fids):
+        out.append({"ref": f"FID{i + 1}", "x": x, "y": y, "rot": 0.0, "part": "", "package": f"FIDUCIAL_{d:g}MM",
+                    "side": "top", "ipn": ""})
+    for c in comps:
+        info = comp_info.get(c["ipn"], {})
+        out.append({"ref": c["ref"], "x": round(c["x"], 4), "y": round(c["y"], 4), "rot": c["rot"],
+                    "part": info.get("C02", c["ipn"]), "package": info.get("C01") or c["ipn"], "side": "top", "ipn": c["ipn"]})
+    if not comps:
+        raise ValueError("No F8/F9 placements found in MYData file")
+    return {"components": out, "units": "um", "board": board,
+            "warnings": [f"MYData layout '{board}': {len(comps)} machine-placed parts, {len(fids)} fiducials"]}

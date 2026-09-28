@@ -274,3 +274,50 @@ def test_bom_without_xy(tmp_path, monkeypatch):
     removed = p.bulk("not_in_bom")
     assert removed == n_auto - sum(1 for c in p.data["components"] if c["fiducial"]) - 0 or removed > 0
     assert {c["ref"] for c in p.data["components"] if not c["fiducial"]} == {"IC4"}
+
+
+MYDATA = """# *** PCBS ***
+F1 TEST_BOARD
+F3 0 0 circle 1.0
+F3 110443 223735 circle 1.0
+F3 107699 -428 circle 1.0
+F8 87749 197035 0 0 N N CCA12SMD
+F9 C9
+F8 102884 162016 90000 0 N N CDI66
+F9 D1
+F8 7027 84549 -90000 0 N N CRE1000-0805
+F9 R53
+F8 68027 120858 -90000 0 N N CIC102
+F9 IC1
+# *** COMPONENTS ***
+C00 CCA12SMD
+C01 1206-17
+C02 CAP 1uF 25V TANTA TAJ Series
+#
+C00 CDI66
+C01 0805-05
+C02 Signal Diode, 75V, 150mA 0805
+#
+C00 CRE1000-0805
+C01 0805-05
+C02 RES 100R 1% 100mW 0805
+#
+C00 CIC102
+C01 TQFP44-0.80
+C02 MCU, 8BIT, PIC18, 40MHZ, TQFP-44
+"""
+
+
+def test_mydata_gen(tmp_path, monkeypatch):
+    monkeypatch.setattr("aoi.program.ROOT", tmp_path)
+    from aoi.program import Program
+    r = pnp_import.parse(MYDATA)
+    by = {c["ref"]: c for c in r["components"]}
+    assert len(r["components"]) == 7 and by["R53"]["x"] == 7.027 and by["R53"]["rot"] == 270.0
+    assert by["IC1"]["package"] == "TQFP44-0.80" and by["D1"]["ipn"] == "CDI66"
+    p = Program("gen")
+    p.import_placements(r)
+    comps = {c["ref"]: c for c in p.data["components"]}
+    assert comps["FID1"]["fiducial"] and comps["IC1"]["enabled"]
+    assert p.data["packages"]["TQFP44-0.80"]["kind"] == "qfp" and not p.data["packages"]["0805-05"]["polarized"]
+    assert comps["D1"]["checks"]["polarity"] and comps["R53"]["checks"] is None

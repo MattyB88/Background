@@ -80,7 +80,11 @@ def _quad(name, n, pitch, body, lead_len, pad_w, kind="qfp"):
 
 def derive(package_name: str, part_name: str = "") -> Package:
     """Best-effort package geometry from free-text package / part names."""
-    raw = f"{package_name} {part_name}".upper()
+    raw = f"{package_name} {part_name}".upper().replace("_", " ")
+    raw = re.sub(r"\bSC-?59-?5\b", "SOT-23-5", raw)
+    raw = re.sub(r"\bSC-?59\b", "SOT-23", raw)
+    raw = re.sub(r"\bTANT\s*2917\b|\b2917\b", "TANT CASE D", raw)
+    raw = re.sub(r"\bSO(\d+)\b", r"SOIC-\1", raw)
     name = (package_name or part_name or "UNKNOWN").strip()
 
     raw = re.sub(r"\bMF05A\b|\bDBV\b", "SOT-23-5", raw)
@@ -132,6 +136,10 @@ def derive(package_name: str, part_name: str = "") -> Package:
         pitch = 0.5 if n >= 64 else 0.8
         body = round((n / 4) * pitch + 1.0)
         return _quad(name, n, pitch, body, 1.2, pitch * 0.55)
+    m = re.search(r"\b(?:DFN|QFN|SON)-?(\d+)-?(\d+(?:\.\d+)?)X(\d+(?:\.\d+)?)", raw)
+    if m:
+        L, W = float(m.group(3)), float(m.group(2))
+        return Package(name, max(L, W), min(L, W), [], True, True, "qfn")
     m = re.search(r"\b(QFN|DFN|VQFN|WQFN)-?(\d+)", raw)
     if m:
         n = int(m.group(2))
@@ -150,8 +158,18 @@ def derive(package_name: str, part_name: str = "") -> Package:
         l, w = CHIP[m.group(1)]
         pol = bool(re.search(r"\bLED\b|\bD\d|DIODE", raw))
         return _two_term(name, l, w, pol, "led" if pol else "chip")
+    m = re.search(r"\bRN(\d+)\b", raw)
+    if m:  # chip resistor array, e.g. RN8 = 4 x 0603 in one body
+        n = int(m.group(1))
+        p = _dual_row(name, n, 0.8, n / 2 * 0.8, 1.6, 0.6, 0.5, marking=False, kind="array")
+        p.polarized = False
+        return p
     if re.search(r"\bFID|FIDUCIAL", raw):
         return Package(name, 1.0, 1.0, [], False, False, "fiducial")
+    m = re.search(r"(\d+(?:\.\d+)?)\s*X\s*(\d+(?:\.\d+)?)", raw)  # "IND5x5x1.9H", "SMB 4.5x3.5x2.2"
+    if m and 0.3 < float(m.group(1)) < 60 and 0.3 < float(m.group(2)) < 60:
+        L, W = sorted((float(m.group(1)), float(m.group(2))), reverse=True)
+        return Package(name, L, W, [], False, False, "generic")
     return Package(name, 2.0, 1.25, [[-1.0, 0, 0.6, 1.3], [1.0, 0, 0.6, 1.3]], False, False, "generic")
 
 

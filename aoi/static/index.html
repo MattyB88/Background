@@ -159,7 +159,8 @@ program(el,d){
     toast(`✔ ${r.count} parts, ${r.packages} packages`+(r.warnings.length?" — "+r.warnings.join("; "):""),5000);await refresh();side();};
   $("#bBom").onclick=async()=>{const f=await pickFile(".csv,.txt,*");if(!f)return;const fd=new FormData();fd.append("file",f);
     const r=await api(P()+"/bom",{method:"POST",body:fd});await refresh();
-    toast(`📦 BOM: ${r.refs} refs, ${r.smd} SMD to inspect, ${r.placed} already boxed`+(r.warnings.length?" · ⚠ "+r.warnings.join("; "):""),7000);go("list");};
+    toast(`📦 BOM: ${r.refs} refs, ${r.smd} SMD, ${r.placed} matched`,6000);
+    S.bomCheck=r;go("list");};
   $("#bWiz").onclick=async()=>{const f=await pickFile(".csv,.txt,.pos,.tsv,.xy,*");if(!f)return;S.wiz={file:f,fmt:{}};go("wizard");};
   $("#bPhoto").onclick=async()=>{const f=await pickFile("image/*");if(!f)return;const bm=prompt("Board length in mm (optional - makes tolerances real mm)","");const fd=new FormData();fd.append("image",f);toast("Finding parts…");
     const r=await api(P()+"/from_photo"+(bm?`?board_mm=${encodeURIComponent(bm)}`:""),{method:"POST",body:fd});toast(`✔ ${r.parts} parts, ${r.holes} holes · ${r.ppm} px/mm — now train with good boards`,6000);
@@ -301,8 +302,14 @@ list(el,d){
   const todo=Object.keys(bom).filter(r=>!bom[r].th&&!placed.has(r));
   const rows=comps.filter(c=>!q||(c.ref+" "+(c.ipn||"")+" "+c.package).toUpperCase().includes(q));
   const tag=c=>!Object.keys(bom).length?"":bom[c.ref]?(bom[c.ref].th?'<span class="tag w">TH</span>':''):'<span class="tag">not in BOM</span>';
+  const bc=S.bomCheck;const chk=bc&&(bc.ipn_mismatch.length||bc.not_in_bom.length||bc.smd_not_in_layout.length||bc.warnings.length)?
+    `<div class="hint" style="border-color:#8a5a12;background:#2a1d08;color:#fcd9a0"><b>BOM cross-check</b>
+     ${bc.ipn_mismatch.length?`<div>IPN differs (${bc.ipn_mismatch.length}): ${bc.ipn_mismatch.map(esc).join(" · ")}</div>`:""}
+     ${bc.not_in_bom.length?`<div>In layout, not in BOM (${bc.not_in_bom.length}): ${bc.not_in_bom.map(esc).join(", ")}</div>`:""}
+     ${bc.smd_not_in_layout.length?`<div>SMD in BOM, not in layout (${bc.smd_not_in_layout.length}): ${bc.smd_not_in_layout.map(esc).join(", ")}</div>`:""}
+     ${bc.warnings.map(w=>`<div>${esc(w)}</div>`).join("")}</div>`:"";
   el.innerHTML=`<h2>📋 Parts (${comps.length})</h2>
-   ${Object.keys(bom).length?`<div class="tiles"><div class="tile"><b>${Object.keys(bom).length}</b><span>BOM refs</span></div><div class="tile"><b style="color:var(--warn)">${todo.length}</b><span>SMD still to box</span></div></div>`:""}
+   ${chk}${Object.keys(bom).length?`<div class="tiles"><div class="tile"><b>${Object.keys(bom).length}</b><span>BOM refs</span></div><div class="tile"><b style="color:var(--warn)">${todo.length}</b><span>SMD still to box</span></div></div>`:""}
    <div class="row"><button id="lAuto">🧹 Delete auto-found</button><button id="lNot">✂ Delete not in BOM</button></div>
    <div class="row"><button id="lTh">⏭ Skip through-hole</button><button id="lSel">🗑 Delete ticked</button><button id="lClr" class="bad">✖ Clear all</button></div>
    <input id="lQ" placeholder="🔍 filter (ref, IPN, package)" value="${esc(S.listQ||"")}" style="width:100%;margin:6px 0">

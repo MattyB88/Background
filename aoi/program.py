@@ -59,16 +59,24 @@ class Program:
             pkg_name = c["package"] or "UNKNOWN"
             if pkg_name not in self.data["packages"]:
                 lib = self.library()
-                self.data["packages"][pkg_name] = lib[pkg_name] if pkg_name in lib else derive(pkg_name, c["part"]).to_dict()
+                # machine layouts carry long descriptions: derive geometry from the package name only
+                hint = "" if parsed.get("units") == "um" and parsed.get("board") is not None else c["part"]
+                self.data["packages"][pkg_name] = lib[pkg_name] if pkg_name in lib else derive(pkg_name, hint).to_dict()
             fid = self.data["packages"][pkg_name]["kind"] == "fiducial" or c["ref"].upper().startswith("FID")
             kind = self.data["packages"][pkg_name]["kind"]
+            polar_part = bool(re.search(r"\bLED\b|DIODE|ZENER|TVS|TRANSORB|SCHOTTKY|TANT|ELECTROLYTIC", (c.get("part") or "").upper()))
             dnf = bool(re.search(r"\bDNF\b|\bDNP\b|\bNF\b", c["part"].upper()))
             has_ipn_col = any(x.get("ipn") for x in parsed["components"])
             nonpart = bool(re.match(r"^(H|MH|HOLE|TP|TEST|MTG|MT)\d", c["ref"].upper())) or kind == "fiducial"
             skip = dnf or nonpart or (has_ipn_col and not c.get("ipn"))
-            comps.append({**c, "package": pkg_name, "fiducial": fid, "enabled": not (fid or skip or kind == "generic"),
-                          "dnf": dnf, "dx": 0, "dy": 0,
-                          "checks": None, "th": {}})
+            from_layout = parsed.get("board") is not None  # machine layout (MYData): every row is a placed SMD part
+            pk = self.data["packages"][pkg_name]
+            own_checks = None
+            if polar_part and not pk["polarized"] and kind not in ("fiducial",):
+                own_checks = {"presence": True, "polarity": True, "ocv": False, "offset": True, "bridge": len(pk["pads"]) >= 4}
+            comps.append({**c, "package": pkg_name, "fiducial": fid, "enabled": not (fid or skip or (kind == "generic" and not from_layout)), "from_layout": from_layout,
+                          "dnf": dnf, "dx": 0, "dy": 0, "polar_part": polar_part,
+                          "checks": own_checks, "th": {}})
         self.data["components"] = comps
         self.data["transform"] = None
         self.save()
@@ -368,13 +376,19 @@ class Program:
         for c in self.data["components"]:
             b = bom["refs"].get(c["ref"])
             if b:
-                c["ipn"] = b["ipn"]
-                if b["th"]:
+                c["ipn"] = c.get("ipn") or b["ipn"]
+                if c.get("from_layout"):
+                    b["th"] = False  # the machine places it: SMD whatever the name suggests
+                elif b["th"]:
                     c["enabled"] = False
         self.save()
         refs = bom["refs"]
         placed = {c["ref"] for c in self.data["components"]}
-        return {"refs": len(refs), "smd": sum(not v["th"] for v in refs.values()),
+        mism = [f"{c['ref']}: layout {c['ipn']} / BOM {refs[c['ref']]['ipn']}" for c in self.data["components"]
+                if c.get("ipn") and c["ref"] in refs and refs[c["ref"]]["ipn"] != c["ipn"]]
+        return {"ipn_mismatch": mism,
+                "smd_not_in_layout": sorted(r for r, v in refs.items() if not v["th"] and r not in placed) if any(c.get("ipn") for c in self.data["components"]) else [],
+                "refs": len(refs), "smd": sum(not v["th"] for v in refs.values()),
                 "placed": sum(1 for r in refs if r in placed), "warnings": bom["warnings"],
                 "not_in_bom": [c["ref"] for c in self.data["components"] if not c["fiducial"] and c["ref"] not in refs]}
 

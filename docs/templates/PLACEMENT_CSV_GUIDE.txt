@@ -39,3 +39,9 @@ ODD OR CHANGING FILE LAYOUTS -> 🧩 MAP COLUMNS WIZARD (step 1)
   - Drop rows where <column> is empty / equals / contains / matches regex (holes, test points, notes...)
   - Live preview of the raw file and the result, then name it and import.
   The format is saved; next time a file with the same header is imported it is applied automatically.
+
+MYCRONIC MYDATA / TPSys LAYOUT (.gen)  <- BEST SOURCE
+  Export the layout from MYData (e.g. CAS157-10_RevE2.gen) and use Step 1 -> Import file.
+  Read automatically: F3 fiducials, F8/F9 position + rotation + IPN + ref for every MACHINE-PLACED part,
+  C01 package name and C02 description per IPN. Only placed SMD parts are inspected (no holes/connectors).
+  Then 📦 Load BOM (optional) = cross-check: IPN differences, parts missing from layout or BOM.
