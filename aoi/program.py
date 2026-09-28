@@ -309,7 +309,7 @@ class Program:
                 r = vision.fit_body(img, ctr, ang, ppm, min(25.0, max(6.0, 3 * max(pkg.body_l, pkg.body_w))), len(pkg.pads) == 2,
                                     0.25 * pkg.body_l * pkg.body_w if known else 0.0)
                 # a known package can be corrected, not reinvented: reject wild measurements
-                if r and (not known or all(0.6 < m / e < 1.6 for m, e in zip(r[:2], (pkg.body_l, pkg.body_w)))):
+                if r and (not known or all(0.55 < m / e < 1.7 for m, e in zip(r[:2], (pkg.body_l, pkg.body_w)))):
                     sizes.append(r)
         if not sizes:
             raise ValueError("Could not measure the body - adjust L/W by hand")
@@ -717,7 +717,8 @@ class Program:
             c, pk = self.eff(c0)
             r = math.radians(c["rot"])
             cx, cy = c["x"] + c.get("dx", 0), c["y"] + c.get("dy", 0)
-            out.append(vision.mm_src(cx, cy, yu))
+            if not pk.pads:
+                out.append(vision.mm_src(cx, cy, yu))
             for px, py, _, _ in pk.pads[:8]:
                 out.append(vision.mm_src(cx + px * math.cos(r) - py * math.sin(r), cy + px * math.sin(r) + py * math.cos(r), yu))
         return out
@@ -756,55 +757,35 @@ class Program:
         marks = self.data.setdefault("fid_marks", {})
         yu = self.data["y_up"]
         M = self.M
+        coarse = None
         if M is None or params.get("fresh"):
-            M = None
-            d0 = self._fid_geom(fids[0], par)[0]
-            # the board outline bounds the scale and rotation, which stops look-alike vias fooling the search
-            pr, ah = None, None
-            bo = vision.board_outline(img)
-            if bo is not None:
-                (_, (bw, bh), ang) = bo[0]
-                pts = np.float64([(c["x"], c["y"]) for c in self.data["components"]])
-                span = max(np.ptp(pts[:, 0]), np.ptp(pts[:, 1]))
-                if span > 5:
-                    est = max(bw, bh) / span
-                    pr, ah = (est * 0.7, est * 1.08), ang
-            M, y = None, yu
-            coarse = None
-            # 1) whole-layout alignment (all parts, no fiducial needed), 2) local fiducial search from there
-            if pr:
-                lr = vision.layout_register(img, {True: self.layout_points(True), False: self.layout_points(False)},
-                                            (pr[0], pr[1] * 1.05), ah)
-                if lr:
-                    Mc, y_l, _ = lr
-                    ev = vision.layout_evidence(vision.evidence_map(vision.prep(img)), Mc, np.float64(self.layout_points(y_l)))
-                    if ev and ev >= 1.15:
-                        M = Mc
-                        coarse = (Mc, ev)
-                        self.data["y_up"] = yu = y_l
-                        par = {**par, "search_mm": max(par["search_mm"], 4.0)}
-            for hint in (((pr, ah), (None, None)) if pr else ((None, None),)) if M is None else ():
-                for y in (yu, not yu):
-                    M, _ = vision.auto_fiducials(img, fids, self.data["components"], y, d0, max_cands=250 if hint[0] else 120,
-                                                 ppm_range=hint[0], angle_hint=hint[1], evidence_src=self.layout_points(y))
-                    if M is not None and (vision.auto_fiducials.confidence or 0) < 1.15:
-                        M = None  # dots fit, but the parts don't land on anything - keep looking
-                    if M is not None:
-                        break
-                if M is not None:
-                    break
-            for y in ((y,) if M is not None else ()):
-                if M is not None:
-                    self.data["y_up"] = yu = y
-                    break
-            if M is None:
-                # partial manual marks can still give a coarse transform
+            res = self._auto_align(img, par, chans, fids)
+            if res is None:
                 have = [f for f in fids if f["ref"] in marks]
-                if len(have) >= 2:
+                if len(have) >= 2:  # partial manual marks can still give a coarse transform
                     M = vision.similarity_from_pairs([vision.mm_src(f["x"], f["y"], yu) for f in have],
                                                      [(marks[f["ref"]]["px"], marks[f["ref"]]["py"]) for f in have])
-            if M is None:
-                raise ValueError("Could not find the fiducials automatically - click each one on the image (or adjust threshold / polarity)")
+                else:
+                    raise ValueError("Could not find the board automatically - use Place layout, drag it roughly, then Snap")
+            else:
+                M, yu, chosen_marks, info = res
+                self.data["y_up"] = yu = bool(yu)
+                for k in [k for k, v in marks.items() if v.get("source") == "auto" or params.get("overwrite")]:
+                    marks.pop(k)
+                marks.update(chosen_marks)
+                self.data["fid_marks"] = marks
+                self.data["transform"] = M.tolist()
+                self.data["adjust"] = {"dx": 0.0, "dy": 0.0, "rot": 0.0, "scale": 1.0}
+                fit = self.fit_fiducials() if len([f for f in fids if f["ref"] in marks]) >= 2 else None
+                if fit is None:
+                    fit = {"layout_only": True, "residual_mm": {}, "used": [], "max_mm": None,
+                           "ppm": round(vision.px_per_mm(M), 3), "rotation": round(math.degrees(math.atan2(M[1, 0], M[0, 0])), 3)}
+                    self.data["transform"] = M.tolist()
+                fit.update(confidence=info["evidence"], look_alike=info["look"], low_confidence=bool(info["evidence"] < 1.03 and not (fit.get("used") and len(fit["used"]) >= 3 and (fit.get("max_mm") or 9) < 0.15)),
+                           alternatives=info["n"])
+                self.data["fid_fit"] = fit
+                self.save()
+                return {"marks": [{"ref": f["ref"], **(marks.get(f["ref"]) or {"missing": True})} for f in fids], "fit": fit, "params": par}
         ppm = vision.px_per_mm(M)
         out = []
         todo, cl = [], []
@@ -813,14 +794,15 @@ class Program:
                 continue
             d, shape = self._fid_geom(f, par)
             pred = vision.apply(M, [vision.mm_src(f["x"], f["y"], yu)])[0]
-            sr = par["search_mm"] if coarse or self.M0 is not None else max(par["search_mm"], 6)
+            sr = par["search_mm"]
             c = vision.find_fiducial(chans, pred, d / 2 * ppm, sr * ppm, par["polarity"], par["threshold"], shape,
                                      channel=par.get("channel", "auto"), topk=5)
             c = [x for x in c if x["score"] >= par["min_score"] * 0.6]
             todo.append((f, pred))
             cl.append(c)
         # choose the dots as a set: they must sit in the layout's fiducial geometry, not just look like dots
-        chosen = vision.consistent_fids([vision.mm_src(f["x"], f["y"], yu) for f, _ in todo], cl, ppm_hint=ppm) if todo else []
+        chosen = vision.consistent_fids([vision.mm_src(f["x"], f["y"], yu) for f, _ in todo], cl, ppm_hint=ppm, chans=chans,
+                                        r_px=max(2.5, self._fid_geom(fids[0], par)[0] / 2 * ppm * 1.2)) if todo else []
         for (f, pred), r in zip(todo, chosen):
             if r:
                 marks[f["ref"]] = {**r, "source": "auto"}
@@ -841,7 +823,7 @@ class Program:
                 out = [{"ref": f["ref"], **(marks.get(f["ref"]) or {"missing": True})} for f in fids]
         self.data["fid_marks"] = marks
         fit = self.fit_fiducials() if sum(1 for f in fids if f["ref"] in marks) >= 2 else None
-        bad_fit = fit is None or (fit.get("confidence") or 0) < 1.15 or (len(fit.get("used", [])) >= 3 and (fit.get("max_mm") or 0) > 0.6)
+        bad_fit = fit is None or (fit.get("confidence") or 0) < 1.05 or (len(fit.get("used", [])) >= 3 and (fit.get("max_mm") or 0) > 0.6)
         if coarse and bad_fit:
             # the dots found disagree with where the parts are: keep the layout alignment, let the user confirm dots
             self.data["transform"] = coarse[0].tolist()
@@ -852,6 +834,65 @@ class Program:
             self.data["fid_fit"] = fit
             self.save()
         return {"marks": out, "fit": fit, "params": par}
+
+    def _auto_align(self, img, par, chans, fids):
+        """Find the board with no prior: gather candidate alignments (fiducial-geometry hypotheses and the
+        whole-layout pad match, both Y senses), lock each onto nearby fiducials, then keep the one whose parts
+        land on real soldered pads (pad evidence) with look-alike fiducials. Returns (M, y_up, marks, info) or None."""
+        d0 = self._fid_geom(fids[0], par)[0]
+        pr, ah = None, None
+        bo = vision.board_outline(img)
+        if bo is not None:
+            (_, (bw, bh), ang) = bo[0]
+            pts = np.float64([(c["x"], c["y"]) for c in self.data["components"]])
+            span = max(np.ptp(pts[:, 0]), np.ptp(pts[:, 1]))
+            if span > 5:
+                est = max(bw, bh) / span
+                pr, ah = (est * 0.45, est * 1.08), ang  # the board is at least as big as the layout: upper bound
+        E = vision.evidence_map(vision.prep(img))
+        cands = []
+        for y in (True, False):
+            pool = []
+            vision.auto_fiducials(img, fids, self.data["components"], y, d0, max_cands=250 if pr else 120,
+                                  ppm_range=pr, angle_hint=ah, evidence_src=self.layout_points(y), pool_out=pool)
+            cands += [(Mh, y, "fiducials") for Mh in pool]
+        if pr:
+            lr = vision.layout_register(img, {True: self.layout_points(True), False: self.layout_points(False)}, (pr[0], pr[1] * 1.05), ah)
+            if lr:
+                cands.append((lr[0], lr[1], "layout"))
+        best = None
+        for Mh, y, how in cands:
+            ppm = vision.px_per_mm(Mh)
+            srcs, cl = [], []
+            for f in fids:
+                d, shape = self._fid_geom(f, par)
+                pred = vision.apply(Mh, [vision.mm_src(f["x"], f["y"], y)])[0]
+                c = vision.find_fiducial(chans, pred, d / 2 * ppm, max(par["search_mm"], 3.0) * ppm, par["polarity"], par["threshold"],
+                                         shape, channel=par.get("channel", "auto"), topk=5)
+                srcs.append(vision.mm_src(f["x"], f["y"], y))
+                cl.append([x for x in c if x["score"] >= par["min_score"] * 0.6])
+            r_px = max(2.5, d0 / 2 * ppm * 1.2)
+            chosen = vision.consistent_fids(srcs, cl, ppm_hint=ppm, chans=chans, r_px=r_px)
+            got = [(s_, c) for s_, c in zip(srcs, chosen) if c]
+            M2, look, tri = Mh, 0.0, 0.0
+            if len(got) >= 2:
+                Mf = vision.similarity_from_pairs([g[0] for g in got], [(g[1]["px"], g[1]["py"]) for g in got])
+                if 0.9 < vision.px_per_mm(Mf) / ppm < 1.1:
+                    M2 = Mf
+                    look = vision.fid_look_alike(chans, [(g[1]["px"], g[1]["py"]) for g in got], r_px)
+                    if len(got) >= 3:  # any 2 dots fit a similarity; 3+ in the exact layout triangle is real proof
+                        res = max(math.dist(vision.apply(Mf, [g[0]])[0], (g[1]["px"], g[1]["py"])) for g in got) / vision.px_per_mm(Mf)
+                        tri = 0.35 if res < 0.15 and look >= 0.85 else 0.15 if res < 0.3 else 0.07 if res < 0.6 else 0.0
+            ev = vision.layout_evidence(E, M2, np.float64(self.layout_points(y))) or 0
+            score = ev + 0.3 * max(0.0, look) + 0.02 * len(got) + (tri if look >= 0.4 else 0.0)
+            if best is None or score > best[0]:
+                marks = {f["ref"]: {**c, "source": "auto"} for f, c in zip(fids, chosen) if c and M2 is not Mh}
+                best = (score, M2, y, marks, {"evidence": round(float(ev), 3), "look": round(float(look), 3), "how": how})
+        if best is None:
+            return None
+        _, M, y, marks, info = best
+        info["n"] = len(cands)
+        return M, y, marks, info
 
     TEACH_DEFAULTS = {"polarity": "auto", "threshold": None, "blur": 3, "rmin_px": None, "rmax_px": None,
                       "roundness": 0.55, "search_mm": 2.5, "min_match": 0.5, "min_score": 0.4, "channel": "auto"}
@@ -1103,6 +1144,9 @@ class Program:
             return result
         cv2.imwrite(str(rdir / "board.jpg"), warped, [cv2.IMWRITE_JPEG_QUALITY, 88])
         # focus / camera distance differ between shots: soften the sharper image so both match before comparing
+        lg, lt = float(vision.prep(gold).mean()), float(vision.prep(warped).mean())
+        if self.data.get("match_lighting", True) and abs(lg - lt) > 0.2 * max(lg, 1.0):
+            warped = vision.match_lighting(gold, warped)  # clearly different exposure: compare like-for-like
         gold_c, warped_c, sharp = vision.match_sharpness(gold, warped)
         reg["sharpness"] = sharp
         g, t = vision.prep(gold_c), vision.prep(warped_c)

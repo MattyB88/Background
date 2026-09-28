@@ -150,15 +150,17 @@ def blob_candidates(gray, max_r, polarity="auto"):
     return keep
 
 
-def evidence_map(gray):
-    """Local detail (edge strength) map: parts and pads are busy, bare solder mask is not."""
-    g = cv2.GaussianBlur(gray, (3, 3), 0)
-    e = cv2.magnitude(cv2.Sobel(g, cv2.CV_32F, 1, 0), cv2.Sobel(g, cv2.CV_32F, 0, 1))
-    e = cv2.GaussianBlur(e, (0, 0), 2)
-    return e / (np.percentile(e, 99) + 1e-6)
+def evidence_map(gray, k=15):
+    """Where soldered pads are: small bright metal spots (white top-hat). Soldered leads / terminals are shiny,
+    solder mask, part bodies and silkscreen-free areas are not."""
+    g = gray.astype(np.float32)
+    k = max(5, int(k) | 1)
+    th = cv2.morphologyEx(g, cv2.MORPH_TOPHAT, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k)))
+    th = cv2.GaussianBlur(th, (0, 0), 1.5)
+    return th / (np.percentile(th, 99.5) + 1e-6)
 
 
-def layout_evidence(E, M, pts_src, shift_mm=2.5):
+def layout_evidence(E, M, pts_src, shift_mm=1.5):
     """How much better the layout's pads land on image detail than the same pattern nudged a few mm away.
     ~1.0 = no better than chance (wrong alignment); >1.4 = the parts really are where the layout says."""
     if pts_src is None or len(pts_src) < 5:
@@ -228,7 +230,7 @@ def layout_register(img, pts_by_yup, ppm_range, angle_hint=None, work=520):
 
     def emap(work_px):
         f = min(1.0, work_px / max(H0, W0))
-        E = evidence_map(cv2.resize(gray, None, fx=f, fy=f, interpolation=cv2.INTER_AREA))
+        E = evidence_map(cv2.resize(gray, None, fx=f, fy=f, interpolation=cv2.INTER_AREA), k=15 * f * 2)
         return (E - E.mean()).astype(np.float32), f
 
     E, f = emap(work)
@@ -247,8 +249,33 @@ def layout_register(img, pts_by_yup, ppm_range, angle_hint=None, work=520):
     return A, yu, float(mv)
 
 
+def _radial_profile(chans, p, r):
+    x, y = p
+    R = int(r * 2.5) + 2
+    out = []
+    for im in chans.values():
+        xi, yi = int(round(x)), int(round(y))
+        pat = im[yi - R:yi + R + 1, xi - R:xi + R + 1].astype(np.float32)
+        if pat.shape != (2 * R + 1, 2 * R + 1):
+            return None
+        yy, xx = np.mgrid[-R:R + 1, -R:R + 1]
+        d = np.hypot(xx, yy) / max(r, 1.0)
+        out += [float(pat[(d >= a) & (d < a + 0.25)].mean()) for a in np.arange(0, 2.5, 0.25)]
+    v = np.float32(out)
+    return (v - v.mean()) / (v.std() + 1e-3)
+
+
+def fid_look_alike(chans, pts, r):
+    """Real fiducials on a board all look the same (size, colour, ring around them); a wrong set usually mixes a
+    via, a hole and a pad. Minimum pairwise similarity of rotation-free radial profiles, -1..1 (true sets ~0.7)."""
+    P = [_radial_profile(chans, p, r) for p in pts]
+    if len(P) < 2 or any(v is None for v in P):
+        return 0.0
+    return float(min((a * b).mean() for i, a in enumerate(P) for b in P[i + 1:]))
+
+
 def auto_fiducials(img, fids, comps, y_up=True, fid_diam_mm=1.0, polarity="auto", max_cands=120, ppm_range=None, angle_hint=None,
-                   evidence_src=None):
+                   evidence_src=None, pool_out=None):
     """Find fiducials without a known scale: hypothesise from candidate pairs, verify on all fiducials.
 
     Works on a downscaled copy for speed; returns (M, matched_px) in full-resolution px or (None, [])."""
@@ -292,7 +319,7 @@ def auto_fiducials(img, fids, comps, y_up=True, fid_diam_mm=1.0, polarity="auto"
                 continue
         p = apply(M, all_src)
         span = np.ptp(p, axis=0)
-        if max(span[0] / w, span[1] / h) < 0.5:  # the layout must fill a sensible part of the photo
+        if max(span[0] / w, span[1] / h) < (0.25 if ppm_range else 0.5):  # the layout must fill a sensible part of the photo
             continue
         if np.mean((p[:, 0] > -2) & (p[:, 0] < w + 2) & (p[:, 1] > -2) & (p[:, 1] < h + 2)) < 0.9:
             continue
@@ -307,9 +334,45 @@ def auto_fiducials(img, fids, comps, y_up=True, fid_diam_mm=1.0, polarity="auto"
         if (int(ok.sum()), score) > (best[0], best[1]):
             best = (int(ok.sum()), score, M, [tuple(cxy[k]) for k in j])
     auto_fiducials.confidence = None
-    if hyps and evidence_src is not None and len(evidence_src) >= 5:
+    auto_fiducials.geom_ok = False
+    auto_fiducials.look = None
+    if hyps and len(src) >= 2:
+        # among the geometric fits, the real set is the one whose dots all look alike
+        chans = fid_channels(img)
+        top_n = max(h_[0] for h_ in hyps)
+        pool = sorted([h_ for h_ in hyps if h_[0] == top_n], key=lambda h_: -h_[1])[:3000]
+        scored = []
+        for h_ in pool:
+            pts = [(q[0] / f, q[1] / f) for q in h_[3]]
+            r_px = 0.5 * fid_diam_mm * px_per_mm(h_[2]) / f
+            pf = apply(h_[2], src)
+            res_mm = max(math.dist(pf[i], h_[3][i]) for i in range(len(src))) / px_per_mm(h_[2])
+            scored.append((fid_look_alike(chans, pts, max(2.5, r_px * 1.2)), -res_mm, h_))
+        scored.sort(key=lambda t: (-t[0], -t[1]))
+        alike = [t for t in scored if t[0] >= 0.4][:200]
+        if pool_out is not None:  # full-resolution candidate transforms for the caller to judge
+            for t in (alike or scored)[:12]:
+                Mt = t[2][2].copy() / f
+                pool_out.append(Mt)
+        if alike and evidence_src is not None and len(evidence_src) >= 5:
+            # look-alike dots in the right geometry can still be holes / vias: the parts must land on soldered pads
+            E = evidence_map(gs, k=15 * f)
+            ev = [layout_evidence(E, t[2][2], np.float64(evidence_src)) or 0 for t in alike]
+            k = int(np.argmax([e_ + 0.3 * t[0] for e_, t in zip(ev, alike)]))
+            look, nres, h_ = alike[k]
+            best = h_
+            auto_fiducials.look, auto_fiducials.confidence = round(look, 3), ev[k]
+            auto_fiducials.geom_ok = top_n >= min(3, len(src)) and -nres < 0.5 and ev[k] >= 1.08
+        elif alike:
+            look, nres, h_ = alike[0]
+            best = h_
+            auto_fiducials.look = round(look, 3)
+            auto_fiducials.geom_ok = top_n >= min(3, len(src)) and -nres < 0.5
+        elif top_n >= 3:
+            best = (-1, -1e18, None, None)  # no set of look-alike dots in the right geometry
+    if hyps and evidence_src is not None and len(evidence_src) >= 5 and not auto_fiducials.geom_ok and best[2] is not None:
         # several dot patterns can fit the fiducials; the right one is where the whole layout lands on real parts
-        E = evidence_map(gs)
+        E = evidence_map(gs, k=15 * f)
         top_n = max(h_[0] for h_ in hyps)
         pool = sorted([h_ for h_ in hyps if h_[0] >= max(2, top_n - 1)], key=lambda h_: (-h_[0], -h_[1]))[:60]
         ev = [(layout_evidence(E, h_[2], np.float64(evidence_src)) or 0) for h_ in pool]
@@ -596,7 +659,7 @@ def _fid_refine(t, H, fids, chans=None):
     return H2 / H2[2, 2], float(res.max()), len(got_t)
 
 
-def consistent_fids(src, cand_lists, max_res_mm=0.8, ppm_hint=None):
+def consistent_fids(src, cand_lists, max_res_mm=0.8, ppm_hint=None, chans=None, r_px=4.0):
     """Pick one candidate per fiducial (or none) so the set fits a similarity best.
     src: mm_src points; cand_lists: per fiducial [{px, py, score}...]. Returns list of chosen dicts / None."""
     idx = [i for i, c in enumerate(cand_lists) if c]
@@ -612,7 +675,8 @@ def consistent_fids(src, cand_lists, max_res_mm=0.8, ppm_hint=None):
             continue
         res = [math.dist(apply(M, [a])[0], b) / ppm for a, b in zip(ss, pts)]
         sc = sum(cand_lists[i][k]["score"] for i, k in zip(idx, combo))
-        key = (max(res) if len(idx) > 2 else 0) - 0.2 * sc
+        look = fid_look_alike(chans, pts, r_px) if chans is not None else 0.0
+        key = (max(res) if len(idx) > 2 else 0) - 0.2 * sc - 0.6 * look
         if len(idx) > 2 and max(res) > max_res_mm:
             continue
         if best is None or key < best[0]:
@@ -751,6 +815,22 @@ def register_outline(g_img, t_img, g, t):
         if sc > best[0]:
             best = (sc, M)
     return best[1] if best[0] > 0.3 else None
+
+
+def match_lighting(gold, test, sigma_frac=0.04):
+    """Make *test* look lit like *gold*: per LAB channel, match the local mean and contrast (large-scale gain and
+    offset), so a darker / warmer / unevenly lit shot compares like-for-like. Small detail is untouched."""
+    lg = cv2.cvtColor(gold, cv2.COLOR_BGR2LAB).astype(np.float32)
+    lt = cv2.cvtColor(test, cv2.COLOR_BGR2LAB).astype(np.float32)
+    sig = max(8.0, sigma_frac * max(gold.shape[:2]))
+    out = np.empty_like(lt)
+    for c in range(3):
+        mg, mt = cv2.GaussianBlur(lg[..., c], (0, 0), sig), cv2.GaussianBlur(lt[..., c], (0, 0), sig)
+        sg = np.sqrt(np.maximum(cv2.GaussianBlur((lg[..., c] - mg) ** 2, (0, 0), sig), 1.0))
+        st = np.sqrt(np.maximum(cv2.GaussianBlur((lt[..., c] - mt) ** 2, (0, 0), sig), 1.0))
+        gain = np.clip(sg / st, 0.5, 2.5) if c == 0 else np.clip(sg / st, 0.7, 1.4)
+        out[..., c] = (lt[..., c] - mt) * gain + mg
+    return cv2.cvtColor(np.clip(out, 0, 255).astype(np.uint8), cv2.COLOR_LAB2BGR)
 
 
 def sharpness(img):
