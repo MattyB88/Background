@@ -97,6 +97,9 @@ class Program:
                           "dnf": dnf, "dx": 0, "dy": 0, "polar_part": polar_part,
                           "checks": own_checks, "th": {}})
         self.data["components"] = comps
+        ilib = self.ipn_library()
+        self.data["ipn_over"] = {c["ipn"]: {k: v for k, v in ilib[c["ipn"]].items() if k in self.GEOM + ("th", "checks")}
+                                 for c in comps if c.get("ipn") in ilib}
         self.data["transform"] = None
         self.data["fid_marks"] = {}
         self.data["adjust"] = {"dx": 0.0, "dy": 0.0, "rot": 0.0, "scale": 1.0}
@@ -107,12 +110,41 @@ class Program:
     def pkg(self, name) -> Package:
         return Package.from_dict(self.data["packages"][name])
 
+    GEOM = ("body_l", "body_w", "pads", "body_off", "ocv_roi", "pol_roi", "rot_off")
+
+    def level(self, c, scope, create=True):
+        """Geometry store for a scope: 'package' (all parts of the name), 'ipn' (all parts of that IPN), 'part' (designator)."""
+        if scope == "package":
+            return self.data["packages"][c["package"]]
+        if scope == "ipn":
+            if not c.get("ipn"):
+                raise ValueError(f"{c['ref']} has no IPN - use package or this part")
+            io = self.data.setdefault("ipn_over", {})
+            return io.setdefault(c["ipn"], {}) if create else io.get(c["ipn"], {})
+        return c.setdefault("over", {}) if create else (c.get("over") or {})
+
+    def geom(self, c):
+        """Merged geometry dict: package <- IPN override <- designator override. Also returns which levels are active."""
+        d = dict(self.data["packages"][c["package"]])
+        active = []
+        for sc in ("ipn", "part"):
+            o = self.level(c, sc, create=False) if (sc != "ipn" or c.get("ipn")) else {}
+            o = {k: v for k, v in o.items() if k in self.GEOM and v is not None}
+            if o:
+                active.append(sc)
+                d.update(o)
+        return d, active
+
     def eff(self, c):
-        """Part + package with the body offset applied: ROI centred on the body, pads shifted back onto the lands.
-        Offset = package body_off + the part's own body_dx/body_dy (mm, part frame)."""
-        pk = self.pkg(c["package"])
-        bo = pk.body_off or [0, 0]
+        """Part + package with all overrides applied: rotation offset, and the body offset
+        (ROI centred on the body, pads shifted back onto the lands)."""
+        d, _ = self.geom(c)
+        pk = Package.from_dict(d)
+        bo = d.get("body_off") or [0, 0]
         ox, oy = bo[0] + c.get("body_dx", 0), bo[1] + c.get("body_dy", 0)
+        ro = d.get("rot_off") or 0
+        if ro:
+            c = {**c, "rot": (c["rot"] + ro) % 360}
         if not (ox or oy):
             return c, pk
         r = math.radians(c["rot"])
@@ -120,6 +152,120 @@ class Program:
         c = {**c, "dx": c.get("dx", 0) + bx, "dy": c.get("dy", 0) + by}
         pk.pads = [[x - ox, y - oy, l, w] for x, y, l, w in pk.pads]
         return c, pk
+
+    def edit_geom(self, ref, scope, op, **kw):
+        """Change geometry of *ref* at *scope*. ops: body (key,factor), pads (mode,factor), move (target, part-frame dx,dy),
+        grow (target, factor), rotate (deg), reset (target | all)."""
+        c = next(x for x in self.data["components"] if x["ref"] == ref)
+        cur, _ = self.geom(c)
+        L = self.level(c, scope)
+        if op == "body":
+            d = resize({"body_l": cur["body_l"], "body_w": cur["body_w"], "pads": [list(p) for p in cur["pads"]]},
+                       **{kw["key"]: max(0.1, cur[kw["key"]] * kw["factor"])})
+            L.update(d)
+        elif op == "pads":
+            f = kw["factor"]
+            L["pads"] = [[round(x * f, 4), round(y * f, 4), l, w] if kw["mode"] == "span" else [x, y, round(l * f, 4), round(w * f, 4)]
+                         for x, y, l, w in cur["pads"]]
+        elif op in ("move", "grow"):
+            t = kw["target"]
+            if t == "body":
+                o = cur.get("body_off") or [0, 0]
+                L["body_off"] = [round(o[0] + kw.get("dx", 0), 4), round(o[1] + kw.get("dy", 0), 4)]
+            else:
+                k = t + "_roi"
+                bl, bw = cur["body_l"], cur["body_w"]
+                d = cur.get(k) or ([0, 0, bl * 0.6, bw * 0.6] if t == "ocv" else [-bl * 0.3, bw * 0.25, bl * 0.3, bw * 0.4])
+                g = kw.get("factor", 1)
+                L[k] = [round(d[0] + kw.get("dx", 0), 4), round(d[1] + kw.get("dy", 0), 4), round(max(0.1, d[2] * g), 4), round(max(0.1, d[3] * g), 4)]
+        elif op == "rotate":
+            L["rot_off"] = round(((cur.get("rot_off") or 0) + kw["deg"]) % 360, 3)
+        elif op == "reset":
+            keys = self.GEOM if kw.get("target") in (None, "all") else \
+                {"body": ("body_off",), "ocv": ("ocv_roi",), "pol": ("pol_roi",), "size": ("body_l", "body_w", "pads"), "rot": ("rot_off",)}[kw["target"]]
+            for k in keys:
+                if scope == "package":
+                    if k in ("body_off", "ocv_roi", "pol_roi", "rot_off"):
+                        L[k] = None
+                else:
+                    L.pop(k, None)
+            if kw.get("target") in ("body", None, "all") and scope == "part":
+                c["body_dx"] = c["body_dy"] = 0
+        if scope in ("package", "ipn") and self.data.get("auto_lib", True):
+            self.save_level_to_library(c, scope, overwrite=True)
+        self.save()
+        return self.geom(c)
+
+    # ------------------------------------------------ library (package names + IPNs)
+    @staticmethod
+    def ipn_library():
+        p = ROOT / "ipn_library.json"
+        return json.loads(p.read_text()) if p.exists() else {}
+
+    @staticmethod
+    def _lib_write(fname, lib, key, old):
+        ROOT.mkdir(parents=True, exist_ok=True)
+        if old is not None:  # keep every replaced version
+            with open(ROOT / "library_history.jsonl", "a") as f:
+                f.write(json.dumps({"file": fname, "key": key, "time": time.time(), "old": old}) + "\n")
+        (ROOT / fname).write_text(json.dumps(lib, indent=1))
+
+    def save_level_to_library(self, c, scope, overwrite=False, new_name=None):
+        """Save a package (by name) or IPN override to the shared library.
+        Returns {'conflict': {...}} when the library already holds a different version and overwrite is False."""
+        GK = self.GEOM + ("th", "checks", "polarized", "marking", "kind")
+        if scope == "package":
+            name = new_name or c["package"]
+            if new_name and new_name != c["package"]:  # variant: copy the package and move this part's IPN (or just this part) to it
+                self.data["packages"][new_name] = {**self.data["packages"][c["package"]], "name": new_name}
+                for x in self.data["components"]:
+                    if x["ref"] == c["ref"] or (c.get("ipn") and x.get("ipn") == c["ipn"]):
+                        x["package"] = new_name
+            entry = {k: v for k, v in self.data["packages"][name].items()}
+            lib, fname = self.library(), "library.json"
+        else:
+            name = c.get("ipn")
+            if not name:
+                raise ValueError("This part has no IPN")
+            entry = {k: v for k, v in self.data.get("ipn_over", {}).get(name, {}).items() if k in GK}
+            entry["package"] = c["package"]
+            lib, fname = self.ipn_library(), "ipn_library.json"
+        old = lib.get(name)
+        strip = lambda e: {k: e.get(k) for k in GK if e.get(k) is not None}
+        if old is not None and strip(old) != strip(entry) and not overwrite:
+            return {"conflict": {"name": name, "scope": scope, "library": strip(old), "program": strip(entry),
+                                 "from": old.get("_from"), "updated": old.get("_updated")}}
+        entry["_from"], entry["_updated"] = self.name, time.time()
+        lib[name] = entry
+        self._lib_write(fname, lib, name, old if old is not None and strip(old) != strip(entry) else None)
+        self.save()
+        return {"saved": name, "scope": scope}
+
+    def promote_ipn(self, c):
+        """Keep the library package; move this program's package changes into an override for this IPN only."""
+        lib = self.library().get(c["package"])
+        mine = self.data["packages"][c["package"]]
+        o = self.data.setdefault("ipn_over", {}).setdefault(c["ipn"], {})
+        for k in self.GEOM:
+            if mine.get(k) is not None and (lib or {}).get(k) != mine.get(k):
+                o[k] = mine[k]
+        if lib:
+            clean = {k: (None if k in ("body_off", "ocv_roi", "pol_roi", "rot_off") else mine.get(k)) for k in self.GEOM}
+            self.data["packages"][c["package"]] = {**mine, **clean, **lib, "name": c["package"]}
+        self.save_level_to_library(c, "ipn", overwrite=True)
+        self.save()
+
+    def use_library_version(self, c, scope):
+        """Replace the program's package / IPN geometry with the library copy."""
+        if scope == "package":
+            e = self.library().get(c["package"])
+            if e:
+                self.data["packages"][c["package"]] = {**self.data["packages"][c["package"]], **e, "name": c["package"]}
+        else:
+            e = self.ipn_library().get(c.get("ipn"))
+            if e:
+                self.data.setdefault("ipn_over", {})[c["ipn"]] = {k: v for k, v in e.items() if k in self.GEOM + ("th", "checks")}
+        self.save()
 
     def set_golden(self, img):
         cv2.imwrite(str(self.path("golden.png")), img)
@@ -690,7 +836,7 @@ class Program:
         for c0 in self.data["components"]:
             c, pkg = self.eff(c0)
             ctr, ang = vision.comp_pose(M, c, self.data["y_up"])
-            out.append({"ocv_roi": pkg.ocv_roi, "pol_roi": pkg.pol_roi, "ref": c["ref"], "cx": ctr[0], "cy": ctr[1], "angle": ang, "ppm": ppm,
+            out.append({"ocv_roi": pkg.ocv_roi, "pol_roi": pkg.pol_roi, "levels": self.geom(c0)[1], "ipn": c0.get("ipn", ""), "ref": c["ref"], "cx": ctr[0], "cy": ctr[1], "angle": ang, "ppm": ppm,
                         "body": [pkg.body_l, pkg.body_w], "pads": pkg.pads, "package": c["package"],
                         "enabled": c["enabled"], "fiducial": c["fiducial"], "part": c["part"]})
         return out

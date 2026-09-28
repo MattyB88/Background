@@ -420,3 +420,28 @@ def test_body_offset_keeps_pads_on_lands(prog):
     prog.data["packages"][c["package"]]["ocv_roi"] = [0, 0, 0.5, 0.3]
     r = prog.inspect(synth.render(), log=False)
     assert any(x["ref"] == c["ref"] for x in r["components"])
+
+
+def test_scope_levels_and_library(prog):
+    parts = [c for c in prog.data["components"] if not c["fiducial"] and c["enabled"]]
+    a = parts[0]
+    b = next((c for c in parts[1:] if c["package"] == a["package"]), None)
+    a["ipn"] = "IPN-A"
+    body0 = prog.geom(a)[0]["body_l"]
+    prog.edit_geom(a["ref"], "part", "body", key="body_l", factor=1.2)
+    assert abs(prog.geom(a)[0]["body_l"] - body0 * 1.2) < 1e-3 and prog.geom(a)[1] == ["part"]
+    if b:
+        assert abs(prog.geom(b)[0]["body_l"] - body0) < 1e-3  # other parts untouched
+    prog.edit_geom(a["ref"], "ipn", "move", target="ocv", dx=0.1, dy=0)
+    assert prog.geom(a)[1] == ["ipn", "part"]
+    prog.edit_geom(a["ref"], "part", "reset", target="all")
+    assert prog.geom(a)[1] == ["ipn"]
+    # package saved (auto) -> changing it again and saving without overwrite reports a conflict
+    prog.data["auto_lib"] = False
+    prog.save_level_to_library(a, "package", overwrite=True)
+    prog.edit_geom(a["ref"], "package", "rotate", deg=90)
+    r = prog.save_level_to_library(a, "package")
+    assert "conflict" in r
+    prog.promote_ipn(a)
+    assert prog.geom(a)[0].get("rot_off") == 90 and not prog.data["packages"][a["package"]].get("rot_off")
+    assert "IPN-A" in prog.ipn_library()

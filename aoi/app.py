@@ -428,6 +428,8 @@ def prog_settings(name):
         p.data["y_up"] = bool(body["y_up"])
     if "compare" in body:
         p.data.setdefault("compare", {}).update(body["compare"])
+    if "auto_lib" in body:
+        p.data["auto_lib"] = bool(body["auto_lib"])
     p.save()
     return jsonify(ok=True)
 
@@ -481,6 +483,45 @@ def edit_component(name, ref):
                 p.data["packages"][c["package"]] = derive(c["package"]).to_dict()
     p.save()
     return jsonify(ok=True, overlay=p.overlay())
+
+
+@app.put("/api/programs/<name>/component/<ref>/geom")
+def edit_geom(name, ref):
+    """Geometry change at scope package | ipn | part. 'screen': [x, y] mm moves in screen directions."""
+    p = _prog(name)
+    j = dict(request.json or {})
+    c = next(x for x in p.data["components"] if x["ref"] == ref)
+    if "screen" in j and p.M is not None:
+        ce, _ = p.eff(c)
+        M = p.M
+        v = np.linalg.solve(M[:, :2], np.float64(j.pop("screen")) * float(np.hypot(M[0, 0], M[1, 0])))
+        bx, by = float(v[0]), float(-v[1] if p.data["y_up"] else v[1])
+        r = np.radians(ce["rot"])
+        j["dx"], j["dy"] = bx * np.cos(r) + by * np.sin(r), -bx * np.sin(r) + by * np.cos(r)
+    scope, op = j.pop("scope", "package"), j.pop("op")
+    d, active = p.edit_geom(ref, scope, op, **j)
+    return jsonify(active=active, overlay=p.overlay())
+
+
+@app.post("/api/programs/<name>/component/<ref>/promote_ipn")
+def promote_ipn(name, ref):
+    p = _prog(name)
+    p.promote_ipn(next(x for x in p.data["components"] if x["ref"] == ref))
+    return jsonify(ok=True)
+
+
+@app.post("/api/programs/<name>/component/<ref>/library")
+def lib_level(name, ref):
+    """Save package / IPN adjustments to the shared library: mode check | overwrite | variant (new package name) | use_library."""
+    p = _prog(name)
+    j = request.json or {}
+    c = next(x for x in p.data["components"] if x["ref"] == ref)
+    if j.get("mode") == "use_library":
+        p.use_library_version(c, j.get("scope", "package"))
+        return jsonify(ok=True, overlay=p.overlay())
+    r = p.save_level_to_library(c, j.get("scope", "package"), overwrite=j.get("mode") == "overwrite",
+                                new_name=j.get("new_name") if j.get("mode") == "variant" else None)
+    return jsonify(**r, overlay=p.overlay())
 
 
 @app.put("/api/programs/<name>/package/<path:pkg>")

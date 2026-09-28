@@ -137,6 +137,23 @@ function side(){
     $("#bDemo").onclick=demo;return;}
   (PANELS[S.step]||(()=>{}))(el,d);
 }
+function libConflict(cf,c){const m=document.createElement("div");
+  m.style.cssText="position:fixed;inset:0;background:#000a;z-index:50;display:flex;align-items:center;justify-content:center";
+  const f=o=>Object.entries(o).filter(([k])=>!["th","checks"].includes(k)).map(([k,v])=>`${k}: ${Array.isArray(v)?(Array.isArray(v[0])?v.length+" pads":v.map(x=>+(+x).toFixed(2)).join(", ")):v}`).join("<br>");
+  m.innerHTML=`<div style="background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;width:min(520px,94vw)">
+   <h2>Library already has ${esc(cf.name)}</h2><div style="color:var(--dim);font-size:12px">saved from ${esc(cf.from||"?")} ${cf.updated?new Date(cf.updated*1000).toLocaleString():""} — and it's different</div>
+   <div style="display:flex;gap:8px;font-size:12px;margin:8px 0"><div style="flex:1" class="card"><b>Library</b><br>${f(cf.library)}</div><div style="flex:1" class="card"><b>This program</b><br>${f(cf.program)}</div></div>
+   <button class="big pri" data-a="overwrite">Overwrite library with mine (old copy kept in history)</button>
+   ${cf.scope=="package"?`<button class="big" data-a="variant">Save as a new package variant…</button>`:""}
+   ${cf.scope=="package"&&c.ipn?`<button class="big" data-a="ipn">Keep library package — save mine for IPN ${esc(c.ipn)} only</button>`:""}
+   <button class="big" data-a="use">Use the library version here</button><button data-a="x">Cancel</button></div>`;document.body.appendChild(m);
+  const U=P()+"/component/"+encodeURIComponent(c.ref)+"/library";
+  m.querySelectorAll("[data-a]").forEach(b=>b.onclick=async()=>{const a=b.dataset.a;
+    if(a=="overwrite")await api(U,{json:{scope:cf.scope,mode:"overwrite"}});
+    if(a=="variant"){const n=prompt("New package name",cf.name+"_"+(c.ipn||c.ref));if(!n)return;await api(U,{json:{scope:"package",mode:"variant",new_name:n}});}
+    if(a=="ipn"){await api(P()+"/component/"+encodeURIComponent(c.ref)+"/promote_ipn",{method:"POST"});}
+    if(a=="use")await api(U,{json:{scope:cf.scope,mode:"use_library"}});
+    m.remove();if(a!="x"){toast("✔ Done");await refresh();side();draw();}});}
 function pickBoard(boards,cb){const m=document.createElement("div");
   m.style.cssText="position:fixed;inset:0;background:#000a;z-index:50;display:flex;align-items:center;justify-content:center";
   m.innerHTML=`<div style="background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;width:min(460px,92vw);max-height:80vh;overflow:auto">
@@ -314,44 +331,61 @@ rois(el,d){
         (r.failed.length?`<div style="color:var(--dim);font-size:13px">Tap a part to set by hand: ${r.failed.map(esc).join(", ")}</div>`:"");};
     return;}
   const pk=d.packages[c.package];const ch={presence:true,polarity:pk.polarized,ocv:pk.marking,offset:true,bridge:pk.pads.length>=4,...(c.checks||{})};
-  el.innerHTML=`<h2>${c.ref} <small style="color:var(--dim);font-size:15px">${c.ipn?esc(c.ipn)+" · ":""}${c.part}</small></h2>
-   <div class="row"><span>Package</span><select id="pk">${Object.keys(d.packages).map(p=>`<option ${p==c.package?"selected":""}>${p}</option>`).join("")}</select></div>
-   <div class="row"><span>Step</span><select id="rStep">${[0.02,0.05,0.1,0.25,1].map(v=>`<option ${v==(S.rstep||0.05)?"selected":""}>${v}</option>`).join("")}</select><span>mm</span><select id="rStepD">${[0.5,1,2,5,15].map(v=>`<option ${v==(S.rstepd||1)?"selected":""}>${v}</option>`).join("")}</select><span>°</span></div>
-   <div class="seg" style="display:flex;gap:3px;margin:4px 0">${[["whole","Whole part"],["body","Body on pads"],["ocv","Marking box"],["pol","Polarity mark"]].map(([k,t])=>`<button data-t="${k}" class="${(S.mvT||"whole")==k?"pri":""}" style="flex:1;font-size:11px;padding:5px 2px">${t}</button>`).join("")}</div>
-   ${(S.mvT||"whole")=="body"?`<div class="row"><span>Apply to</span><select id="mvScope"><option value="part">this part only</option><option value="package" ${S.mvScope=="package"?"selected":""}>all ${esc(c.package)}</option></select></div>`:""}
-   <div class="pad"><button data-r="-1" title="Rotate anticlockwise (step)">⟲</button><button data-m="0,-1">▲</button><button data-r="1" title="Rotate clockwise (step)">⟳</button><button data-m="-1,0">◀</button><button id="bRot" title="Rotate 90°">90°</button><button data-m="1,0">▶</button><button id="bR180" title="Rotate 180° (polarity)">180°</button><button data-m="0,1">▼</button><button id="bRz" title="Reset this adjustment">↺</button></div>
-   ${["ocv","pol"].includes(S.mvT)?`<div class="row"><button data-g="-1">box −</button><button data-g="1">box ＋</button></div><div style="text-align:center;color:var(--dim);font-size:12px">${S.mvT=="ocv"?"Cyan box = where marking is read":"Magenta box = polarity dot / band / bevel"} (all ${esc(c.package)})</div>`:""}
-   ${(S.mvT||"whole")=="body"?`<div style="text-align:center;color:var(--dim);font-size:12px">Body offset ${(+(c.body_dx||0)).toFixed(2)}, ${(+(c.body_dy||0)).toFixed(2)} mm${pk.body_off?` · package ${pk.body_off.map(v=>v.toFixed(2)).join(", ")}`:""} — pads stay on the lands</div>`:""}
-   <div style="text-align:center;color:var(--dim);font-size:12px">Z ${(+c.rot).toFixed(1)}° · offset ${(+c.dx).toFixed(2)}, ${(+c.dy).toFixed(2)} mm</div>
-   <button id="bRotPk" style="width:100%" title="Machine package 0° differs? Turn every part of this package">⟳ Turn ALL ${esc(c.package)} parts 90°</button>
-   <div style="text-align:center;color:var(--dim);margin-top:6px">Leads / pads — all <b>${esc(c.package)}</b></div>
-   <div class="row"><button data-pd="span,-1" title="Pads closer together">span −</button><button data-pd="span,1">span ＋</button><button data-pd="size,-1">pad −</button><button data-pd="size,1">pad ＋</button></div>
-   <div style="text-align:center;color:var(--dim)">Body size — all <b>${c.package}</b> (${pk.body_l.toFixed(2)} × ${pk.body_w.toFixed(2)} mm)</div>
-   <button class="big pri" id="bFit"><span class="ico">✨</span>Auto-fit size from image</button>
+  const o=(d.overlay||[]).find(o=>o.ref==c.ref)||{body:[pk.body_l,pk.body_w],levels:[]};
+  const nIpn=c.ipn?d.components.filter(x=>x.ipn==c.ipn).length:0,nPk=d.components.filter(x=>x.package==c.package).length;
+  if(S.gScope=="ipn"&&!c.ipn)S.gScope="package";const sc=S.gScope||"package";
+  const T=S.mvT||"whole";
+  const lvl={package:"package",ipn:"IPN",part:"this part"};
+  el.innerHTML=`<h2>${esc(c.ref)} <small style="color:var(--dim);font-size:14px">${c.ipn?esc(c.ipn)+" · ":""}${esc(c.part)}</small></h2>
+   <div class="row"><span>Package</span><select id="pk">${Object.keys(d.packages).map(p=>`<option ${p==c.package?"selected":""}>${esc(p)}</option>`).join("")}</select></div>
+   <div class="card" style="padding:6px">
+    <div style="font-size:12px;color:var(--dim)">Changes below apply to:</div>
+    <div style="display:flex;gap:3px;margin:4px 0">${[["part",`${esc(c.ref)} only`,1],["ipn",c.ipn?`IPN ${esc(c.ipn)}`:"no IPN",nIpn],["package",`${esc(c.package)}`,nPk]].map(([k,t,n])=>`<button data-sc="${k}" ${k=="ipn"&&!c.ipn?"disabled":""} class="${sc==k?"pri":""}" style="flex:1;font-size:11px;padding:5px 2px">${t}<br><small>${n} part${n==1?"":"s"}</small></button>`).join("")}</div>
+    <div style="font-size:11px;color:var(--dim)">Priority: part › IPN › package. Active here: ${["package",...(o.levels||[])].map(x=>`<b>${lvl[x]}</b>`).join(" › ")}
+     ${(o.levels||[]).map(x=>`<a href="#" data-clr="${x}" style="color:var(--warn)">✕ clear ${lvl[x]}</a>`).join(" ")}</div>
+    ${sc!="part"?`<div class="row" style="margin-top:4px"><button id="gSave">💾 Save ${sc=="ipn"?"IPN":"package"} to library</button><button id="gLib" title="Replace with the library copy">⬇ Use library</button></div>
+     <label style="font-size:11px;display:flex;gap:5px;align-items:center"><input type="checkbox" id="gAuto" ${d.auto_lib!==false?"checked":""}> auto-save package / IPN changes to library</label>`:""}
+   </div>
+   <div style="display:flex;gap:3px;margin:6px 0">${[["whole","Whole part"],["body","Body on pads"],["ocv","Marking box"],["pol","Polarity mark"]].map(([k,t])=>`<button data-t="${k}" class="${T==k?"pri":""}" style="flex:1;font-size:11px;padding:5px 2px">${t}</button>`).join("")}</div>
+   <div class="hint" style="font-size:11px">🖱 Drag on the image: inside body = move · body edge/corner = size · pad = lead span (Shift = pad size) · cyan/magenta box = move, corner = size</div>
+   <div class="row"><span>Step</span><select id="rStep">${[0.02,0.05,0.1,0.25,1].map(v=>`<option ${v==(S.rstep||0.05)?"selected":""}>${v}</option>`).join("")}</select><span>mm</span><select id="rStepD">${[0.5,1,2,5,15,90].map(v=>`<option ${v==(S.rstepd||1)?"selected":""}>${v}</option>`).join("")}</select><span>°</span></div>
+   <div class="pad"><button data-r="1" title="Rotate anticlockwise">⟲</button><button data-m="0,-1">▲</button><button data-r="-1" title="Rotate clockwise">⟳</button><button data-m="-1,0">◀</button><button id="bR180" title="Turn 180°">180°</button><button data-m="1,0">▶</button><button data-g="-1" title="Smaller box">－</button><button data-m="0,1">▼</button><button data-g="1" title="Bigger box">＋</button></div>
+   <div class="row"><button id="bRz">↺ Reset ${T=="whole"?"position":T=="body"?"body offset":T=="ocv"?"marking box":"polarity box"}</button></div>
+   <div style="text-align:center;color:var(--dim);font-size:12px">Z ${(+c.rot).toFixed(1)}°${o.levels&&(o.levels.length||pk.rot_off)?"":""} · pos ${(+c.dx).toFixed(2)}, ${(+c.dy).toFixed(2)} mm · body ${o.body[0].toFixed(2)} × ${o.body[1].toFixed(2)}</div>
+   <div style="text-align:center;color:var(--dim);margin-top:4px">Body & leads (${lvl[sc]})</div>
    <div class="row"><button data-b="body_l,-1">L −</button><button data-b="body_l,1">L ＋</button><button data-b="body_w,-1">W −</button><button data-b="body_w,1">W ＋</button></div>
-   <div style="color:var(--dim);margin-top:10px">Checks</div>
+   <div class="row"><button data-pd="span,-1" title="Leads closer">↔ −</button><button data-pd="span,1" title="Leads further apart">↔ ＋</button><button data-pd="size,-1">pad −</button><button data-pd="size,1">pad ＋</button></div>
+   <button class="big pri" id="bFit"><span class="ico">✨</span>Auto-fit ${esc(c.package)} size from image</button>
+   <div style="color:var(--dim);margin-top:8px">Checks</div>
    <div class="chk">${[["presence","⬛ Missing"],["polarity","➕ Polarity"],["ocv","🔤 Marking"],["offset","↔ Offset"],["bridge","🔗 Bridge"]].map(([k,t])=>`<button data-c="${k}" class="${ch[k]?"on":""}">${ch[k]?"✔":"✖"} ${t}</button>`).join("")}</div>
    <div class="row"><button id="bRen">✏ Rename</button><button id="bDel" class="bad">🗑 Delete</button></div>
-   <details style="margin:8px 0"><summary style="font-size:18px;cursor:pointer">🎚 Fine-tune this part only</summary>
+   <details style="margin:8px 0"><summary style="cursor:pointer">🎚 Thresholds for this part only</summary>
    ${tuneBox({...d.thresholds,...(pk.th||{})},{...(c.th||{})},"c")}</details>
    <button class="big ${c.enabled?"":"pri"}" id="bEn">${c.enabled?"🚫 Skip this part":"✔ Inspect this part"}</button>
    <button class="big" id="bDone">✔ Done</button>`;
   const put=async b=>{const r=await api(P()+"/component/"+encodeURIComponent(c.ref),{method:"PUT",json:b});S.data.overlay=r.overlay;await refresh();side();draw();};
+  const geo=async b=>{await api(P()+"/component/"+encodeURIComponent(c.ref)+"/geom",{method:"PUT",json:{scope:sc,...b}});await refresh();side();draw();};
+  S.geo=geo;
+  el.querySelectorAll("[data-sc]").forEach(b=>b.onclick=()=>{S.gScope=b.dataset.sc;side();});
+  el.querySelectorAll("[data-clr]").forEach(a=>a.onclick=async e=>{e.preventDefault();await api(P()+"/component/"+encodeURIComponent(c.ref)+"/geom",{method:"PUT",json:{scope:a.dataset.clr,op:"reset",target:"all"}});await refresh();side();draw();});
+  const libSave=async mode=>{const r=await api(P()+"/component/"+encodeURIComponent(c.ref)+"/library",{json:{scope:sc,mode}});
+    if(r.conflict){libConflict(r.conflict,c);return;}toast("💾 Saved "+r.saved+" to library");await refresh();side();draw();};
+  if($("#gSave"))$("#gSave").onclick=()=>libSave("check");
+  if($("#gLib"))$("#gLib").onclick=async()=>{if(!confirm("Replace this program's "+(sc=="ipn"?"IPN "+c.ipn:c.package)+" adjustments with the library copy?"))return;await api(P()+"/component/"+encodeURIComponent(c.ref)+"/library",{json:{scope:sc,mode:"use_library"}});await refresh();side();draw();};
+  if($("#gAuto"))$("#gAuto").onchange=async e=>{await api(P()+"/settings",{method:"PUT",json:{auto_lib:e.target.checked}});await refresh();};
   $("#rStep").onchange=e=>S.rstep=+e.target.value;$("#rStepD").onchange=e=>S.rstepd=+e.target.value;
   el.querySelectorAll("[data-t]").forEach(b=>b.onclick=()=>{S.mvT=b.dataset.t;side();draw();});
-  if($("#mvScope"))$("#mvScope").onchange=e=>S.mvScope=e.target.value;
-  el.querySelectorAll("[data-m]").forEach(b=>b.onclick=()=>{const[x,y]=b.dataset.m.split(",").map(Number);const k=S.rstep||0.05;put({nudge_mm:[x*k,y*k],target:S.mvT||"whole",scope:S.mvScope||"part"});});
-  el.querySelectorAll("[data-g]").forEach(b=>b.onclick=()=>put({grow:+b.dataset.g,target:S.mvT}));
-  el.querySelectorAll("[data-r]").forEach(b=>b.onclick=()=>put({drot:-b.dataset.r*(S.rstepd||1)}));
-  $("#bRot").onclick=()=>put({drot:-90});$("#bR180").onclick=()=>put({drot:180});$("#bRz").onclick=()=>put({reset_target:S.mvT||"whole"});
-  $("#bRotPk").onclick=async()=>{await api(P()+"/package/"+encodeURIComponent(c.package),{method:"PUT",json:{rotate_parts:-90}});await refresh();side();draw();};
-  el.querySelectorAll("[data-pd]").forEach(b=>b.onclick=async()=>{const[k,sg]=b.dataset.pd.split(",");const f=1+.05*sg;
-    const pads=pk.pads.map(([x,y,l,w])=>k=="span"?[+(x*f).toFixed(4),+(y*f).toFixed(4),l,w]:[x,y,+(l*f).toFixed(4),+(w*f).toFixed(4)]);
-    await api(P()+"/package/"+encodeURIComponent(c.package),{method:"PUT",json:{pads}});await refresh();side();draw();});
+  el.querySelectorAll("[data-m]").forEach(b=>b.onclick=()=>{const[x,y]=b.dataset.m.split(",").map(Number);const k=S.rstep||0.05;
+    T=="whole"?put({nudge_mm:[x*k,y*k]}):geo({op:"move",target:T,screen:[x*k,y*k]});});
+  el.querySelectorAll("[data-g]").forEach(b=>b.onclick=()=>["ocv","pol"].includes(T)?geo({op:"grow",target:T,factor:1+.1*b.dataset.g}):toast("Pick Marking box or Polarity mark first"));
+  const rot=deg=>sc=="part"&&T=="whole"?put({drot:deg}):geo({op:"rotate",deg});
+  el.querySelectorAll("[data-r]").forEach(b=>b.onclick=()=>rot(+b.dataset.r*(S.rstepd||1)));
+  $("#bR180").onclick=()=>rot(180);
+  $("#bRz").onclick=()=>T=="whole"?put({dx:0,dy:0}):geo({op:"reset",target:T});
+  el.querySelectorAll("[data-pd]").forEach(b=>b.onclick=()=>{const[k,g]=b.dataset.pd.split(",");geo({op:"pads",mode:k,factor:1+.05*g});});
+  el.querySelectorAll("[data-b]").forEach(b=>b.onclick=()=>{const[k,g]=b.dataset.b.split(",");geo({op:"body",key:k,factor:1+.05*g});});
   $("#bFit").onclick=async()=>{const r=await api(P()+"/autofit/"+encodeURIComponent(c.package),{method:"POST"});
     toast(`✨ ${c.package}: ${r.body_l} × ${r.body_w} mm (measured on ${r.measured})`,4000);await refresh();side();draw();};
-  el.querySelectorAll("[data-b]").forEach(b=>b.onclick=async()=>{const[k,s]=b.dataset.b.split(",");const v=Math.max(.1,+(pk[k]*(1+.05*s)).toFixed(3));
-    await api(P()+"/package/"+encodeURIComponent(c.package),{method:"PUT",json:{[k]:v}});await refresh();side();draw();});
   el.querySelectorAll("[data-c]").forEach(b=>b.onclick=()=>put({checks:{...ch,[b.dataset.c]:!ch[b.dataset.c]}}));
   $("#pk").onchange=e=>put({package:e.target.value});
   $("#bEn").onclick=()=>put({enabled:!c.enabled});
@@ -639,10 +673,53 @@ cv.onwheel=e=>{e.preventDefault();
 let drag=null;
 const layMode=()=>S.step=="align"&&S.dragLayout&&S.data&&S.data.transform;
 const ppmNow=()=>(S.data.overlay&&S.data.overlay[0]&&S.data.overlay[0].ppm)||10;
-cv.onmousedown=e=>{drag={x:e.clientX,y:e.clientY,vx:S.view.x,vy:S.view.y,moved:false,lay:layMode()};};
-window.onmousemove=e=>{if(!drag)return;const dx=e.clientX-drag.x,dy=e.clientY-drag.y;if(Math.abs(dx)+Math.abs(dy)>4)drag.moved=true;
+// ---- click & drag editing of the selected part (Fine-tune)
+function partXY(o,px,py){const a=-o.angle*Math.PI/180,dx=px-o.cx,dy=py-o.cy;   // image px -> part mm (x right, y up)
+  return[(dx*Math.cos(a)-dy*Math.sin(a))/o.ppm,-(dx*Math.sin(a)+dy*Math.cos(a))/o.ppm];}
+function geoHit(o,p){const tol=7/S.view.s/o.ppm,[x,y]=p,T=S.mvT||"whole";
+  const inR=(r,m=0)=>Math.abs(x-r[0])<=r[2]/2+m&&Math.abs(y-r[1])<=r[3]/2+m;
+  const corner=r=>Math.abs(Math.abs(x-r[0])-r[2]/2)<tol*1.5&&Math.abs(Math.abs(y-r[1])-r[3]/2)<tol*1.5;
+  for(const[k,r]of[["pol",o.pol_roi],["ocv",o.ocv_roi]])if(r&&(T==k||T=="whole"||T=="body")){if(corner(r))return{kind:"grow",target:k,r};if(inR(r))return{kind:"move",target:k,r};}
+  const bl=o.body[0]/2,bw=o.body[1]/2,ex=Math.abs(Math.abs(x)-bl)<tol&&Math.abs(y)<=bw+tol,ey=Math.abs(Math.abs(y)-bw)<tol&&Math.abs(x)<=bl+tol;
+  if(ex||ey)return{kind:"size",ex,ey};
+  const inBody=Math.abs(x)<=bl&&Math.abs(y)<=bw;
+  const pi=o.pads.findIndex(q=>inR(q,tol*.5));if(pi>=0&&(!inBody||T=="body"))return{kind:"pad",pi,pad:o.pads[pi]};
+  if(Math.abs(x)<=bl&&Math.abs(y)<=bw)return{kind:"move",target:T=="whole"?"whole":"body"};
+  return null;}
+const geoMode=()=>S.step=="rois"&&S.sel&&!S.teachMode&&S.data&&S.data.transform;
+cv.onmousedown=e=>{let g=null;
+  if(geoMode()){const o=(S.data.overlay||[]).find(o=>o.ref==S.sel);if(o){const[ix,iy]=toImg(e);const h=geoHit(o,partXY(o,ix,iy));
+    if(h)g={...h,o,orig:JSON.parse(JSON.stringify(o)),p0:partXY(o,ix,iy),i0:[ix,iy],shift:e.shiftKey};}}
+  drag={x:e.clientX,y:e.clientY,vx:S.view.x,vy:S.view.y,moved:false,lay:layMode(),geo:g};};
+function geoPreview(g,ix,iy){const o=g.o,O=g.orig,p=partXY(O,ix,iy),dx=p[0]-g.p0[0],dy=p[1]-g.p0[1];
+  if(g.kind=="move"&&(g.target=="whole"||g.target=="body")){const a=O.angle*Math.PI/180,k=O.ppm;
+    o.cx=O.cx+(dx*Math.cos(a)+dy*Math.sin(a))*k;o.cy=O.cy+(dx*Math.sin(a)-dy*Math.cos(a))*k;
+    if(g.target=="body")o.pads=O.pads.map(q=>[q[0]-dx,q[1]-dy,q[2],q[3]]);g.res={dx,dy};}
+  else if(g.kind=="move"){const r=[...g.r];r[0]+=dx;r[1]+=dy;o[g.target+"_roi"]=r;g.res={dx,dy};}
+  else if(g.kind=="grow"){const f=Math.max(.2,Math.hypot(p[0]-g.r[0],p[1]-g.r[1])/Math.max(1e-3,Math.hypot(g.p0[0]-g.r[0],g.p0[1]-g.r[1])));
+    o[g.target+"_roi"]=[g.r[0],g.r[1],g.r[2]*f,g.r[3]*f];g.res={f};}
+  else if(g.kind=="size"){const fl=g.ex?Math.max(.2,Math.abs(p[0])/Math.max(1e-3,Math.abs(g.p0[0]))):1,fw=g.ey?Math.max(.2,Math.abs(p[1])/Math.max(1e-3,Math.abs(g.p0[1]))):1;
+    o.body=[O.body[0]*fl,O.body[1]*fw];g.res={fl,fw};}
+  else if(g.kind=="pad"){const q=g.pad,horiz=Math.abs(q[0])>=Math.abs(q[1]);
+    if(g.shift){const f=Math.max(.2,Math.hypot(p[0]-q[0],p[1]-q[1])/Math.max(1e-3,Math.hypot(g.p0[0]-q[0],g.p0[1]-q[1])));o.pads=O.pads.map(z=>[z[0],z[1],z[2]*f,z[3]*f]);g.res={mode:"size",f};}
+    else{const f=Math.max(.2,horiz?Math.abs(p[0])/Math.max(1e-3,Math.abs(g.p0[0])):Math.abs(p[1])/Math.max(1e-3,Math.abs(g.p0[1])));o.pads=O.pads.map(z=>[z[0]*f,z[1]*f,z[2],z[3]]);g.res={mode:"span",f};}}
+  draw();}
+async function geoCommit(g){const r=g.res;if(!r||!S.geo)return;const c=S.data.components.find(c=>c.ref==S.sel);
+  if(g.kind=="move"&&g.target=="whole"){const a=g.orig.angle*Math.PI/180,k=g.orig.ppm,sx=(r.dx*Math.cos(a)+r.dy*Math.sin(a)),sy=(r.dx*Math.sin(a)-r.dy*Math.cos(a));
+    await api(P()+"/component/"+encodeURIComponent(S.sel),{method:"PUT",json:{nudge_mm:[sx,sy]}});await refresh();side();draw();return;}
+  if(g.kind=="move")return S.geo({op:"move",target:g.target,dx:r.dx,dy:r.dy});
+  if(g.kind=="grow")return S.geo({op:"grow",target:g.target,factor:r.f});
+  if(g.kind=="size"){if(r.fl!=1)await S.geo({op:"body",key:"body_l",factor:r.fl});if(r.fw!=1)await S.geo({op:"body",key:"body_w",factor:r.fw});return;}
+  if(g.kind=="pad")return S.geo({op:"pads",mode:r.mode,factor:r.f});}
+window.onmousemove=e=>{
+  if(!drag&&e.target===cv){let cur="";if(geoMode()){const o=(S.data.overlay||[]).find(o=>o.ref==S.sel);if(o){const[ix,iy]=toImg(e);const h=geoHit(o,partXY(o,ix,iy));
+    if(h)cur=h.kind=="move"?"move":h.kind=="grow"?"nwse-resize":h.kind=="pad"?"ew-resize":h.ex&&h.ey?"nwse-resize":h.ex?"ew-resize":"ns-resize";}}cv.style.cursor=cur;}
+  if(!drag)return;const dx=e.clientX-drag.x,dy=e.clientY-drag.y;if(Math.abs(dx)+Math.abs(dy)>4)drag.moved=true;
+  if(drag.moved&&drag.geo){const[ix,iy]=toImg(e);geoPreview(drag.geo,ix,iy);return;}
+  if(!drag.moved&&!drag.geo&&geoMode()){}
   if(drag.moved){if(drag.lay)S.layDrag={x:dx/S.view.s,y:dy/S.view.s};else{S.view.x=drag.vx+dx;S.view.y=drag.vy+dy;}draw();}};
 window.onmouseup=async e=>{const d=drag;drag=null;
+  if(d&&d.geo&&d.moved){await geoCommit(d.geo);return;}
   if(d&&d.lay&&d.moved&&S.layDrag){const k=ppmNow(),o=S.layDrag;await S.adj({ddx:o.x/k,ddy:o.y/k});S.layDrag=null;draw();return;}
   if(!d||d.moved||e.target!==cv||!S.data)return;const[x,y]=toImg(e);
   if(S.step=="align"&&S.fidPick){const ref=S.fidPick;S.fidPick=null;S.fidSel=ref;const r=await api(P()+"/fiducials/mark",{json:{ref,px:x,py:y,snap:!e.altKey}});
