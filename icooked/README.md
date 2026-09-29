@@ -60,3 +60,9 @@ Tools stay wherever you put them down. If you leave the tweezers at Inspection, 
 | `scripts/` | Headless Playwright tours used for visual QA (`shots.mjs`, `scenario.mjs`, `interact.mjs`, `desk.mjs`) |
 
 All company, machine, software and part names are fictional.
+
+## Mobile
+
+- **Touch controls** are detected automatically. Hold the phone sideways: left thumb walks (a floating joystick), right thumb looks, tap **USE** at a station. At the benches, one finger uses the tool and two fingers pinch-zoom and pan.
+- **Android APK:** the `ICooked Android APK` GitHub Actions workflow (`.github/workflows/android-apk.yml`) builds a debug APK on every push to `icooked/`. It uploads it as a workflow artifact and to the `icooked-android-latest` pre-release. The Android project lives in `icooked/android` (Capacitor). To build locally with the Android SDK: `npm run build && npx cap sync android && cd android && ./gradlew assembleDebug`.
+- **iPhone:** play the web build in Safari. An iOS app needs a Mac with Xcode (`npx cap add ios`).

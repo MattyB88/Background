@@ -1,0 +1,6 @@
+{
+  "appId": "com.icooked.game",
+  "appName": "ICooked",
+  "webDir": "dist",
+  "android": { "backgroundColor": "#0e1012" }
+}

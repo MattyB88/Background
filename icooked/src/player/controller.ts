@@ -12,6 +12,9 @@ export class PlayerController {
   readonly pos = new THREE.Vector3(-4, 0, 1.2);
   private keys = new Set<string>();
   moving = 0;
+  /** Virtual joystick input from touch controls, -1..1 on each axis. */
+  touchMove = { x: 0, y: 0 };
+  touchSprint = false;
   enabled = true;
   sensitivity = 0.0022;
   private tween: { from: THREE.Vector3; fromQ: THREE.Quaternion; to: THREE.Vector3; toQ: THREE.Quaternion; t: number; dur: number; done?: () => void } | null = null;
@@ -31,6 +34,13 @@ export class PlayerController {
 
   get locked(): boolean {
     return document.pointerLockElement === this.dom;
+  }
+
+  /** Touch look: pixels dragged on screen. */
+  look(dx: number, dy: number) {
+    if (!this.enabled || this.parked) return;
+    this.yaw -= dx * this.sensitivity * 1.6;
+    this.pitch = clamp(this.pitch - dy * this.sensitivity * 1.6, -1.35, 1.25);
   }
 
   lock() {
@@ -111,13 +121,17 @@ export class PlayerController {
       if (this.keys.has('KeyS') || this.keys.has('ArrowDown')) mz -= 1;
       if (this.keys.has('KeyA') || this.keys.has('ArrowLeft')) mx -= 1;
       if (this.keys.has('KeyD') || this.keys.has('ArrowRight')) mx += 1;
+      mx += this.touchMove.x;
+      mz += this.touchMove.y;
     }
     const f = this.forward();
     const r = new THREE.Vector3(-f.z, 0, f.x);
     const move = f.multiplyScalar(mz).add(r.multiplyScalar(mx));
-    const sprint = this.keys.has('ShiftLeft') || this.keys.has('ShiftRight');
+    const sprint = this.keys.has('ShiftLeft') || this.keys.has('ShiftRight') || this.touchSprint;
     const speed = sprint ? 5.2 : 3.2;
-    if (move.lengthSq() > 0) move.normalize().multiplyScalar(speed * dt);
+    // Keyboard is all-or-nothing; the stick is analogue.
+    const amount = Math.min(1, move.length());
+    if (move.lengthSq() > 0) move.normalize().multiplyScalar(speed * dt * amount);
     this.moving = move.lengthSq() > 0 ? (sprint ? 1 : 0.6) : 0;
     this.pos.add(move);
     this.collide(this.pos);

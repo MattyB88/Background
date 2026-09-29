@@ -11,6 +11,7 @@ import { Game, type Ending } from './sim/game';
 import type { Station } from './stations/base';
 import { makeStations } from './stations';
 import { Hud } from './ui/hud';
+import { IS_TOUCH, TouchControls } from './ui/touch';
 import { EndScreen, PauseMenu, TitleScreen, loadBest } from './ui/screens';
 
 const TICK = 0.05;
@@ -45,12 +46,13 @@ export class App {
   readonly stationNames: Record<string, string> = Object.fromEntries(STATIONS.map((s) => [s.id, s.name]));
   mouseNdc = new THREE.Vector2();
   pointerDown = false;
+  touch: TouchControls | null = null;
   seed = Math.floor(Math.random() * 1e9);
 
   constructor(canvas: HTMLCanvasElement, ui: HTMLElement) {
     this.ui = ui;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, IS_TOUCH ? 1.5 : 2));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -64,6 +66,11 @@ export class App {
     this.scene.fog = new THREE.Fog(0x202328, 18, 42);
     this.scene.add(this.camera);
     ui.append(this.hud.root);
+    if (IS_TOUCH) {
+      document.body.classList.add('is-touch');
+      this.touch = new TouchControls(this);
+      ui.insertBefore(this.touch.root, this.hud.root);
+    }
     this.pause = new PauseMenu(this);
     this.title = new TitleScreen(this);
     this.bindInput();
@@ -350,6 +357,7 @@ export class App {
     const walking = this.mode === 'play' && !this.active && !this.player.parked;
     this.hands.setTool(this.selectedTool);
     this.hands.update(dt, this.player.moving, walking);
+    this.touch?.update(walking);
     if (this.mode === 'play') {
       this.updatePrompt();
       this.hud.update(g, this.toolAt, this.selectedTool, this.stationNames);
@@ -376,6 +384,10 @@ export class App {
   }
 
   private stepT = 0;
+
+  get nearStation(): Station | null {
+    return this.near;
+  }
 
   /** What should the player probably do next? Helps new players, ignorable by veterans. */
   objective(): string {

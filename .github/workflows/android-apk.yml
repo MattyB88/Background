@@ -1,0 +1,52 @@
+name: ICooked Android APK
+
+on:
+  push:
+    branches: [main, claude/pcba-manufacturing-game-rpkwpp]
+    paths: ['icooked/**', '.github/workflows/android-apk.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+    defaults:
+      run:
+        working-directory: icooked
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: icooked/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: npm ci
+      - run: npm run build
+      - run: npx cap sync android
+      - name: Build debug APK
+        working-directory: icooked/android
+        run: chmod +x gradlew && ./gradlew assembleDebug --no-daemon
+      - name: Rename APK
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk ICooked-debug.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ICooked-debug-apk
+          path: icooked/ICooked-debug.apk
+      - name: Publish to the "icooked-android-latest" pre-release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: icooked-android-latest
+          name: ICooked Android (latest test build)
+          body: Debug build for testing on Android. Download ICooked-debug.apk on your phone and allow installs from unknown sources.
+          prerelease: true
+          make_latest: false
+          target_commitish: ${{ github.sha }}
+          files: icooked/ICooked-debug.apk

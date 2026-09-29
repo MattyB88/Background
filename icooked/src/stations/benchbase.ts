@@ -14,14 +14,38 @@ export abstract class BenchStation extends Station {
 
   protected initBench() {
     this.overlay = document.createElement('div');
-    this.overlay.style.cssText = 'position:absolute;inset:0;pointer-events:auto';
+    this.overlay.style.cssText = 'position:absolute;inset:0;pointer-events:auto;touch-action:none';
     this.body.prepend(this.overlay);
     this.overlay.addEventListener('wheel', (e) => {
       e.preventDefault();
       this.app.bench.zoom(e.deltaY);
     }, { passive: false });
     this.overlay.addEventListener('contextmenu', (e) => e.preventDefault());
+    // Touch: one finger uses the tool, two fingers pinch-zoom and pan.
+    const touches = new Map<number, { x: number; y: number }>();
+    let pinch: { d: number; mx: number; my: number } | null = null;
+    const measure = () => {
+      const [a, b] = [...touches.values()];
+      return { d: Math.hypot(a.x - b.x, a.y - b.y), mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
+    };
+    const endTouch = (e: PointerEvent) => {
+      if (!touches.delete(e.pointerId)) return;
+      if (touches.size < 2) pinch = null;
+    };
     this.overlay.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'touch') {
+        touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (touches.size === 2) {
+          this.onRelease(e);
+          pinch = measure();
+          return;
+        }
+        if (touches.size > 2) return;
+        this.updateNdc(e);
+        this.refreshHover();
+        this.onPress(e);
+        return;
+      }
       if (e.button === 2 || e.button === 1) {
         this.panning = { x: e.clientX, y: e.clientY };
         this.overlay.setPointerCapture(e.pointerId);
@@ -30,6 +54,17 @@ export abstract class BenchStation extends Station {
       this.onPress(e);
     });
     this.overlay.addEventListener('pointermove', (e) => {
+      if (touches.has(e.pointerId)) {
+        touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (pinch && touches.size === 2) {
+          const m = measure();
+          if (m.d > 10 && pinch.d > 10) this.app.bench.zoom(Math.log(pinch.d / m.d) / 0.0015);
+          const k = this.app.bench.dist / window.innerHeight;
+          this.app.bench.pan(-(m.mx - pinch.mx) * k, -(m.my - pinch.my) * k);
+          pinch = m;
+          return;
+        }
+      }
       this.updateNdc(e);
       if (this.panning) {
         const k = this.app.bench.dist / window.innerHeight;
@@ -37,12 +72,19 @@ export abstract class BenchStation extends Station {
         this.panning = { x: e.clientX, y: e.clientY };
       }
     });
+    window.addEventListener('pointercancel', endTouch);
     window.addEventListener('pointerup', (e) => {
+      endTouch(e);
       this.panning = null;
       if (this.app.active === this) this.onRelease(e);
     });
     window.addEventListener('keydown', (e) => this.keys.add(e.code));
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
+  }
+
+  protected refreshHover() {
+    const b = this.app.bench.inst;
+    this.hover = b ? this.partUnderCursor(b) : null;
   }
 
   protected updateNdc(e: PointerEvent) {
@@ -84,8 +126,7 @@ export abstract class BenchStation extends Station {
     if (this.keys.has('ArrowDown') || this.keys.has('KeyS')) this.app.bench.pan(0, k);
     if (this.keys.has('Equal') || this.keys.has('NumpadAdd')) this.app.bench.zoom(-600 * dt);
     if (this.keys.has('Minus') || this.keys.has('NumpadSubtract')) this.app.bench.zoom(600 * dt);
-    const b = this.app.bench.inst;
-    this.hover = b ? this.partUnderCursor(b) : null;
+    this.refreshHover();
     if (this.hover) {
       const pkg = PACKAGES[this.hover.pkg];
       this.app.bench.showHighlight(this.hover.x + (this.hover.placed ? this.hover.dx : 0), this.hover.y + (this.hover.placed ? this.hover.dy : 0), Math.max(pkg.w, pkg.h) / 2 + 0.8);

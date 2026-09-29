@@ -187,3 +187,39 @@ td.cell-ipn { cursor: pointer; }
   .feeder-wrap, .hmi { grid-template-columns: 1fr; overflow: auto; }
   .side { width: calc(100vw - 20px); }
 }
+
+/* ---------- Touch controls ---------- */
+.touch-ui { position: fixed; inset: 0; pointer-events: none !important; }
+.touch-ui > * { pointer-events: auto; }
+.touch-zone { position: absolute; inset: 0; touch-action: none; }
+.stick { position: absolute; width: 120px; height: 120px; margin: -60px 0 0 -60px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.35); background: rgba(0,0,0,0.2); display: none; pointer-events: none !important; }
+.stick .knob { position: absolute; left: 35px; top: 35px; width: 50px; height: 50px; border-radius: 50%; background: rgba(255,255,255,0.55); }
+.tbtn { position: absolute; border-radius: 999px; border: 1px solid rgba(255,255,255,0.3); background: rgba(20,24,28,0.75); color: #fff; font: 700 14px var(--sans); touch-action: none; user-select: none; -webkit-user-select: none; }
+.tbtn.use { right: calc(16px + env(safe-area-inset-right)); bottom: 90px; min-width: 110px; max-width: 46vw; height: 64px; padding: 0 18px; background: rgba(201,138,16,0.9); color: #111; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tbtn.use:disabled { background: rgba(20,24,28,0.5); color: #999; }
+.tbtn.run { right: calc(16px + env(safe-area-inset-right)); bottom: 164px; width: 64px; height: 44px; }
+.tbtn.run.on { background: rgba(58,208,106,0.85); color: #111; }
+.tbtn.notes { right: calc(90px + env(safe-area-inset-right)); bottom: 164px; width: 50px; height: 44px; }
+.is-touch .hint-bar, .is-touch .crosshair { display: none !important; }
+.is-touch .pockets { bottom: 6px; left: 12px; transform: none; }
+.is-touch .pocket { width: 74px; font-size: 10px; padding: 4px; }
+.rotate-hint { display: none; position: fixed; left: 50%; top: 40%; transform: translate(-50%, -50%); background: rgba(10,12,14,0.9); padding: 14px 20px; border-radius: 12px; font-weight: 700; z-index: 90; pointer-events: none; text-align: center; }
+@media (orientation: portrait) and (pointer: coarse) { .rotate-hint { display: block; } }
+@media (max-height: 500px) {
+  .hud-chip { min-width: 64px; padding: 3px 8px; font-size: 11px; }
+  .hud-chip b { font-size: 14px; }
+  .objective { font-size: 11px; padding: 5px 8px; }
+  .station-bar { padding: 4px 8px; }
+  .station-bar h2 { font-size: 14px; }
+  .dock button { width: 64px; height: 44px; font-size: 10px; }
+  .dock .ico { font-size: 16px; }
+  .side { width: min(300px, 44vw); font-size: 12px; padding: 8px; }
+  .in-station .station-body { margin-bottom: 40px; }
+}
+.teach-canvas, .win-title, .desktop canvas { touch-action: none; }
+@media (max-height: 500px), (max-width: 900px) {
+  .objective { top: 58px; max-width: 42vw; }
+  .toasts { top: 58px; width: min(300px, 40vw); gap: 4px; }
+  .toast { font-size: 11px; padding: 5px 8px; }
+  .prompt { font-size: 13px; top: 52%; }
+}

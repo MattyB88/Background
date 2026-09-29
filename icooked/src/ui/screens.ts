@@ -62,6 +62,7 @@ export class TitleScreen {
         el('p', { class: 'tag' }, 'An SMT line. One operator. Sales has made promises. The oven has opinions. You will be fired — the only question is your score.'),
         best ? el('p', {}, `Best: ${best.score.toLocaleString('en-US')} pts, survived ${fmtTime(best.time)}`) : el('span'),
         controlsGrid(),
+        el('p', { style: 'color:#aab;font-size:13px;margin:8px 0 0' }, 'On a phone: hold it sideways. Left thumb walks, right thumb looks, tap USE at a station. Pinch to zoom at the benches.'),
         el('div', { class: 'menu-btns' }, go),
         el('div', { style: 'display:flex;gap:16px;flex-wrap:wrap;margin-top:14px;font-size:13px;color:#aab' },
           el('label', {}, 'Seed ', seedIn),
