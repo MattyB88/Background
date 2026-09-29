@@ -129,6 +129,10 @@ Only if v1.0 lands. Everything below builds on the same simulation core.
 - Console ports (Switch-style controls for the mini-games)
 - Mobile spin-off: **BOM Sudoku** as a standalone puzzle app
 
+### B6 — Engine re-evaluation
+- v1 ships on Three.js + Electron. That's enough for a ~$3 Steam game, and it's the stack that can be built, screenshotted and tested automatically.
+- If sales justify it, look at porting the renderer to Godot 4 for better lighting, performance and console reach. The `src/sim/` layer is plain TypeScript with no rendering, so the design and balance carry over as-is.
+
 ---
 
 ## Risks & Mitigations
