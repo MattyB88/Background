@@ -75,6 +75,13 @@ export function reflowBoard(b: BoardInst, heat: number, rng: Rng): void {
   for (const p of b.parts) {
     if (!p.placed || p.defect) continue;
     const kind = PACKAGES[p.pkg].kind;
+    // Symmetric two-terminal parts don't care about 180 degrees; everything else is polarised.
+    const symmetric = kind === 'chip' || kind === 'xtal';
+    if (symmetric && Math.abs(p.drot) > 90) p.drot = p.drot > 0 ? p.drot - 180 : p.drot + 180;
+    if (!symmetric && Math.abs(p.drot) > 45) {
+      p.defect = 'rotated';
+      continue;
+    }
     // Molten solder pulls small parts back towards the pads.
     const pull = kind === 'chip' || kind === 'led' ? 0.5 : kind === 'ic' ? 0.75 : 0.9;
     p.dx *= pull;
@@ -115,6 +122,7 @@ export function testLights(b: BoardInst): number {
 }
 
 const AOI_DETECT: Record<string, number> = {
+  rotated: 0.9,
   missing: 0.98, flicked: 0.98, tombstone: 0.95, bridge: 0.85, misalign: 0.8, dry: 0.4, scorch: 1,
 };
 

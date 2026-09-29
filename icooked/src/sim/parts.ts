@@ -113,15 +113,19 @@ export function resCode(ohms: number): string {
 
 function buildLibrary(): ErpPart[] {
   const parts: ErpPart[] = [];
-  let n = 100;
-  const next = (prefix: string) => `${prefix}-${String(n++).padStart(4, '0')}`;
+  // House IPN style: category prefix + running number, e.g. RES001, CAP014, IC003.
+  const counters: Record<string, number> = {};
+  const next = (prefix: string) => {
+    counters[prefix] = (counters[prefix] ?? 0) + 1;
+    return `${prefix}${String(counters[prefix]).padStart(3, '0')}`;
+  };
 
   for (const pkg of ['0402', '0603', '0805'] as PkgId[]) {
     for (const [v, ohms] of RES_VALUES) {
       for (const tol of ['1%', '5%']) {
         const pw = pkg === '0402' ? '1/16W' : pkg === '0603' ? '0.1W' : '1/8W';
         parts.push({
-          ipn: next('100'),
+          ipn: next('RES'),
           category: 'RES',
           value: v,
           pkg,
@@ -148,7 +152,7 @@ function buildLibrary(): ErpPart[] {
     for (const [v, variants] of caps) {
       for (const vr of variants) {
         parts.push({
-          ipn: next('200'),
+          ipn: next('CAP'),
           category: 'CAP',
           value: v,
           pkg,
@@ -164,10 +168,10 @@ function buildLibrary(): ErpPart[] {
   }
 
   parts.push(
-    { ipn: next('210'), category: 'TANT', value: '10uF', pkg: 'TANT_B', desc: 'CAP TANT 10uF 16V CASE-B', mpn: 'TB106K016', cost: 0.22, marking: '106', body: '#d8a019', variant: '16V' },
-    { ipn: next('210'), category: 'TANT', value: '47uF', pkg: 'TANT_B', desc: 'CAP TANT 47uF 10V CASE-B', mpn: 'TB476K010', cost: 0.31, marking: '476', body: '#d8a019', variant: '10V' },
-    { ipn: next('220'), category: 'ELEC', value: '100uF', pkg: 'ELEC_6', desc: 'CAP ALU 100uF 25V 6.3x5.4', mpn: 'EA101M025', cost: 0.18, marking: '100', body: '#1a2c5c', variant: '25V' },
-    { ipn: next('220'), category: 'ELEC', value: '220uF', pkg: 'ELEC_6', desc: 'CAP ALU 220uF 16V 6.3x5.4', mpn: 'EA221M016', cost: 0.21, marking: '220', body: '#1a2c5c', variant: '16V' },
+    { ipn: next('TAN'), category: 'TANT', value: '10uF', pkg: 'TANT_B', desc: 'CAP TANT 10uF 16V CASE-B', mpn: 'TB106K016', cost: 0.22, marking: '106', body: '#d8a019', variant: '16V' },
+    { ipn: next('TAN'), category: 'TANT', value: '47uF', pkg: 'TANT_B', desc: 'CAP TANT 47uF 10V CASE-B', mpn: 'TB476K010', cost: 0.31, marking: '476', body: '#d8a019', variant: '10V' },
+    { ipn: next('ELC'), category: 'ELEC', value: '100uF', pkg: 'ELEC_6', desc: 'CAP ALU 100uF 25V 6.3x5.4', mpn: 'EA101M025', cost: 0.18, marking: '100', body: '#1a2c5c', variant: '25V' },
+    { ipn: next('ELC'), category: 'ELEC', value: '220uF', pkg: 'ELEC_6', desc: 'CAP ALU 220uF 16V 6.3x5.4', mpn: 'EA221M016', cost: 0.21, marking: '220', body: '#1a2c5c', variant: '16V' },
   );
 
   const ics: [string, PkgId, string, string, number][] = [
@@ -184,16 +188,16 @@ function buildLibrary(): ErpPart[] {
     ['MCU8', 'QFP44', 'IC MCU 8BIT 32K FLASH QFP44', 'AT8M44', 2.4],
   ];
   for (const [v, pkg, desc, mark, cost] of ics) {
-    parts.push({ ipn: next('300'), category: pkg === 'SOT23' ? 'TRANS' : 'IC', value: v, pkg, desc, mpn: `ZX-${mark}`, cost, marking: mark, body: '#161616' });
+    parts.push({ ipn: next(pkg === 'SOT23' ? 'TR' : 'IC'), category: pkg === 'SOT23' ? 'TRANS' : 'IC', value: v, pkg, desc, mpn: `ZX-${mark}`, cost, marking: mark, body: '#161616' });
   }
 
   for (const [c, hex] of [['RED', '#ff3322'], ['GREEN', '#22ff55'], ['BLUE', '#3377ff']]) {
-    parts.push({ ipn: next('400'), category: 'LED', value: `LED_${c}`, pkg: 'LED0805', desc: `LED ${c} 0805 20mA`, mpn: `LD0805${c[0]}`, cost: 0.05, marking: '', body: hex });
+    parts.push({ ipn: next('LED'), category: 'LED', value: `LED_${c}`, pkg: 'LED0805', desc: `LED ${c} 0805 20mA`, mpn: `LD0805${c[0]}`, cost: 0.05, marking: '', body: hex });
   }
   for (const f of ['8MHz', '16MHz']) {
-    parts.push({ ipn: next('600'), category: 'XTAL', value: f, pkg: 'XTAL3225', desc: `XTAL ${f} 20pF 3225`, mpn: `XT3225-${f}`, cost: 0.24, marking: f.replace('MHz', '.000'), body: '#c7c9cc' });
+    parts.push({ ipn: next('XTL'), category: 'XTAL', value: f, pkg: 'XTAL3225', desc: `XTAL ${f} 20pF 3225`, mpn: `XT3225-${f}`, cost: 0.24, marking: f.replace('MHz', '.000'), body: '#c7c9cc' });
   }
-  parts.push({ ipn: next('500'), category: 'CONN', value: 'USB-C', pkg: 'USBC', desc: 'CONN USB-C RCPT 16P SMT', mpn: 'UC16-SMT', cost: 0.62, marking: '', body: '#b9bcc2' });
+  parts.push({ ipn: next('CON'), category: 'CONN', value: 'USB-C', pkg: 'USBC', desc: 'CONN USB-C RCPT 16P SMT', mpn: 'UC16-SMT', cost: 0.62, marking: '', body: '#b9bcc2' });
 
   // Approved alternates: 1% resistors can stand in for the matching 5% part.
   for (const p of parts) {

@@ -11,22 +11,55 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "desktop": "vite build && electron .",
-    "desktop:smoke": "electron . --no-sandbox --smoke-test --use-gl=angle --use-angle=swiftshader --enable-unsafe-swiftshader"
-  },
-  "dependencies": {
-    "@capacitor/android": "^8.5.2",
-    "@capacitor/core": "^8.5.2",
-    "three": "^0.186.1"
+    "desktop:smoke": "electron . --no-sandbox --smoke-test --use-gl=angle --use-angle=swiftshader --enable-unsafe-swiftshader",
+    "dist:win": "vite build && electron-builder --win portable --publish never"
   },
   "devDependencies": {
     "@capacitor/cli": "^8.5.2",
     "@types/node": "^26.6.3",
     "@types/three": "^0.186.0",
     "electron": "^44.4.5",
+    "electron-builder": "^26.15.3",
     "playwright-core": "^1.63.0",
     "typescript": "^7.0.2",
     "vite": "^8.3.1",
-    "vitest": "^5.0.2"
+    "vitest": "^5.0.2",
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/core": "^8.5.2",
+    "three": "^0.186.1"
   },
-  "main": "electron/main.cjs"
+  "main": "electron/main.cjs",
+  "build": {
+    "appId": "com.icooked.game",
+    "productName": "ICooked",
+    "asar": false,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "electron/**",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "portable": {
+      "artifactName": "ICooked-portable.exe"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "artifactName": "ICooked.AppImage"
+    }
+  },
+  "author": "ICooked"
 }

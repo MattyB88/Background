@@ -15,13 +15,18 @@ export class TouchControls {
   private use = el('button', { class: 'tbtn use' }, 'USE');
   private run = el('button', { class: 'tbtn run' }, 'RUN');
   private notes = el('button', { class: 'tbtn notes' }, '📝');
+  private clip = el('button', { class: 'tbtn clip' }, '📋');
   private moveId: number | null = null;
   private lookId: number | null = null;
   private origin = { x: 0, y: 0 };
   private last = { x: 0, y: 0 };
 
   constructor(private app: App) {
-    this.root.append(this.zone, this.stick, this.use, this.run, this.notes);
+    this.root.append(this.zone, this.stick, this.use, this.run, this.notes, this.clip);
+    this.clip.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      app.toggleClipboard();
+    });
     this.zone.addEventListener('pointerdown', (e) => this.down(e));
     this.zone.addEventListener('pointermove', (e) => this.move(e));
     this.zone.addEventListener('pointerup', (e) => this.up(e));

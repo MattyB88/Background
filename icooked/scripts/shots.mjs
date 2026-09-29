@@ -19,7 +19,7 @@ await page.evaluate(() => window.icooked.startRun(12345));
 await page.waitForTimeout(3000);
 await page.screenshot({ path: `${out}/02-walk.png` });
 
-const tour = process.env.TOUR ? process.env.TOUR.split(',') : ['desk', 'feeders', 'printer', 'px9', 'oven', 'aoi', 'test', 'inspect', 'rework'];
+const tour = process.env.TOUR ? process.env.TOUR.split(',') : ['desk', 'office', 'stores', 'feeders', 'printer', 'px9', 'oven', 'inspect'];
 let i = 3;
 for (const id of tour) {
   await page.evaluate(() => {

@@ -51,6 +51,13 @@ export class TitleScreen {
     vol.oninput = () => app.audio.setVolume(Number(vol.value));
     const music = el('input', { type: 'range', min: '0', max: '1', step: '0.05', value: String(app.audio.musicVolume) }) as HTMLInputElement;
     music.oninput = () => app.audio.setMusic(Number(music.value));
+    const q = el('select', { style: 'padding:4px;border-radius:6px;background:#111;color:#eee;border:1px solid #444' }) as HTMLSelectElement;
+    for (const [v, label] of [['high', 'High (AO, bloom, AA)'], ['low', 'Low (phones, old PCs)']]) {
+      const o = el('option', { value: v }, label) as HTMLOptionElement;
+      if (app.quality === v) o.selected = true;
+      q.append(o);
+    }
+    q.onchange = () => app.setQuality(q.value as 'high' | 'low');
     const go = el('button', { class: 'btn primary' }, 'Clock in');
     go.onclick = () => {
       const s = seedIn.value.trim();
@@ -67,7 +74,8 @@ export class TitleScreen {
         el('div', { style: 'display:flex;gap:16px;flex-wrap:wrap;margin-top:14px;font-size:13px;color:#aab' },
           el('label', {}, 'Seed ', seedIn),
           el('label', {}, 'Volume ', vol),
-          el('label', {}, 'Music ', music)),
+          el('label', {}, 'Music ', music),
+          el('label', {}, 'Graphics ', q)),
         el('p', { style: 'color:#778;font-size:12px;margin-top:14px' }, 'Tip: pausing does not stop the factory. Nothing stops the factory.'),
       ));
   }

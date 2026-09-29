@@ -35,16 +35,19 @@ const sim = (secs, until) => page.evaluate(([secs, until]) => {
 await page.evaluate(() => {
   const g = window.icooked.game;
   const j = g.jobs.find((x) => x.status === 'ready');
+  j.card = 'held';
   g.startJob(j);
   const prof = Array(g.padCount(j)).fill(1).map((v, i) => (i % 17 === 3 ? 0.05 : i % 23 === 5 ? 1.9 : v));
   g.setPrintProfile(j, prof);
   for (const [ipn, s] of Object.entries(j.program.setup)) g.loadFromStores(s, ipn);
   for (const k of g.stores.keys()) g.stores.set(k, 5000);
+  for (const s of g.slots) if (s.reel) s.reel.jam = false;
 });
 await sim(400, "g.panels.some(p => p.stage === 'px9' && p.placedIdx > 30)");
 await page.evaluate(() => { const a = window.icooked; a.player.pos.set(-6.5, 0, -0.6); a.player.yaw = 0.5; a.player.pitch = -0.35; });
 await shot('s01-px9-placing');
 await sim(400, "g.panels.some(p => p.stage === 'inspect')");
+await page.evaluate(() => { const p = window.icooked.game.panels.find((q) => q.stage === 'inspect'); if (p) p.held = true; });
 await enter('inspect');
 await shot('s02-inspect-board');
 await page.evaluate(() => { const a = window.icooked; const b = a.bench.inst; const p = b.parts.find(q => q.pkg === 'SOT23' || q.pkg === 'TSSOP16') ?? b.parts[0]; a.bench.focusOn(p.x, p.y, 22); });

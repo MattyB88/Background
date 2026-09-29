@@ -180,7 +180,31 @@ export class LineView {
     const lampOn = now < this.lampUntil || g.t < this.lampUntil;
     f.testLamps.forEach((m, i) => (m.emissiveIntensity = lampOn && i < this.lampLights ? 3 : 0.05));
     // Feeder reels spin while placing.
-    if (p && !L.px9Alarm) for (const r of f.feederReels) r.rotation.x += dt * 0.6;
+    const placing = !!p && !L.px9Alarm && L.machine === 'run' && L.feederOut === null;
+    f.feeders.forEach((fv, i) => {
+      const reel = g.slots[i]?.reel;
+      fv.reel.visible = !!reel;
+      fv.tape.forEach((t) => (t.visible = !!reel));
+      if (reel) {
+        const k = 0.35 + 0.65 * Math.min(1, reel.count / 400);
+        fv.wound.scale.set(k, 1, k);
+        if (placing) fv.reel.rotation.x += dt * 0.8;
+      }
+      // Pulled feeder slides out towards the operator.
+      const out = L.feederOut === i ? 0.3 : 0;
+      fv.group.position.z += (out - fv.group.position.z) * Math.min(1, dt * 5);
+    });
+    // Office printer: paper waiting in the tray.
+    const printed = g.jobs.filter((j) => j.card === 'printed').length;
+    if (f.cardStack.children.length !== printed) {
+      f.cardStack.clear();
+      for (let i = 0; i < printed; i++) {
+        const sheet = new THREE.Mesh(new THREE.BoxGeometry(0.21, 0.002, 0.15), M.white);
+        sheet.position.set((i % 2) * 0.01, i * 0.003, 0);
+        sheet.rotation.y = (i % 3) * 0.05;
+        f.cardStack.add(sheet);
+      }
+    }
   }
 
   private particles(dt: number) {
@@ -245,6 +269,14 @@ export class LineView {
     const L = g.line;
     const job = g.activeJob;
     const px = g.panels.find((q) => q.stage === 'px9');
+    f.officeScreen.draw((c, w, h) => {
+      c.fillStyle = '#0b2a14';
+      c.fillRect(0, 0, w, h);
+      c.fillStyle = '#6dff8a';
+      c.font = 'bold 26px monospace';
+      const n = g.jobs.filter((j) => j.card === 'printed').length;
+      c.fillText(n ? `TRAY ${n}` : 'READY', 8, 40);
+    });
     f.px9Screen.draw((c, w, h) => {
       c.fillStyle = '#aeb2c3';
       c.fillRect(0, 0, w, h);

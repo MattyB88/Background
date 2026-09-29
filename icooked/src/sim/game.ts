@@ -45,6 +45,12 @@ export interface LineState {
   px9Alarm: string | null;
   px9AlarmSlot: number | null;
   px9Paused: boolean;
+  /** PX-9 control state: running, stopped by the operator, or a safety fault. */
+  machine: 'run' | 'stop' | 'fault';
+  /** E-stop: 0 released, 1 pressed, 2 pressed again (override armed). Twist to release. */
+  estop: 0 | 1 | 2;
+  /** Slot index of a feeder pulled out of the machine. */
+  feederOut: number | null;
   maintenance: boolean;
   maintProgress: number;
   aoiT: number;
@@ -64,6 +70,16 @@ export interface Stats {
   jobsLate: number;
 }
 
+const CARD_SALES_NOTES = [
+  'Customer is "flexible" on date. They are not.',
+  'Promised these for the trade show. Which starts tomorrow.',
+  'They asked for gold plating. I said yes. Not sure what that means for you.',
+  'Repeat order. Last batch had a wonky LED apparently.',
+  'Please do not scrap any. We quoted exactly the quantity.',
+  'Customer might visit the line. Look busy.',
+  'Rush. Everything is rush. This one is extra rush.',
+];
+
 const SALES_LINES = [
   "Great news! I told them we'd do it by Thursday. Which Thursday? This one.",
   'Customer wants to know if we can do it in blue. The board. Not the solder mask. Everything.',
@@ -73,6 +89,12 @@ const SALES_LINES = [
   "Quick one: can we swap all the 0603s for 0402s? Should be easy, they're smaller.",
   "Boss says overtime is 'a mindset'.",
 ];
+
+export function wrapDeg(d: number): number {
+  let v = ((d + 180) % 360 + 360) % 360 - 180;
+  if (v === -180) v = 180;
+  return v;
+}
 
 export class Game {
   readonly rng: Rng;
@@ -97,11 +119,18 @@ export class Game {
   dump = new Map<string, number>();
   altRequests: { ipn: string; altIpn: string; readyAt: number }[] = [];
   testLog: { serial: string; lights: number; t: number; aoi: string[] }[] = [];
+  /** Reels on your trolley, picked from the stores rack. */
+  carried: Reel[] = [];
+  readonly carryMax = 8;
+  /** Parts that pinged off the bench onto the floor. */
+  floor: string[] = [];
+  /** A single loose part held in tweezers / on blue tack. */
+  hand: { ipn: string; from: 'floor' | 'feeder' } | null = null;
   taught: Partial<Record<PkgId, number>> = {};
   stats: Stats = { shipped: 0, firstPass: 0, reworked: 0, scrapped: 0, flicked: 0, gamblesWon: 0, gamblesLost: 0, maintenances: 0, jobsDone: 0, jobsLate: 0 };
   line: LineState = {
     activeJobId: null, printerDirt: 0, printerT: 0, feedStopped: false, ovenLastEntry: -99,
-    aoiScope: 'critical', px9Alarm: null, px9AlarmSlot: null, px9Paused: false,
+    aoiScope: 'critical', px9Alarm: null, px9AlarmSlot: null, px9Paused: false, machine: 'run', estop: 0, feederOut: null,
     maintenance: false, maintProgress: 0, aoiT: 0, testT: 0,
   };
   private nextJobAt = 40;
@@ -125,8 +154,12 @@ export class Game {
       }
     }
     this.productCursor = 3;
+    // General stock already on the stores rack: a bit of everything, most of it not what you need.
+    for (const p of this.rng.shuffle([...LIBRARY]).slice(0, 55)) {
+      this.stores.set(p.ipn, Math.round(REEL_SIZE[PACKAGES[p.pkg].feeder] * this.rng.range(0.3, 1)));
+    }
     // Day one: one in-house job ready, one contract on the table.
-    this.addJob('inhouse', 12);
+    this.addJob('inhouse', 12).card = 'printed';
     this.addJob('contract', 10);
     // Common parts already on the machine from yesterday.
     const common = ['RES 10K', 'CAP 100nF'];
@@ -212,12 +245,15 @@ export class Game {
       boardsDone: 0,
       lateCharged: false,
       printSeed: this.rng.int(1, 1e9),
+      card: 'none',
+      cardNotes: '',
+      salesNote: this.rng.pick(CARD_SALES_NOTES),
     };
     if (kind === 'inhouse') {
       const fit = this.panelFit(job);
       const desIpn: Record<string, string> = {};
       for (const p of product.board.placements) desIpn[p.des] = p.ipn;
-      job.program = { name: `${product.asmIpn}.px9`, nx: fit.nx, ny: fit.ny, fidQuality: 0.9, desIpn, setup: {} };
+      job.program = { name: `${product.asmIpn}.px9`, nx: fit.nx, ny: fit.ny, fidQuality: 0.9, desIpn, setup: {}, adjust: {}, checked: {} };
     } else {
       job.puzzle = makePuzzle(product, clamp(this.t / 3600, 0, 1), this.rng);
     }
@@ -280,7 +316,7 @@ export class Game {
     if (folder.correct) bonus += 150;
     this.score += bonus;
     j.answer = answer;
-    j.program = { name: name || `${j.product.asmIpn}.px9`, nx, ny, fidQuality, desIpn, setup: {} };
+    j.program = { name: name || `${j.product.asmIpn}.px9`, nx, ny, fidQuality, desIpn, setup: {}, adjust: {}, checked: {} };
     j.status = 'ready';
     const verdict = !folder.correct
       ? 'Program saved. (Something about that folder felt old.)'
@@ -325,8 +361,43 @@ export class Game {
     return setup;
   }
 
+  /**
+   * Operator accepted a component in the machine camera view. Returns how far the
+   * programmed position still is from the real lands (mm) and the rotation error.
+   */
+  checkComponent(j: Job, des: string): { off: number; rot: number } {
+    const prog = j.program!;
+    const truth = j.product.board.placements.find((p) => p.des === des)!;
+    const cad = j.product.cadPlacements.find((p) => p.des === des) ?? truth;
+    const adj = prog.adjust[des] ?? { dx: 0, dy: 0, drot: 0 };
+    const off = Math.hypot(cad.x + adj.dx - truth.x, cad.y + adj.dy - truth.y);
+    const pkg = PACKAGES[PART_BY_IPN.get(truth.ipn)!.pkg];
+    let rot = Math.abs(wrapDeg(cad.rot + adj.drot - truth.rot));
+    if ((pkg.kind === 'chip' || pkg.kind === 'xtal') && rot > 90) rot = 180 - rot;
+    const cadWasWrong = Math.hypot(cad.x - truth.x, cad.y - truth.y) > 0.2 || Math.abs(wrapDeg(cad.rot - truth.rot)) > 1;
+    if (!prog.checked[des] && cadWasWrong && off < 0.15 && rot < 3) {
+      this.score += 60;
+      this.toast(`Fixed a bad CAD placement on ${des}. +60`, 'good', 'PX-9');
+    }
+    prog.checked[des] = true;
+    return { off, rot };
+  }
+
+  printCard(j: Job) {
+    if (j.card === 'none') j.card = 'printed';
+    this.sfx('print');
+  }
+
+  /** Grab everything waiting in the office printer tray. */
+  takeCards(): Job[] {
+    const got = this.jobs.filter((j) => j.card === 'printed');
+    for (const j of got) j.card = 'held';
+    return got;
+  }
+
   startJob(j: Job): string | null {
     if (j.status !== 'ready') return 'Job is not programmed yet.';
+    if (j.card !== 'held') return `You need the work card for ${j.product.asmIpn} on your clipboard. Print it at the desk and grab it from the office printer.`;
     const cur = this.activeJob;
     if (cur && cur.panelsStarted * this.boardsPerPanel(cur) < cur.qty) return `Still running ${cur.product.asmIpn}. Finish or abort it first.`;
     const cost = this.kitCost(j);
@@ -379,11 +450,50 @@ export class Game {
     return null;
   }
 
+  reelSize(ipn: string): number {
+    return REEL_SIZE[PACKAGES[PART_BY_IPN.get(ipn)!.pkg].feeder];
+  }
+
+  /** Reels sitting in the stores rack for an IPN (what you'd see on the shelf). */
+  rackReels(ipn: string): number {
+    const n = this.stores.get(ipn) ?? 0;
+    return n <= 0 ? 0 : Math.min(4, Math.ceil(n / this.reelSize(ipn)));
+  }
+
+  /** Take one reel off the stores rack onto your trolley. */
+  takeReel(ipn: string): string | null {
+    if (this.carried.length >= this.carryMax) return `Your trolley is full (${this.carryMax} reels). Load or return some.`;
+    const have = this.stores.get(ipn) ?? 0;
+    if (have <= 0) return 'That slot on the rack is empty.';
+    const n = Math.min(have, this.reelSize(ipn));
+    this.stores.set(ipn, have - n);
+    const lie = this.rng.chance(0.3) ? this.rng.range(1.1, 1.6) : 1;
+    this.carried.push({ ipn, label: ipn, count: n, labelCount: Math.round(n * lie), tuning: 0, jam: this.rng.chance(0.07), source: 'stock' });
+    this.sfx('feeder');
+    return null;
+  }
+
+  returnReel(i: number) {
+    const r = this.carried[i];
+    if (!r) return;
+    this.carried.splice(i, 1);
+    if (r.source === 'dump') this.dump.set(r.ipn, (this.dump.get(r.ipn) ?? 0) + r.count);
+    else this.stores.set(r.ipn, (this.stores.get(r.ipn) ?? 0) + r.count);
+  }
+
+  loadCarried(slotIdx: number, i: number): string | null {
+    const r = this.carried[i];
+    if (!r) return 'No such reel on the trolley.';
+    const err = this.loadReel(slotIdx, r);
+    if (!err) this.carried.splice(this.carried.indexOf(r), 1);
+    return err;
+  }
+
   loadReel(slotIdx: number, reel: Reel): string | null {
     const slot = this.slots[slotIdx];
     const part = PART_BY_IPN.get(reel.ipn)!;
     if (PACKAGES[part.pkg].feeder !== slot.kind) return `That won't fit a ${slot.kind} slot.`;
-    if (slot.reel) this.unload(slotIdx);
+    if (slot.reel) this.unload(slotIdx, true);
     slot.reel = reel;
     this.clearSlotAlarm(slotIdx);
     this.sfx('feeder');
@@ -397,17 +507,90 @@ export class Game {
     }
   }
 
-  unload(slotIdx: number) {
+  /** Take a reel off the machine. It goes on your trolley if there's room. */
+  unload(slotIdx: number, toTrolley = false) {
     const slot = this.slots[slotIdx];
     const r = slot.reel;
     if (!r) return;
-    if (r.source === 'dump') {
+    if (toTrolley && this.carried.length < this.carryMax && r.count > 0) {
+      this.carried.push(r);
+    } else if (r.source === 'dump') {
       this.dump.set(r.ipn, (this.dump.get(r.ipn) ?? 0) + r.count);
     } else {
       this.stores.set(r.ipn, (this.stores.get(r.ipn) ?? 0) + r.count);
     }
     slot.reel = null;
     if (this.line.px9AlarmSlot === slotIdx) this.line.px9Alarm = null;
+  }
+
+  // -------------------------------------------------------------------------
+  // PX-9 controls
+  // -------------------------------------------------------------------------
+
+  pressStop() {
+    if (this.line.machine === 'run') this.line.machine = 'stop';
+    this.sfx('click');
+  }
+
+  pressStart(): string | null {
+    const L = this.line;
+    if (L.estop !== 0) return 'E-stop is pressed. Twist it to release first.';
+    if (L.machine === 'fault') return 'Safety fault active. Press the E-stop twice (activate, override), twist to release, then start.';
+    if (L.feederOut !== null) return 'A feeder is out of the machine. Seat it first.';
+    L.machine = 'run';
+    this.sfx('good');
+    return null;
+  }
+
+  pressEstop() {
+    const L = this.line;
+    L.estop = L.estop === 0 ? 1 : 2;
+    L.machine = L.machine === 'run' ? 'fault' : L.machine;
+    this.sfx('alarm');
+  }
+
+  /** Twist-release the E-stop. Clears a fault only if it was pressed twice (override). */
+  twistEstop(): string | null {
+    const L = this.line;
+    if (L.estop === 0) return null;
+    if (L.machine === 'fault' && L.estop < 2) return 'Fault still latched. Press the E-stop again to override before releasing.';
+    L.estop = 0;
+    if (L.machine === 'fault') L.machine = 'stop';
+    this.sfx('click');
+    return null;
+  }
+
+  /** Slide a feeder out. Doing it while the machine runs trips the interlock. */
+  pullFeeder(slotIdx: number): string | null {
+    const L = this.line;
+    if (L.feederOut !== null) return 'Another feeder is already out.';
+    if (!this.slots[slotIdx].reel) return 'That slot is empty.';
+    L.feederOut = slotIdx;
+    if (L.machine === 'run') {
+      L.machine = 'fault';
+      this.toast('INTERLOCK: feeder removed while running. Machine faulted.', 'bad', 'PX-9');
+      this.sfx('alarm');
+    } else this.sfx('feeder');
+    return null;
+  }
+
+  seatFeeder() {
+    this.line.feederOut = null;
+    this.sfx('feeder');
+  }
+
+  /** Dab a single part out of the tape with blue tack. */
+  takeFromTape(): string | null {
+    const L = this.line;
+    if (L.feederOut === null) return 'Pull a feeder out first.';
+    if (this.hand) return 'You already have a part on the blue tack.';
+    const r = this.slots[L.feederOut].reel;
+    if (!r || r.count <= 0) return 'That tape is empty.';
+    r.count--;
+    r.labelCount = Math.max(0, r.labelCount - 1);
+    this.hand = { ipn: this.drawFromReel(r), from: 'feeder' };
+    this.sfx('click');
+    return null;
   }
 
   clearJam(slotIdx: number) {
@@ -503,9 +686,14 @@ export class Game {
           if (this.rng.chance(this.line.printerDirt * 0.04)) v *= this.rng.range(0, 0.4);
           return clamp(v, 0, 2.2);
         });
+        // Where the machine thinks the part goes: CAD data plus on-machine corrections.
+        const cad = j.product.cadPlacements.find((c) => c.des === pl.des) ?? pl;
+        const adj = prog.adjust[pl.des] ?? { dx: 0, dy: 0, drot: 0 };
         return {
           des: pl.des, truthIpn: pl.ipn, ipn: null, pkg: truth.pkg, x: pl.x, y: pl.y, rot: pl.rot,
-          dx: panelShift.x, dy: panelShift.y, drot: 0, placed: false, paste: pads, defect: null, fixed: false, fromDump: false,
+          dx: panelShift.x + cad.x + adj.dx - pl.x, dy: panelShift.y + cad.y + adj.dy - pl.y,
+          drot: wrapDeg(cad.rot + adj.drot - pl.rot),
+          placed: false, paste: pads, defect: null, fixed: false, fromDump: false,
         };
       });
       boards.push({
@@ -634,7 +822,7 @@ export class Game {
         p = waiting;
       } else return;
     }
-    if (L.px9Alarm || L.px9Paused) return;
+    if (L.px9Alarm || L.px9Paused || L.machine !== 'run' || L.feederOut !== null) return;
     const j = this.job(p.jobId)!;
     const prog = j.program!;
     p.t += dt;
@@ -962,23 +1150,66 @@ export class Game {
     this.sfx('bin');
   }
 
-  /** Tweezer nudge during inspection. Returns true if the part got flicked off. */
-  nudge(b: BoardInst, des: string, dx: number, dy: number): boolean {
+  /** Tweezer contact moves the part on its wet paste. */
+  nudge(b: BoardInst, des: string, dx: number, dy: number, drot = 0) {
     const p = b.parts.find((q) => q.des === des);
-    if (!p || !p.placed || b.reflowed) return false;
+    if (!p || !p.placed || b.reflowed) return;
     p.dx += dx;
     p.dy += dy;
+    p.drot = wrapDeg(p.drot + drot);
     b.version++;
-    const pad = Math.max(PACKAGES[p.pkg].w, PACKAGES[p.pkg].h);
-    if (Math.hypot(p.dx, p.dy) > pad * 0.9) {
-      p.placed = false;
-      p.defect = 'flicked';
-      this.stats.flicked++;
-      if (p.ipn) this.dump.set(p.ipn, (this.dump.get(p.ipn) ?? 0) + 1);
-      this.sfx('ping');
-      return true;
-    }
-    return false;
+  }
+
+  /** Too much force: the part jumps a little. */
+  hop(b: BoardInst, des: string) {
+    const p = b.parts.find((q) => q.des === des);
+    if (!p || !p.placed) return;
+    p.dx += this.rng.gauss(0, 0.5);
+    p.dy += this.rng.gauss(0, 0.5);
+    p.drot = wrapDeg(p.drot + this.rng.gauss(0, 18));
+    b.version++;
+    this.sfx('click');
+  }
+
+  /** The part pings out of the tweezers and lands somewhere on the floor. */
+  flick(b: BoardInst, des: string) {
+    const p = b.parts.find((q) => q.des === des);
+    if (!p || !p.placed) return;
+    p.placed = false;
+    p.defect = 'flicked';
+    this.stats.flicked++;
+    if (p.ipn) this.floor.push(p.ipn);
+    b.version++;
+    this.sfx('ping');
+  }
+
+  /** Put the part in your tweezers back on its lands. */
+  placeFromHand(b: BoardInst, des: string, x: number, y: number): string | null {
+    if (!this.hand) return 'Nothing in your tweezers.';
+    const p = b.parts.find((q) => q.des === des);
+    if (!p) return 'No land there.';
+    if (p.placed) return `${des} already has a part on it.`;
+    if (b.reflowed) return 'Too late, that board has been through the oven. Use the rework bench.';
+    p.placed = true;
+    p.defect = null;
+    p.ipn = this.hand.ipn;
+    p.dx = x - p.x;
+    p.dy = y - p.y;
+    p.drot = this.rng.gauss(0, 6);
+    p.fromDump = this.hand.from === 'floor';
+    this.hand = null;
+    b.version++;
+    this.sfx('click');
+    return null;
+  }
+
+  /** Look for a dropped part on the floor. */
+  floorPick(i: number): string | null {
+    const ipn = this.floor[i];
+    if (ipn === undefined) return null;
+    this.floor.splice(i, 1);
+    this.hand = { ipn, from: 'floor' };
+    return ipn;
   }
 
   // -------------------------------------------------------------------------

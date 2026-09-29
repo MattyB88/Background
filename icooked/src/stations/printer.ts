@@ -95,13 +95,7 @@ export class PrinterStation extends Station {
     nodes.push(el('p', { style: 'color:#aab' }, 'Press on the paste bead (left) and drag the squeegee to the right edge in one smooth, steady stroke. Not too slow, not too fast.'));
     if (this.result) {
       const r = this.result;
-      const good = r.filter((v) => v >= 0.7 && v <= 1.35).length;
-      const low = r.filter((v) => v < 0.7).length;
-      const high = r.filter((v) => v > 1.35).length;
-      nodes.push(el('div', { class: 'kv' },
-        el('span', {}, 'Good pads'), el('span', {}, `${good}/${r.length}`),
-        el('span', {}, 'Low / missing'), el('span', { style: low ? 'color:#ff8a80' : '' }, String(low)),
-        el('span', {}, 'Too much'), el('span', { style: high ? 'color:#ffb21a' : '' }, String(high))));
+      nodes.push(el('p', { style: 'color:#ccd' }, 'Read the SPI shades. Even mid-grey is a good deposit. Near-black pads got nothing; very light pads are overloaded.'));
       const dab = el('button', { class: `btn ${this.mode === 'dab' ? 'primary' : ''}`, style: 'margin-top:8px' }, this.mode === 'dab' ? 'Dabbing: hold on a pad' : 'Dab paste with syringe');
       dab.onclick = () => {
         if (!this.app.useTool('syringe')) return;
@@ -307,16 +301,16 @@ export class PrinterStation extends Station {
       const v = this.result?.[p.idx];
       if (v === undefined) {
         ctx.fillStyle = '#23262a';
-      } else if (v < 0.25) ctx.fillStyle = '#ff2a1a';
-      else if (v < 0.7) ctx.fillStyle = '#ffb21a';
-      else if (v > 1.6) ctx.fillStyle = '#c05cff';
-      else if (v > 1.35) ctx.fillStyle = '#ffd96a';
-      else ctx.fillStyle = '#3ad06a';
+      } else {
+        // Paste reads as grey: more paste = lighter, higher deposit. No colour coding.
+        const k = Math.round(46 + Math.min(2, v) * 72);
+        ctx.fillStyle = `rgb(${k},${k},${k + 3})`;
+      }
       const pw = Math.max(2, p.w * s);
       const ph = Math.max(2, p.h * s);
       ctx.fillRect(cx - pw / 2, cy - ph / 2, pw, ph);
       if (this.dabPad === p.idx) {
-        ctx.strokeStyle = '#fff';
+        ctx.strokeStyle = '#000';
         ctx.strokeRect(cx - pw / 2 - 2, cy - ph / 2 - 2, pw + 4, ph + 4);
       }
     }
@@ -346,7 +340,7 @@ export class PrinterStation extends Station {
     if (this.result) {
       ctx.fillStyle = '#111';
       ctx.font = '600 13px system-ui';
-      ctx.fillText('SPI: green ok · yellow low · red missing · light-yellow heavy · purple way too much', 12, h - 12);
+      ctx.fillText('SPI height map: darker = less paste, lighter = more. Compare the shades.', 12, h - 12);
     }
   }
 }

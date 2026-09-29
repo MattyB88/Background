@@ -19,6 +19,10 @@ export class BenchScene {
   goalDist = 160;
   private tilt = 0.95;
   private tool: THREE.Group | null = null;
+  private jaws: [THREE.Object3D, THREE.Object3D] | null = null;
+  private tip = new THREE.Vector3();
+  private tipGap = 1.2;
+  private tipSet = false;
   private toolId: ToolId | null = null;
   readonly cursor = new THREE.Vector3();
   private ray = new THREE.Raycaster();
@@ -91,12 +95,25 @@ export class BenchScene {
     this.toolId = t;
     if (this.tool) this.scene.remove(this.tool);
     this.tool = null;
-    if (t) {
+    this.jaws = null;
+    if (t === 'tweezers') {
+      const tw = makeBenchTweezers();
+      this.tool = tw.group;
+      this.jaws = tw.arms;
+      this.scene.add(this.tool);
+    } else if (t) {
       this.tool = makeTool(t);
       this.tool.scale.setScalar(1000);
       this.tool.traverse((o) => (o.castShadow = true));
       this.scene.add(this.tool);
     }
+  }
+
+  /** Where the tool tip is, in board mm, how high above the board, and how open the jaws are (mm). */
+  setTip(xMm: number, yMm: number, lift: number, gap = 1.2) {
+    this.tip.set(xMm, lift, -yMm);
+    this.tipGap = gap;
+    this.tipSet = true;
   }
 
   zoom(delta: number) {
@@ -155,12 +172,58 @@ export class BenchScene {
     this.ringLight.intensity = 1.1;
     this.board?.update();
     if (this.tool) {
-      // Tool tip follows the cursor, shaking with stress.
-      this.tool.position.set(this.cursor.x + shake.x, this.toolLift + this.dist * 0.02, this.cursor.z + shake.y);
-      this.tool.rotation.set(-0.9, 0.5, 0);
-      const tipOffset = new THREE.Vector3(0, 0, -150).applyEuler(this.tool.rotation);
-      this.tool.position.sub(tipOffset.multiplyScalar(1));
-      this.tool.position.y = Math.max(this.tool.position.y, 1);
+      if (!this.tipSet) this.tip.set(this.cursor.x + shake.x, 4, this.cursor.z + shake.y);
+      this.tipSet = false;
+      if (this.jaws) {
+        // Tweezers modelled in mm; the tip sits exactly on the contact point.
+        this.tool.position.copy(this.tip);
+        this.tool.rotation.set(0, 0.55, 0);
+        const half = this.tipGap / 2;
+        this.jaws[0].position.x = -half;
+        this.jaws[1].position.x = half;
+      } else {
+        this.tool.position.set(this.tip.x, this.toolLift + this.dist * 0.02, this.tip.z);
+        this.tool.rotation.set(-0.9, 0.5, 0);
+        const tipOffset = new THREE.Vector3(0, 0, -150).applyEuler(this.tool.rotation);
+        this.tool.position.sub(tipOffset);
+        this.tool.position.y = Math.max(this.tool.position.y, 1);
+      }
     }
   }
+}
+
+/**
+ * Fine-tip ESD tweezers in millimetres. Origin is at the tips; the handle rises
+ * up and back towards the viewer. Each arm pivots so the gap can open and close.
+ */
+function makeBenchTweezers(): { group: THREE.Group; arms: [THREE.Object3D, THREE.Object3D] } {
+  const group = new THREE.Group();
+  const steel = new THREE.MeshStandardMaterial({ color: 0xc8cdd3, metalness: 1, roughness: 0.22 });
+  const grip = new THREE.MeshStandardMaterial({ color: 0x1f5fbf, roughness: 0.6 });
+  const arms: THREE.Object3D[] = [];
+  for (const side of [-1, 1]) {
+    const arm = new THREE.Group();
+    // Tapered blade: thin at the tip, wider towards the grip.
+    const shape = new THREE.Shape();
+    shape.moveTo(-0.08, 0);
+    shape.lineTo(0.08, 0);
+    shape.lineTo(1.1, 95);
+    shape.lineTo(-1.1, 95);
+    shape.closePath();
+    const geo = new THREE.ExtrudeGeometry(shape, { depth: 0.5, bevelEnabled: true, bevelSize: 0.08, bevelThickness: 0.08, bevelSegments: 1 });
+    geo.translate(0, 0, -0.25);
+    const blade = new THREE.Mesh(geo, steel);
+    blade.castShadow = true;
+    // Blade runs up and back towards the viewer at ~30 degrees.
+    blade.rotation.set(Math.PI / 2 - 0.5, 0, 0);
+    arm.add(blade);
+    const g = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.9, 34), grip);
+    g.position.set(side * 0.9, 62 * Math.sin(0.5), 62 * Math.cos(0.5));
+    g.rotation.set(-0.5, 0, 0);
+    g.castShadow = true;
+    arm.add(g);
+    group.add(arm);
+    arms.push(arm);
+  }
+  return { group, arms: arms as [THREE.Object3D, THREE.Object3D] };
 }

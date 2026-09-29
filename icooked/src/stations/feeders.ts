@@ -1,6 +1,6 @@
 import { el } from '../core/util';
 import { PACKAGES, PART_BY_IPN } from '../sim/parts';
-import type { Job, Reel } from '../sim/types';
+import type { Job } from '../sim/types';
 import { Station } from './base';
 
 /** Feeder set-up: load reels into the right slots, handle shortages. */
@@ -144,7 +144,7 @@ export class FeederStation extends Station {
       const acts = el('div', { style: 'display:flex;flex-wrap:wrap;gap:6px;margin-top:10px' });
       if (s.reel) {
         const un = el('button', { class: 'btn' }, 'Unload reel (1.5s)');
-        un.onclick = () => this.work('Unloading...', 1.5, () => g.unload(s.index));
+        un.onclick = () => this.work('Unloading onto your trolley...', 1.5, () => g.unload(s.index, true));
         acts.append(un);
       }
       if (g.line.px9AlarmSlot === s.index && g.line.px9Alarm?.startsWith('PICK')) {
@@ -156,47 +156,36 @@ export class FeederStation extends Station {
     }
     this.bank.replaceChildren(...bankNodes);
 
-    // --- stores
+    // --- trolley (reels you picked at the stores rack)
     const want = this.selSlot !== null ? slotNeed.get(this.selSlot) : undefined;
-    const storeNodes: Node[] = [el('h3', { style: 'margin:0 0 8px;color:#ccd' }, 'Stores')];
+    const storeNodes: Node[] = [el('h3', { style: 'margin:0 0 8px;color:#ccd' }, `Your trolley ${g.carried.length}/${g.carryMax}`)];
     if (this.selSlot === null) storeNodes.push(el('p', { style: 'color:#aab' }, 'Pick a slot first.'));
+    if (!g.carried.length) storeNodes.push(el('p', { style: 'color:#aab' }, 'Empty. Collect reels from the Stores Rack (check the parts list on your work card).'));
     const kind = this.selSlot !== null ? g.slots[this.selSlot].kind : null;
-    const entries = [...g.stores.entries()].filter(([, n]) => n > 0).sort((a, b) => (a[0] === want ? -1 : b[0] === want ? 1 : a[0].localeCompare(b[0])));
-    for (const [ipn, n] of entries) {
-      const p = PART_BY_IPN.get(ipn)!;
+    g.carried.forEach((r, i) => {
+      const p = PART_BY_IPN.get(r.ipn)!;
       const fits = kind === PACKAGES[p.pkg].feeder;
-      const b = el('div', { class: `reelbtn${ipn === want ? ' sel' : ''}${fits ? '' : ' dim'}` }, el('span', {}, `${ipn}  ${p.desc}`), el('span', {}, String(n)));
+      const b = el('div', { class: `reelbtn${r.label === want ? ' sel' : ''}${fits ? '' : ' dim'}` }, el('span', {}, `${r.label}  ${p.desc}`), el('span', {}, `~${r.labelCount}`));
       b.onclick = () => {
         if (this.selSlot === null) return;
         const slot = this.selSlot;
-        this.work(`Loading ${ipn} into slot ${slot + 1}...`, 2, () => {
-          const err = g.loadFromStores(slot, ipn);
+        this.work(`Loading ${r.label} into slot ${slot + 1}...`, 2, () => {
+          const idx = g.carried.indexOf(r);
+          const err = idx >= 0 ? g.loadCarried(slot, idx) : 'Reel went missing.';
           if (err) this.app.hud.toast(err, 'warn', 'Feeders');
         });
       };
       storeNodes.push(b);
-    }
+    });
     const alarmHere = this.selSlot !== null && g.line.px9AlarmSlot === this.selSlot && !!g.line.px9Alarm;
     if (want && ((g.stores.get(want) ?? 0) === 0 || alarmHere)) {
       const have = g.stores.get(want) ?? 0;
       storeNodes.push(el('h3', { style: 'margin:14px 0 6px;color:#ccd' }, `Short on ${want}?`));
-      if (have > 0) storeNodes.push(el('p', { style: 'color:#aab' }, `Stores still has ${have}. Load it above.`));
+      if (have > 0) storeNodes.push(el('p', { style: 'color:#aab' }, `The stores rack still has ${have}. Go and get a reel.`));
       const reqAlt = el('button', { class: 'btn' }, 'Request approved alternate');
       reqAlt.onclick = () => {
         const err = g.requestAlt(want);
         if (err) this.app.hud.toast(err, 'warn', 'Engineering');
-      };
-      const alt = el('button', { class: 'btn' }, 'Grab a look-alike (unapproved)');
-      alt.onclick = () => {
-        const a = g.unapprovedAlt(want);
-        if (!a) return;
-        const slot = this.selSlot!;
-        this.work('Loading something that looks right...', 2, () => {
-          const reel: Reel = { ipn: a, label: want, count: 60, labelCount: 60, tuning: 0, jam: false, source: 'unapproved' };
-          const err = g.loadReel(slot, reel);
-          if (err) this.app.hud.toast(err, 'warn');
-          else this.app.hud.toast(`Loaded ${a} and wrote ${want} on it. Nobody will know. (Write it down.)`, 'warn', 'You');
-        });
       };
       const dump = el('button', { class: 'btn' }, 'Hand-feed from dump bin');
       dump.onclick = () => {
@@ -212,7 +201,7 @@ export class FeederStation extends Station {
           else this.app.hud.toast(`Hand-fed ${r.count} loose parts into slot ${slot + 1}. Some of them might even be ${want}.`, 'warn', 'You');
         });
       };
-      storeNodes.push(el('div', { style: 'display:flex;flex-direction:column;gap:6px' }, reqAlt, alt, dump));
+      storeNodes.push(el('div', { style: 'display:flex;flex-direction:column;gap:6px' }, reqAlt, dump), el('p', { style: 'color:#aab;font-size:12px' }, 'Or grab something that looks close from the Stores Rack and load that. Nobody will know. Write it down.'));
       const pend = g.altRequests.find((r) => r.ipn === want);
       if (pend) storeNodes.push(el('p', { style: 'color:#ffb21a' }, `Alternate pending: ${Math.ceil(pend.readyAt - g.t)}s`));
     }

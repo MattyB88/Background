@@ -189,10 +189,28 @@ export function makeProduct(index: number, rng: Rng, inhouse: boolean): Product 
     prevRev,
     board,
     prevPlacements,
+    cadPlacements: inhouse ? placements.map((p) => ({ ...p })) : dodgyCad(placements, rng),
     engineer: rng.pick(ENGINEERS),
     fileAlias: messyName(recipe.name, rng),
     inhouse,
   };
+}
+
+/**
+ * Engineering's placement file is never quite right: a few parts rotated wrong,
+ * a few nudged off their lands. The machine camera shows it; the programmer fixes it.
+ */
+export function dodgyCad(placements: Placement[], rng: Rng): Placement[] {
+  const cad = placements.map((p) => ({ ...p }));
+  const idx = rng.shuffle([...cad.keys()]);
+  const nRot = rng.int(1, 3);
+  const nOff = rng.int(1, 3);
+  for (const i of idx.slice(0, nRot)) cad[i].rot = (cad[i].rot + rng.pick([90, 180, 270])) % 360;
+  for (const i of idx.slice(nRot, nRot + nOff)) {
+    cad[i].x = Math.round((cad[i].x + rng.pick([-1, 1]) * rng.range(0.4, 1.2)) * 100) / 100;
+    cad[i].y = Math.round((cad[i].y + rng.pick([-1, 1]) * rng.range(0.4, 1.2)) * 100) / 100;
+  }
+  return cad;
 }
 
 // ---------------------------------------------------------------------------
@@ -222,10 +240,10 @@ function messyValue(p: ErpPart, rng: Rng): string {
 function typo(ipn: string, rng: Rng): string {
   const choices = [
     () => ipn.replace('0', 'O'),
-    () => ipn.replace('-', '_'),
+    () => ipn.toLowerCase(),
     () => {
       const d = ipn.split('');
-      const i = rng.int(4, d.length - 2);
+      const i = d.length - 2;
       [d[i], d[i + 1]] = [d[i + 1], d[i]];
       return d.join('');
     },
@@ -234,7 +252,7 @@ function typo(ipn: string, rng: Rng): string {
     const t = rng.pick(choices)();
     if (t !== ipn && !PART_BY_IPN.has(t)) return t;
   }
-  return ipn.replace('-', ' - ');
+  return `${ipn} `;
 }
 
 function rowsFor(placements: Placement[]): { ipn: string; des: string[] }[] {

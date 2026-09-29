@@ -43,6 +43,8 @@ export interface Product {
   board: BoardDef;
   /** The previous revision's placements (differs in a few values). */
   prevPlacements: Placement[];
+  /** Placement data as released by engineering (may carry rotation / XY mistakes). */
+  cadPlacements: Placement[];
   engineer: string;
   fileAlias: string;
   inhouse: boolean;
@@ -98,6 +100,10 @@ export interface Program {
   desIpn: Record<string, string | null>;
   /** IPN -> feeder slot index. */
   setup: Record<string, number>;
+  /** On-machine corrections to the CAD data, per designator. */
+  adjust: Record<string, { dx: number; dy: number; drot: number }>;
+  /** Designators checked through the machine camera. */
+  checked: Record<string, boolean>;
 }
 
 export interface Job {
@@ -119,9 +125,13 @@ export interface Job {
   lateCharged: boolean;
   printProfile?: number[];
   printSeed: number;
+  /** Paper work card (traveller): must be on the clipboard to run the job. */
+  card: 'none' | 'printed' | 'held';
+  cardNotes: string;
+  salesNote: string;
 }
 
-export type Defect = 'tombstone' | 'misalign' | 'bridge' | 'dry' | 'missing' | 'wrong' | 'flicked';
+export type Defect = 'tombstone' | 'misalign' | 'bridge' | 'dry' | 'missing' | 'wrong' | 'flicked' | 'rotated';
 
 export interface PlacedPart {
   des: string;

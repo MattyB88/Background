@@ -10,6 +10,7 @@ function autoplay(g: Game, seconds: number) {
   for (let i = 0; i < seconds / dt && !g.over; i++) {
     if (!g.activeJob || g.activeJob.panelsStarted * g.boardsPerPanel(g.activeJob) >= g.activeJob.qty) {
       const next = g.jobs.find((j) => j.status === 'ready');
+      if (next) next.card = 'held';
       if (next && g.startJob(next) === null) {
         g.setPrintProfile(next, Array(g.padCount(next)).fill(1));
         for (const [ipn, slot] of Object.entries(next.program!.setup)) {

@@ -4,6 +4,8 @@ import { AoiStation } from './aoi';
 import type { Station } from './base';
 import { DeskStation } from './desk';
 import { FeederStation } from './feeders';
+import { OfficeStation } from './office';
+import { StoresStation } from './stores';
 import { InspectStation } from './inspect';
 import { OvenStation } from './oven';
 import { PrinterStation } from './printer';
@@ -13,6 +15,8 @@ import { TestStation } from './test';
 
 const CTORS: Record<StationId, new (app: App, spot: (typeof STATIONS)[number]) => Station> = {
   desk: DeskStation,
+  office: OfficeStation,
+  stores: StoresStation,
   feeders: FeederStation,
   printer: PrinterStation,
   px9: Px9Station,

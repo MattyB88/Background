@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { Rng } from '../core/rng';
 import { M, Screen, StackLight, box, canvasTex, cyl } from './materials';
 
-export type StationId = 'desk' | 'feeders' | 'printer' | 'px9' | 'inspect' | 'oven' | 'aoi' | 'test' | 'rework';
+export type StationId = 'desk' | 'office' | 'stores' | 'feeders' | 'printer' | 'px9' | 'inspect' | 'oven' | 'aoi' | 'test' | 'rework';
 
 export interface StationSpot {
   id: StationId;
@@ -20,7 +20,9 @@ export const CONVEYOR_Y = 0.95;
 
 export const STATIONS: StationSpot[] = [
   { id: 'desk', name: 'Programming Desk', at: V(-11, 0, 3.2), viewPos: V(-11, 1.28, 3.95), viewLook: V(-11, 1.18, 5.0), toolSpot: V(-10.3, 0.78, 4.7) },
-  { id: 'feeders', name: 'Feeder Cart & Stores', at: V(-7, 0, 3.2), viewPos: V(-7, 1.55, 3.55), viewLook: V(-7, 1.05, 5.1), toolSpot: V(-6.1, 0.92, 4.4) },
+  { id: 'office', name: 'Office Printer', at: V(-9.2, 0, 3.7), viewPos: V(-9.2, 1.5, 4.15), viewLook: V(-9.2, 0.95, 5.1), toolSpot: V(-8.95, 0.97, 5.0) },
+  { id: 'stores', name: 'Stores Rack', at: V(-3.3, 0, 4.9), viewPos: V(-3.3, 1.3, 4.75), viewLook: V(-3.3, 1.12, 6.3), toolSpot: V(-1.4, 0.92, 6.0) },
+  { id: 'feeders', name: 'Feeder Cart', at: V(-7, 0, 3.2), viewPos: V(-7, 1.55, 3.55), viewLook: V(-7, 1.05, 5.1), toolSpot: V(-6.1, 0.92, 4.4) },
   { id: 'rework', name: 'Rework Bench', at: V(3, 0, 3.3), viewPos: V(3, 1.45, 3.6), viewLook: V(3, 0.9, 4.6), toolSpot: V(3.6, 0.8, 4.4) },
   { id: 'printer', name: 'Stencil Printer', at: V(-11.5, 0, -1.4), viewPos: V(-11.5, 1.65, -1.55), viewLook: V(-11.5, 0.95, -3), toolSpot: V(-10.8, 0.97, -2.25) },
   { id: 'px9', name: 'PX-9 Pick & Place', at: V(-7.5, 0, -1.2), viewPos: V(-7.5, 1.95, -1.05), viewLook: V(-7.5, 0.95, -3), toolSpot: V(-6.6, 0.97, -2.0) },
@@ -60,6 +62,10 @@ export interface Factory {
   lights: THREE.Light[];
   exitSign: THREE.MeshStandardMaterial;
   feederReels: THREE.Mesh[];
+  storesRoot: THREE.Group;
+  feeders: FeederVis[];
+  cardStack: THREE.Group;
+  officeScreen: Screen;
 }
 
 function floorTexture(): THREE.CanvasTexture {
@@ -304,17 +310,11 @@ export function buildFactory(scene: THREE.Scene): Factory {
   const headCam = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.02, 12), new THREE.MeshStandardMaterial({ color: 0x223355, emissive: 0x3366ff, emissiveIntensity: 0.6 }));
   headCam.position.set(0.07, -0.21, 0.05);
   head.add(headCam);
-  // Feeder bank on the operator side: little tape feeders and reels.
-  const feederReels: THREE.Mesh[] = [];
-  const reelColors = [0x2b2d31, 0x2f6bb3, 0x2b2d31, 0x9aa1a8, 0x2b2d31];
-  for (let i = 0; i < 20; i++) {
-    const x = -0.9 + i * 0.095;
-    box(0.02, 0.1, 0.42, M.grey, x, 0.95, 0.55, px9);
-    const reel = cyl(0.09, 0.012, new THREE.MeshStandardMaterial({ color: reelColors[i % 5], roughness: 0.4 }), x, 0.82, 0.92, px9, 24);
-    reel.rotation.z = Math.PI / 2;
-    feederReels.push(reel);
-  }
-  box(2.0, 0.55, 0.5, M.grey, 0, 0.35, 1.05, px9); // feeder trolley
+  // Feeder bank on the operator side: real-looking tape feeders with reels on the trolley.
+  const feeders = buildFeederBank(px9);
+  const feederReels = feeders.map((f) => f.reel as unknown as THREE.Mesh);
+  box(2.0, 0.5, 0.5, M.grey, 0, 0.3, 1.1, px9); // feeder trolley
+  box(2.0, 0.02, 0.06, M.steel, 0, 0.78, 1.14, px9); // reel holder bar
   const px9Screen = new Screen(640, 480, 0.42, 0.32);
   px9Screen.mesh.position.set(0.95, 1.55, 0.95);
   px9Screen.mesh.rotation.y = -0.3;
@@ -474,24 +474,46 @@ export function buildFactory(scene: THREE.Scene): Factory {
   cyl(0.03, 0.45, M.steel, 0, 0.23, 0, chair);
   solid(-11, 4.9, 2.0, 0.8);
 
-  // Stores racks with reels
-  const stores = new THREE.Group();
-  stores.position.set(-7, 0, 5.6);
-  root.add(stores);
-  const reelMats = [0x2b2d31, 0x2f6bb3, 0x9aa1a8, 0xd9d9d9, 0x3a3a3a].map((c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.45 }));
-  const rng = new Rng(3);
+  // Spare feeder shelf behind the feeder cart.
+  const spares = new THREE.Group();
+  spares.position.set(-7, 0, 5.6);
+  root.add(spares);
   for (let shelf = 0; shelf < 4; shelf++) {
-    box(2.6, 0.03, 0.5, M.grey, 0, 0.3 + shelf * 0.5, 0, stores);
-    for (let i = 0; i < 16; i++) {
-      if (!rng.chance(0.8)) continue;
-      const big = rng.chance(0.3);
-      const r = cyl(big ? 0.165 : 0.09, 0.013, rng.pick(reelMats), -1.2 + i * 0.16, (big ? 0.48 : 0.4) + shelf * 0.5, 0, stores, 20);
-      r.rotation.x = Math.PI / 2;
-      r.rotation.y = rng.range(-0.1, 0.1);
+    box(2.6, 0.03, 0.5, M.grey, 0, 0.3 + shelf * 0.5, 0, spares);
+    for (let i = 0; i < 22; i++) {
+      const f = box(0.022, 0.1, 0.38, i % 5 === 0 ? M.plasticBlue : M.grey, -1.2 + i * 0.11, 0.37 + shelf * 0.5, 0, spares);
+      f.rotation.y = (i % 3) * 0.02;
     }
   }
-  for (const x of [-1.3, 1.3]) for (const z of [-0.24, 0.24]) box(0.04, 2.1, 0.04, M.blueMat, x, 1.05, z, stores);
+  for (const x of [-1.3, 1.3]) for (const z of [-0.24, 0.24]) box(0.04, 2.1, 0.04, M.blueMat, x, 1.05, z, spares);
   solid(-7, 5.6, 2.6, 0.5);
+
+  // Stores rack frame (reels are added live by StoresRack).
+  const storesRoot = new THREE.Group();
+  storesRoot.position.set(-3.3, 0, 6.3);
+  storesRoot.rotation.y = Math.PI; // front faces the aisle
+  root.add(storesRoot);
+  for (let shelf = 0; shelf < 5; shelf++) box(3.7, 0.025, 0.42, M.grey, 0, 0.18 + shelf * 0.42, 0, storesRoot);
+  for (const x of [-1.86, -0.62, 0.62, 1.86]) for (const z of [-0.2, 0.2]) box(0.035, 2.1, 0.035, M.blueMat, x, 1.05, z, storesRoot);
+  box(3.7, 2.0, 0.02, M.grey, 0, 1.0, -0.21, storesRoot);
+  solid(-3.3, 6.3, 3.7, 0.45);
+
+  // Office printer on a cabinet next to the desk.
+  const officeP = new THREE.Group();
+  officeP.position.set(-9.2, 0, 5.1);
+  root.add(officeP);
+  box(0.7, 0.78, 0.5, M.grey, 0, 0.39, 0, officeP);
+  box(0.5, 0.2, 0.4, M.white, 0, 0.88, -0.02, officeP);
+  box(0.48, 0.02, 0.18, M.dark, 0, 0.99, -0.06, officeP);
+  box(0.36, 0.015, 0.16, M.white, 0, 0.8, 0.26, officeP); // output tray
+  const officeScreen = new Screen(160, 60, 0.08, 0.03);
+  officeScreen.mesh.position.set(0.17, 0.93, 0.182);
+  officeP.add(officeScreen.mesh);
+  const cardStack = new THREE.Group();
+  cardStack.position.set(0, 0.815, 0.25);
+  officeP.add(cardStack);
+  solid(-9.2, 5.1, 0.7, 0.5);
+
   // Feeder trolley in front of stores
   const trolley = new THREE.Group();
   trolley.position.set(-7, 0, 4.6);
@@ -577,6 +599,89 @@ export function buildFactory(scene: THREE.Scene): Factory {
 
   return {
     root, colliders, stack, px9Gantry: gantry, px9Head: head, printerSqueegee: squeegee, ovenGlow, ovenLight, ovenScreen,
-    px9Screen, deskScreens, aoiScreen, wallClock, fireSign, testLamps, shipBoxes, reworkRack, ceilingLights, lights, exitSign, feederReels,
+    px9Screen, deskScreens, aoiScreen, wallClock, fireSign, testLamps, shipBoxes, reworkRack, ceilingLights, lights, exitSign, feederReels, storesRoot, feeders, cardStack, officeScreen,
   };
+}
+
+export interface FeederVis {
+  group: THREE.Group;
+  reel: THREE.Group;
+  wound: THREE.Mesh;
+  tape: THREE.Mesh[];
+  label: THREE.Mesh;
+}
+
+let tapeTexture: THREE.CanvasTexture | null = null;
+function carrierTapeTex(): THREE.CanvasTexture {
+  if (tapeTexture) return tapeTexture;
+  tapeTexture = canvasTex(32, 128, (ctx, w, h) => {
+    ctx.fillStyle = '#141416';
+    ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = '#3a3d42';
+    for (let y = 4; y < h; y += 16) {
+      ctx.beginPath();
+      ctx.arc(5, y, 2.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    for (let y = 2; y < h; y += 16) {
+      ctx.fillStyle = '#050506';
+      ctx.fillRect(12, y, 16, 12);
+      ctx.fillStyle = '#c9b48d';
+      ctx.fillRect(16, y + 3, 8, 5);
+    }
+    ctx.fillStyle = 'rgba(220,230,240,0.18)';
+    ctx.fillRect(10, 0, 22, h);
+  });
+  tapeTexture.wrapS = tapeTexture.wrapT = THREE.RepeatWrapping;
+  tapeTexture.repeat.set(1, 6);
+  return tapeTexture;
+}
+
+/** 20 tape feeders across the front of the PX-9, each with its reel and a strip of carrier tape. */
+function buildFeederBank(px9: THREE.Group): FeederVis[] {
+  const out: FeederVis[] = [];
+  const body = new THREE.MeshStandardMaterial({ color: 0x5b6066, roughness: 0.45, metalness: 0.5 });
+  const track = new THREE.MeshStandardMaterial({ color: 0x18191b, roughness: 0.6, metalness: 0.4 });
+  const handle = new THREE.MeshStandardMaterial({ color: 0x2c6bc2, roughness: 0.5 });
+  const flange = new THREE.MeshPhysicalMaterial({ color: 0x9fc3e8, roughness: 0.15, transparent: true, opacity: 0.45, depthWrite: false });
+  const woundMat = new THREE.MeshStandardMaterial({ color: 0x1b1a18, roughness: 0.55 });
+  const hubMat = new THREE.MeshStandardMaterial({ color: 0xe8e8e2, roughness: 0.5 });
+  const tapeMat = new THREE.MeshStandardMaterial({ map: carrierTapeTex(), roughness: 0.5, side: THREE.DoubleSide });
+  const labelMat = new THREE.MeshStandardMaterial({ color: 0xf5f3ea, roughness: 0.8 });
+  for (let i = 0; i < 20; i++) {
+    const g = new THREE.Group();
+    g.position.set(-0.9 + i * 0.095, 0, 0);
+    px9.add(g);
+    box(0.022, 0.1, 0.46, body, 0, 0.925, 0.7, g);
+    box(0.023, 0.008, 0.44, track, 0, 0.978, 0.69, g);
+    box(0.024, 0.05, 0.03, handle, 0, 0.91, 0.94, g);
+    const label = box(0.001, 0.03, 0.07, labelMat, 0.0115, 0.93, 0.83, g);
+    // Reel on the trolley holder behind the feeder.
+    const reel = new THREE.Group();
+    reel.position.set(0, 0.8, 1.14);
+    g.add(reel);
+    for (const dx of [-0.008, 0.008]) {
+      const f = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.0015, 36), flange);
+      f.rotation.z = Math.PI / 2;
+      f.position.x = dx;
+      reel.add(f);
+    }
+    const wound = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.0145, 32), woundMat);
+    wound.rotation.z = Math.PI / 2;
+    reel.add(wound);
+    const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.02, 16), hubMat);
+    hub.rotation.z = Math.PI / 2;
+    reel.add(hub);
+    // Carrier tape: up from the reel into the back of the feeder, then along the top to the pick window.
+    const rise = new THREE.Mesh(new THREE.PlaneGeometry(0.012, 0.23), tapeMat);
+    rise.position.set(0, 0.935, 1.035);
+    rise.rotation.set(-1.17, 0, 0);
+    g.add(rise);
+    const run = new THREE.Mesh(new THREE.PlaneGeometry(0.012, 0.44), tapeMat);
+    run.rotation.x = -Math.PI / 2;
+    run.position.set(0, 0.9835, 0.69);
+    g.add(run);
+    out.push({ group: g, reel, wound, tape: [rise, run], label });
+  }
+  return out;
 }

@@ -125,7 +125,17 @@ export class DeskStation extends Station {
           this.openBaselines();
         };
         act.append(p);
-      } else act.append(j.kind === 'inhouse' ? 'program on file' : '');
+      } else if (j.status === 'ready' || j.status === 'running') {
+        if (j.card === 'none') {
+          const pc = el('button', { class: 'rbtn' }, '🖨 Print work card');
+          pc.onclick = () => {
+            g.printCard(j);
+            this.app.hud.toast(`Work card for ${j.product.asmIpn} is printing at the office printer.`, 'info', 'Printer');
+            this.desk.refresh('sched');
+          };
+          act.append(pc);
+        } else act.append(j.card === 'printed' ? 'card in printer tray' : 'card on clipboard');
+      }
       t.append(el('tr', { class: `${late ? 'late' : ''}${j.id === this.jobId ? ' sel' : ''}` },
         el('td', {}, j.product.asmIpn), el('td', {}, j.product.name), el('td', {}, j.product.customer),
         el('td', {}, j.kind === 'contract' ? 'CONTRACT' : 'in-house'), el('td', {}, String(j.qty)),

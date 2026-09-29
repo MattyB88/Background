@@ -7,10 +7,12 @@ import { BenchScene } from './render/bench';
 import { buildFactory, STATIONS, type Factory, type StationId } from './render/factory';
 import { Hands, TOOL_NAMES, makeTool, type ToolId } from './render/hands';
 import { LineView } from './render/lineview';
+import { Post, loadQuality, saveQuality, type Quality } from './render/post';
 import { Game, type Ending } from './sim/game';
 import type { Station } from './stations/base';
 import { makeStations } from './stations';
 import { Hud } from './ui/hud';
+import { Clipboard } from './ui/clipboard';
 import { IS_TOUCH, TouchControls } from './ui/touch';
 import { EndScreen, PauseMenu, TitleScreen, loadBest } from './ui/screens';
 
@@ -46,7 +48,11 @@ export class App {
   readonly stationNames: Record<string, string> = Object.fromEntries(STATIONS.map((s) => [s.id, s.name]));
   mouseNdc = new THREE.Vector2();
   pointerDown = false;
+  quality: Quality = loadQuality(IS_TOUCH ? 'low' : 'high');
+  private worldPost: Post | null = null;
+  private benchPost: Post | null = null;
   touch: TouchControls | null = null;
+  clipboard!: Clipboard;
   seed = Math.floor(Math.random() * 1e9);
 
   constructor(canvas: HTMLCanvasElement, ui: HTMLElement) {
@@ -86,6 +92,8 @@ export class App {
     const w = window.innerWidth;
     const h = window.innerHeight;
     this.renderer.setSize(w, h, false);
+    this.worldPost?.setSize(w, h);
+    this.benchPost?.setSize(w, h);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
   }
@@ -105,6 +113,7 @@ export class App {
     this.factory = buildFactory(this.scene);
     this.lineView = new LineView(this.game, this.factory, this.factory.root);
     this.bench = new BenchScene(this.env);
+    this.buildPost();
     if (!this.player) this.player = new PlayerController(this.camera, this.renderer.domElement, this.factory.colliders);
     else {
       this.player.colliders = this.factory.colliders;
@@ -115,6 +124,9 @@ export class App {
     this.selectedTool = null;
     this.toolMeshes.clear();
     this.stations = makeStations(this);
+    this.clipboard?.root.remove();
+    this.clipboard = new Clipboard(this);
+    this.ui.append(this.clipboard.root);
     this.game.events.on('toast', (t) => this.hud.toast(t.text, t.kind, t.from));
     this.game.events.on('sfx', (s) => this.audio.play(s.name));
     this.game.events.on('over', (e) => this.beginEnding(e.ending));
@@ -137,6 +149,23 @@ export class App {
     this.title.root.remove();
     this.newGame(seed ?? Math.floor(Math.random() * 1e9), true);
     this.player.lock();
+  }
+
+  buildPost() {
+    this.worldPost?.dispose();
+    this.benchPost?.dispose();
+    this.worldPost = this.benchPost = null;
+    if (this.quality === 'low') return;
+    this.worldPost = new Post(this.renderer, this.scene, this.camera, 0.5, this.quality, 0.2);
+    this.benchPost = new Post(this.renderer, this.bench.scene, this.bench.camera, 0, this.quality, 0);
+  }
+
+  setQuality(q: Quality) {
+    this.quality = q;
+    saveQuality(q);
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, q === 'high' ? 2 : 1.25));
+    this.resize();
+    this.buildPost();
   }
 
   // ------------------------------------------------------------------ tools
@@ -239,7 +268,7 @@ export class App {
     });
     document.addEventListener('pointerlockchange', () => {
       if (this.mode !== 'play') return;
-      if (!this.player.locked && !this.active && !this.player.parked) this.pause.show();
+      if (!this.player.locked && !this.active && !this.player.parked && !this.clipboard?.open && !this.notes) this.pause.show();
       else this.pause.hide();
     });
     window.addEventListener('pointerdown', () => (this.pointerDown = true), true);
@@ -257,12 +286,19 @@ export class App {
       if (e.code === 'KeyE' && !this.active && this.near) this.enterStation(this.near);
       else if ((e.code === 'KeyQ' || e.code === 'Escape') && this.active) this.leaveStation();
       else if (e.code === 'KeyN') this.toggleNotes();
+      else if (e.code === 'KeyC') this.toggleClipboard();
       else if (e.code.startsWith('Digit')) {
         const i = Number(e.code.slice(5)) - 1;
         const t = (Object.keys(TOOL_NAMES) as ToolId[])[i];
         if (t && this.toolAt[t] === 'pocket') this.selectedTool = this.selectedTool === t ? null : t;
       }
     });
+  }
+
+  toggleClipboard() {
+    this.clipboard.toggle();
+    if (this.clipboard.open) this.player.unlock();
+    else if (!this.active && this.mode === 'play') this.player.lock();
   }
 
   toggleNotes() {
@@ -358,6 +394,8 @@ export class App {
     this.hands.setTool(this.selectedTool);
     this.hands.update(dt, this.player.moving, walking);
     this.touch?.update(walking);
+    this.clipboard?.update(dt);
+    this.hands.setClipboard(!!this.clipboard?.open && walking);
     if (this.mode === 'play') {
       this.updatePrompt();
       this.hud.update(g, this.toolAt, this.selectedTool, this.stationNames);
@@ -377,9 +415,11 @@ export class App {
         (Math.cos(now / 29) + Math.sin(now / 17)) * g.stress * 0.35,
       );
       this.bench.update(dt, this.camera.aspect, shake);
-      this.renderer.render(this.bench.scene, this.bench.camera);
+      if (this.benchPost) this.benchPost.render(dt);
+      else this.renderer.render(this.bench.scene, this.bench.camera);
     } else {
-      this.renderer.render(this.scene, this.camera);
+      if (this.worldPost) this.worldPost.render(dt);
+      else this.renderer.render(this.scene, this.camera);
     }
   }
 

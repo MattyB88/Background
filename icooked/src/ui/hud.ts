@@ -33,7 +33,7 @@ export class Hud {
     chip('heat', 'Oven', true);
     chip('rage', 'Customers', true);
     chip('stress', 'Stress', true);
-    this.hints.innerHTML = '<kbd>WASD</kbd> walk · <kbd>Shift</kbd> run · <kbd>E</kbd> use · <kbd>N</kbd> notes · <kbd>1-4</kbd> tool · <kbd>Esc</kbd> "pause"';
+    this.hints.innerHTML = '<kbd>WASD</kbd> walk · <kbd>Shift</kbd> run · <kbd>E</kbd> use · <kbd>C</kbd> clipboard · <kbd>N</kbd> notes · <kbd>1-4</kbd> tool · <kbd>Esc</kbd> "pause"';
     this.prompt.style.display = 'none';
     this.root.append(this.vignette, this.objective, top, this.toasts, this.prompt, this.crosshair, this.pockets, this.hints, this.fade);
   }

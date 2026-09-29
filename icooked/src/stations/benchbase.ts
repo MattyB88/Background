@@ -46,7 +46,12 @@ export abstract class BenchStation extends Station {
         this.onPress(e);
         return;
       }
-      if (e.button === 2 || e.button === 1) {
+      if (e.button === 2) {
+        this.updateNdc(e);
+        this.onGrip();
+        return;
+      }
+      if (e.button === 1 || e.shiftKey) {
         this.panning = { x: e.clientX, y: e.clientY };
         this.overlay.setPointerCapture(e.pointerId);
         return;
@@ -78,7 +83,13 @@ export abstract class BenchStation extends Station {
       this.panning = null;
       if (this.app.active === this) this.onRelease(e);
     });
-    window.addEventListener('keydown', (e) => this.keys.add(e.code));
+    window.addEventListener('keydown', (e) => {
+      this.keys.add(e.code);
+      if (e.code === 'Space' && this.app.active === this) {
+        e.preventDefault();
+        this.onGrip();
+      }
+    });
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
   }
 
@@ -92,6 +103,8 @@ export abstract class BenchStation extends Station {
     this.app.bench.setNdc(this.ndc);
   }
 
+  /** Close / open the tweezers (right click, Space, or the Grip button). */
+  protected onGrip(): void {}
   protected abstract onPress(e: PointerEvent): void;
   protected abstract onRelease(e: PointerEvent): void;
 
