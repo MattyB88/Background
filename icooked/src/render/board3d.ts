@@ -300,7 +300,7 @@ export class Board3D {
         setM(this.bodies, nb++, placeLocal(0, 0, 0, pkg.w - (pkg.kind === 'tant' ? 0 : cap * 1.6), bodyH, pkg.h), color);
         if (pkg.kind === 'led') {
           this.bodyPart[nb] = idx;
-          setM(this.bodies, nb++, placeLocal(0, bodyH, 0, pkg.w * 0.6, H - bodyH, pkg.h * 0.8), this.col.set('#f4f2ea').lerp(new THREE.Color(bodyHex), 0.5));
+          setM(this.bodies, nb++, placeLocal(0, bodyH, 0, pkg.w * 0.6, H - bodyH, pkg.h * 0.8), this.col.set('#f4f2ea').lerp(new THREE.Color(bodyHex), 0.75));
         }
         const capW = pkg.kind === 'tant' ? 0.9 : cap;
         setM(this.metal, nm++, placeLocal(-pkg.w / 2 + capW / 2, 0, 0, capW, pkg.kind === 'tant' ? 0.5 : H, pkg.h * 0.98));

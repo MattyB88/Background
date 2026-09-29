@@ -4,6 +4,23 @@ The design spec is in [`PCBA_GAME_DESIGN_PROMPT.md`](./PCBA_GAME_DESIGN_PROMPT.m
 
 **Strategy:** get a **playable end-to-end vertical slice early**: every station exists in a rough form and a run can end in fire. Then deepen one station at a time. Each milestone ends in a playable build, so the fun is tested continuously and not only at the end.
 
+
+## Status (build in `icooked/`)
+
+| Milestone | State | Notes |
+|---|---|---|
+| M0 Foundation | ✅ done | Vite + TS + Three.js, Electron shell (`npm run desktop`), seeded tick sim, first-person hands, station glide transitions, pocket inventory, a clock that never pauses, synth audio |
+| M1 Vertical slice | ✅ done | Full loop from job to fire; procedural PCBs; score/cash; oven heat + fire ending; share card |
+| M2 BOM Sudoku | 🟡 first pass | Generator + fault injector (blank/typo/wrong IPN, missing designators, old-rev folder), gamble cells, Baselines / ERP / Engineer / BOM editor / ODB++ viewer. A formal uniqueness solver is still to do |
+| M3 PX-9 programming | 🟡 first pass | Layout, panel limits, fiducial find + shape/threshold, package teach (box, lighting, search). Needs more steps and polish |
+| M4 Feeders | 🟡 first pass | Slot types, set-up sheet, scan-verify, lying reels, jams, shortages, alternates, dump bin. **Dump-bench sorting mini-game not built yet** |
+| M5 Stencil | ✅ first pass | Stroke dynamics, SPI view, syringe dab, stencil dirt + wipe |
+| M6 Inspection / reflow / AOI | ✅ first pass | Zoom/pan, shaky tweezer nudge, flick-off, per-defect risk model with 0.5% floor, AOI scopes |
+| M7 Test / rework / notes | ✅ first pass | 3-light jig, iron fix with slips, part replacement, notepad |
+| M8 Economy / endings | ✅ first pass | Cash, kits, penalties, customer rage, Sales, oven maintenance spiral, all three endings |
+| M9 Art / audio / juice | ⬜ next | Placeholder synth audio and greybox-plus machines. Needs final models, recorded SFX, composed music, particles, tutorial |
+| M10 Steam | ⬜ | Electron works; steamworks.js, packaging and store assets still to do |
+
 ---
 
 ## Part A — Launch Build (v1.0)

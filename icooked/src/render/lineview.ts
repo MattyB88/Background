@@ -43,7 +43,7 @@ export class LineView {
     for (let i = 0; i < 120; i++) this.smokeData.push({ v: new THREE.Vector3(0, -99, 0), life: 0 });
     const fireGeo = new THREE.BufferGeometry();
     fireGeo.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(300 * 3), 3));
-    this.fire = new THREE.Points(fireGeo, new THREE.PointsMaterial({ color: 0xff8a2a, size: 0.5, transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending, map: softDot() }));
+    this.fire = new THREE.Points(fireGeo, new THREE.PointsMaterial({ color: 0xff5a10, size: 0.42, transparent: true, opacity: 0.85, depthWrite: false, map: softDot() }));
     this.fire.frustumCulled = false;
     this.fire.visible = false;
     scene.add(this.fire);
