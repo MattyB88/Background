@@ -64,7 +64,7 @@ All company, machine, software and part names are fictional.
 
 ## PC (Windows)
 
-The `ICooked Windows build` workflow builds a portable `ICooked-portable.exe` and publishes it to the `icooked-android-latest`-style pre-release `icooked-windows-latest`. Or run `npm run dist:win` on a Windows machine.
+The `ICooked Windows build` workflow builds a portable `ICooked-portable.exe` and publishes it to the `icooked-windows-latest` pre-release. Or run `npm run dist:win` on a Windows machine.
 
 ## Mobile
 
