@@ -655,6 +655,7 @@ export class DeskStation extends Station {
       this.app.audio.play(q > 0.55 ? 'good' : 'click');
       result.replaceChildren(el('b', {}, q > 0.7 ? 'Vision test: PASS' : q > 0.45 ? 'Vision test: PASS (marginal — accept the risk?)' : 'Vision test: found… something. PASS?'));
       this.desk.refresh('prog');
+      setTimeout(() => this.desk.close('teach'), 1600);
     };
     b.append(el('div', { style: 'display:flex;gap:10px;flex-wrap:wrap' }, c,
       el('div', { style: 'min-width:150px' },

@@ -58,7 +58,7 @@ export class BenchScene {
     this.scene.add(key);
     this.ringLight = new THREE.PointLight(0xffffff, 3, 0, 0);
     this.scene.add(this.ringLight);
-    this.highlight = new THREE.Mesh(new THREE.RingGeometry(1, 1.25, 40), new THREE.MeshBasicMaterial({ color: 0xffb21a, transparent: true, opacity: 0.9, depthTest: false }));
+    this.highlight = new THREE.Mesh(new THREE.RingGeometry(1, 1.07, 48), new THREE.MeshBasicMaterial({ color: 0xffb21a, transparent: true, opacity: 0.55, depthTest: false }));
     this.highlight.rotation.x = -Math.PI / 2;
     this.highlight.renderOrder = 20;
     this.highlight.visible = false;

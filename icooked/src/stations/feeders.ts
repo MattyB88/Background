@@ -176,9 +176,10 @@ export class FeederStation extends Station {
       };
       storeNodes.push(b);
     }
-    if (want) {
+    const alarmHere = this.selSlot !== null && g.line.px9AlarmSlot === this.selSlot && !!g.line.px9Alarm;
+    if (want && ((g.stores.get(want) ?? 0) === 0 || alarmHere)) {
       const have = g.stores.get(want) ?? 0;
-      storeNodes.push(el('h3', { style: 'margin:14px 0 6px;color:#ccd' }, `Out of ${want}?`));
+      storeNodes.push(el('h3', { style: 'margin:14px 0 6px;color:#ccd' }, `Short on ${want}?`));
       if (have > 0) storeNodes.push(el('p', { style: 'color:#aab' }, `Stores still has ${have}. Load it above.`));
       const reqAlt = el('button', { class: 'btn' }, 'Request approved alternate');
       reqAlt.onclick = () => {

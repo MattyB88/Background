@@ -40,6 +40,9 @@ button { font: inherit; cursor: pointer; }
 .hud-chip.hot { animation: pulse 0.6s infinite alternate; }
 @keyframes pulse { from { box-shadow: 0 0 0 rgba(255, 60, 40, 0); } to { box-shadow: 0 0 18px rgba(255, 60, 40, 0.9); } }
 
+.objective { position: fixed; left: 12px; top: 12px; max-width: min(340px, 40vw); background: var(--panel); border: 1px solid var(--panel-edge); border-left: 4px solid var(--accent); border-radius: 8px; padding: 8px 12px; font-size: 13px; line-height: 1.4; pointer-events: none !important; }
+.objective small { display: block; color: var(--muted); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; }
+.in-station .objective { display: none; }
 .crosshair { position: fixed; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%; background: rgba(255,255,255,0.8); box-shadow: 0 0 4px #000; pointer-events: none !important; }
 .prompt { position: fixed; left: 50%; top: 58%; transform: translateX(-50%); background: var(--panel); border: 1px solid var(--panel-edge); padding: 8px 14px; border-radius: 8px; font-size: 15px; pointer-events: none !important; }
 .prompt kbd, kbd { background: #eee; color: #111; border-radius: 4px; padding: 1px 6px; font-family: var(--mono); font-size: 12px; box-shadow: 0 2px 0 #888; }

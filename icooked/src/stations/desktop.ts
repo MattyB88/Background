@@ -13,7 +13,7 @@ export interface WinSpec {
 /** A tiny window manager in the style of a 90s unix workstation. */
 export class Desktop {
   readonly root = el('div', { class: 'desktop' });
-  private wins = new Map<string, { el: HTMLElement; body: HTMLElement; spec: WinSpec }>();
+  private wins = new Map<string, { el: HTMLElement; body: HTMLElement; spec: WinSpec; titleText: Text }>();
   private z = 10;
   private dock = el('div', { class: 'dock' });
 
@@ -31,13 +31,15 @@ export class Desktop {
     const existing = this.wins.get(spec.id);
     if (existing) {
       existing.spec = spec;
+      existing.titleText.data = spec.title;
       this.focus(spec.id);
       this.refresh(spec.id);
       return;
     }
     const body = el('div', { class: 'win-body' });
     const close = el('span', { class: 'x' }, '×');
-    const title = el('div', { class: 'win-title' }, spec.title, close);
+    const titleText = document.createTextNode(spec.title);
+    const title = el('div', { class: 'win-title' }, titleText, close);
     const maxW = this.root.clientWidth || window.innerWidth;
     const maxH = (this.root.clientHeight || window.innerHeight) - 70;
     const w = Math.min(spec.w, maxW - 10);
@@ -62,7 +64,7 @@ export class Desktop {
     });
     title.addEventListener('pointerup', () => (drag = null));
     this.root.append(win);
-    this.wins.set(spec.id, { el: win, body, spec });
+    this.wins.set(spec.id, { el: win, body, spec, titleText });
     this.focus(spec.id);
     this.refresh(spec.id);
   }

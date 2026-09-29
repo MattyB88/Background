@@ -12,6 +12,7 @@ export class Hud {
   private hints = el('div', { class: 'hint-bar' });
   readonly vignette = el('div', { class: 'vignette' });
   readonly fade = el('div', { class: 'fade' });
+  private objective = el('div', { class: 'objective' });
 
   constructor() {
     const top = el('div', { class: 'hud-top' });
@@ -34,7 +35,7 @@ export class Hud {
     chip('stress', 'Stress', true);
     this.hints.innerHTML = '<kbd>WASD</kbd> walk · <kbd>Shift</kbd> run · <kbd>E</kbd> use · <kbd>N</kbd> notes · <kbd>1-4</kbd> tool · <kbd>Esc</kbd> "pause"';
     this.prompt.style.display = 'none';
-    this.root.append(this.vignette, top, this.toasts, this.prompt, this.crosshair, this.pockets, this.hints, this.fade);
+    this.root.append(this.vignette, this.objective, top, this.toasts, this.prompt, this.crosshair, this.pockets, this.hints, this.fade);
   }
 
   toast(text: string, kind: ToastKind = 'info', from?: string) {
@@ -49,6 +50,12 @@ export class Hud {
   setWalking(walking: boolean) {
     this.crosshair.style.display = walking ? '' : 'none';
     this.hints.style.display = walking ? '' : 'none';
+  }
+
+  setObjective(text: string) {
+    if (this.objective.dataset.t === text) return;
+    this.objective.dataset.t = text;
+    this.objective.replaceChildren(el('small', {}, 'Next'), text);
   }
 
   setInStation(on: boolean) {

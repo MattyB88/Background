@@ -353,6 +353,14 @@ export class App {
     if (this.mode === 'play') {
       this.updatePrompt();
       this.hud.update(g, this.toolAt, this.selectedTool, this.stationNames);
+      this.hud.setObjective(this.objective());
+      if (this.player.moving) {
+        this.stepT -= dt * (1 + this.player.moving);
+        if (this.stepT <= 0) {
+          this.stepT = 0.42;
+          this.audio.play('step');
+        }
+      }
       this.active?.update(dt);
     }
     if (this.active?.closeup) {
@@ -365,6 +373,30 @@ export class App {
     } else {
       this.renderer.render(this.scene, this.camera);
     }
+  }
+
+  private stepT = 0;
+
+  /** What should the player probably do next? Helps new players, ignorable by veterans. */
+  objective(): string {
+    const g = this.game;
+    const L = g.line;
+    if (g.heat > 80) return 'The oven is dangerously hot. Stop the feed and service it at the Reflow Oven.';
+    if (L.px9Alarm) return `PX-9 stopped (${L.px9Alarm}). Fix it at the Feeder Cart.`;
+    const j = g.activeJob;
+    if (j) {
+      const miss = Object.entries(j.program!.setup).filter(([ipn, s]) => g.slots[s].reel?.label !== ipn).length;
+      if (miss) return `Load ${miss} feeder(s) for ${j.product.asmIpn} at the Feeder Cart.`;
+      if (!j.printProfile) return `Set up the print for ${j.product.asmIpn} at the Stencil Printer.`;
+    }
+    const idle = !j || j.panelsStarted * g.boardsPerPanel(j) >= j.qty;
+    if (idle && g.jobs.some((x) => x.status === 'ready')) return 'The line is idle. Load the next job at the PX-9.';
+    if (g.rework.length >= 4) return `${g.rework.length} boards waiting at the Rework Bench.`;
+    if (g.jobs.some((x) => x.status === 'offered')) return 'New contract offer. Accept or decline it at the Programming Desk.';
+    if (g.jobs.some((x) => x.status === 'accepted')) return 'Program the accepted contract at the Programming Desk.';
+    if (g.heat > 60) return 'The oven is warming up. Plan a service before it gets critical.';
+    if (idle) return 'Nothing to run. Take a contract at the Programming Desk.';
+    return 'The line is running. Inspect panels, clear the rework rack, and keep an eye on the oven.';
   }
 
   private updatePrompt() {
