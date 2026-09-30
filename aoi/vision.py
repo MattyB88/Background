@@ -275,7 +275,7 @@ def fid_look_alike(chans, pts, r):
 
 
 def auto_fiducials(img, fids, comps, y_up=True, fid_diam_mm=1.0, polarity="auto", max_cands=120, ppm_range=None, angle_hint=None,
-                   evidence_src=None, pool_out=None):
+                   evidence_src=None, pool_out=None, board_mask=None):
     """Find fiducials without a known scale: hypothesise from candidate pairs, verify on all fiducials.
 
     Works on a downscaled copy for speed; returns (M, matched_px) in full-resolution px or (None, [])."""
@@ -284,6 +284,10 @@ def auto_fiducials(img, fids, comps, y_up=True, fid_diam_mm=1.0, polarity="auto"
     f = min(1.0, 1600.0 / max(H0, W0))
     gs = cv2.resize(gray, None, fx=f, fy=f, interpolation=cv2.INTER_AREA) if f < 1 else gray
     h, w = gs.shape
+    bmask = None
+    if board_mask is not None:  # the whole layout must sit on the board (a little slack for edge parts)
+        bmask = cv2.dilate(cv2.resize(board_mask.astype(np.uint8), (w, h), interpolation=cv2.INTER_NEAREST),
+                           np.ones((5, 5), np.uint8)) > 0
     src = [mm_src(q["x"], q["y"], y_up) for q in fids]
     all_src = np.float64([mm_src(c["x"], c["y"], y_up) for c in comps])
     cands = blob_candidates(gs, max_r=min(h, w) / 25, polarity=polarity)[:max_cands]
@@ -323,11 +327,16 @@ def auto_fiducials(img, fids, comps, y_up=True, fid_diam_mm=1.0, polarity="auto"
             continue
         if np.mean((p[:, 0] > -2) & (p[:, 0] < w + 2) & (p[:, 1] > -2) & (p[:, 1] < h + 2)) < 0.9:
             continue
+        if bmask is not None:
+            q = np.round(p).astype(int)
+            okq = (q[:, 0] >= 0) & (q[:, 0] < w) & (q[:, 1] >= 0) & (q[:, 1] < h)
+            if okq.mean() < 0.97 or bmask[q[okq, 1], q[okq, 0]].mean() < 0.96:
+                continue
         pf = apply(M, src)
         dd = np.linalg.norm(pf[:, None, :] - cxy[None, :, :], axis=2)
         j = dd.argmin(1)
         d = dd[np.arange(len(src)), j]
-        tol = max(2.0, 0.5 * (ra + rb) / 2, 0.8 * px_per_mm(M))  # layouts / lenses are rarely perfect: ~0.8 mm
+        tol = max(2.0, 0.5 * (ra + rb) / 2, 1.5 * px_per_mm(M))  # layouts / lenses / perspective are rarely perfect: ~1.5 mm
         ok = d < tol
         score = float(cq[j[ok]].sum() - (d[ok] / tol).sum() * 0.2)
         hyps.append((int(ok.sum()), score, M, [tuple(cxy[k]) for k in j]))
@@ -349,21 +358,23 @@ def auto_fiducials(img, fids, comps, y_up=True, fid_diam_mm=1.0, polarity="auto"
             res_mm = max(math.dist(pf[i], h_[3][i]) for i in range(len(src))) / px_per_mm(h_[2])
             scored.append((fid_look_alike(chans, pts, max(2.5, r_px * 1.2)), -res_mm, h_))
         scored.sort(key=lambda t: (-t[0], -t[1]))
-        alike = [t for t in scored if t[0] >= 0.4][:200]
-        if pool_out is not None:  # full-resolution candidate transforms for the caller to judge
-            for t in (alike or scored)[:12]:
-                Mt = t[2][2].copy() / f
-                pool_out.append(Mt)
+        alike = [t for t in scored if t[0] >= 0.4][:300]
         if alike and evidence_src is not None and len(evidence_src) >= 5:
             # look-alike dots in the right geometry can still be holes / vias: the parts must land on soldered pads
             E = evidence_map(gs, k=15 * f)
             ev = [layout_evidence(E, t[2][2], np.float64(evidence_src)) or 0 for t in alike]
-            k = int(np.argmax([e_ + 0.3 * t[0] for e_, t in zip(ev, alike)]))
+            order = sorted(range(len(alike)), key=lambda i: -(ev[i] + 0.3 * alike[i][0]))
+            if pool_out is not None:  # best-ranked candidate transforms (full resolution) for the caller to judge
+                for i in order[:15]:
+                    pool_out.append(alike[i][2][2].copy() / f)
+            k = order[0]
             look, nres, h_ = alike[k]
             best = h_
             auto_fiducials.look, auto_fiducials.confidence = round(look, 3), ev[k]
             auto_fiducials.geom_ok = top_n >= min(3, len(src)) and -nres < 0.5 and ev[k] >= 1.08
         elif alike:
+            if pool_out is not None:
+                pool_out += [t[2][2].copy() / f for t in alike[:12]]
             look, nres, h_ = alike[0]
             best = h_
             auto_fiducials.look = round(look, 3)
@@ -793,9 +804,21 @@ def board_rect(img):
         return None
     cnts, _ = cv2.findContours((lbl == i).astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     cnt = max(cnts, key=cv2.contourArea)
-    full = np.zeros((h, w), np.uint8)
-    cv2.drawContours(full, [cnt], -1, 1, -1)
-    return cv2.minAreaRect(cnt), full
+    rect = cv2.minAreaRect(cnt)
+    full = np.zeros((h, w), np.uint8)  # boards are rectangles: dark connectors on the edge are still "on the board"
+    cv2.fillConvexPoly(full, cv2.boxPoints(rect).astype(np.int32), 1)
+    return rect, full
+
+
+def on_board_fraction(board_mask, M, pts_src, slack_px=4):
+    """Fraction of layout points (mm_src frame) that land on the board mask."""
+    if board_mask is None or len(pts_src) == 0:
+        return 1.0
+    m = cv2.dilate(board_mask.astype(np.uint8), np.ones((2 * slack_px + 1,) * 2, np.uint8)) > 0
+    h, w = m.shape
+    q = np.round(apply(M, pts_src)).astype(int)
+    ok = (q[:, 0] >= 0) & (q[:, 0] < w) & (q[:, 1] >= 0) & (q[:, 1] < h)
+    return float((m[q[ok, 1], q[ok, 0]].sum()) / len(q))
 
 
 def board_outline(img):

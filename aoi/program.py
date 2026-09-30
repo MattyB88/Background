@@ -972,21 +972,29 @@ class Program:
         whole-layout pad match, both Y senses), lock each onto nearby fiducials, then keep the one whose parts
         land on real soldered pads (pad evidence) with look-alike fiducials. Returns (M, y_up, marks, info) or None."""
         d0 = self._fid_geom(fids[0], par)[0]
-        pr, ah = None, None
-        bo = vision.board_outline(img)
-        if bo is not None:
-            (_, (bw, bh), ang) = bo[0]
-            pts = np.float64([(c["x"], c["y"]) for c in self.data["components"]])
-            span = max(np.ptp(pts[:, 0]), np.ptp(pts[:, 1]))
-            if span > 5:
-                est = max(bw, bh) / span
-                pr, ah = (est * 0.45, est * 1.08), ang  # the board is at least as big as the layout: upper bound
+        pr, ah, bmask = None, None, None
+        br = vision.board_rect(img)  # board by its solder-mask colour: the layout must sit on it, square to its edges
+        pts_mm = np.float64([(c["x"], c["y"]) for c in self.data["components"]])
+        sx, sy = np.ptp(pts_mm[:, 0]), np.ptp(pts_mm[:, 1])
+        if br is not None and max(sx, sy) > 5:
+            (_, (bw, bh), ang) = br[0]
+            Lp, Wp = max(bw, bh), min(bw, bh)
+            bm = self.data.get("board_mm") or {}
+            if bm.get("length") and bm.get("width"):
+                est = (Lp / max(bm["length"], bm["width"]) + Wp / min(bm["length"], bm["width"])) / 2
+                pr = (est * 0.95, est * 1.05)
+            else:
+                big, small = max(sx, sy), max(min(sx, sy), 1.0)
+                ppm_max = min(Lp / big, Wp / small) * 1.03  # the board is at least as big as the layout
+                pr = (ppm_max * 0.45, ppm_max)
+            ah, bmask = ang, br[1]
         E = vision.evidence_map(vision.prep(img))
         cands = []
         for y in (True, False):
             pool = []
             vision.auto_fiducials(img, fids, self.data["components"], y, d0, max_cands=250 if pr else 120,
-                                  ppm_range=pr, angle_hint=ah, evidence_src=self.layout_points(y), pool_out=pool)
+                                  ppm_range=pr, angle_hint=ah, evidence_src=self.layout_points(y), pool_out=pool,
+                                  board_mask=bmask)
             cands += [(Mh, y, "fiducials") for Mh in pool]
         if pr:
             lr = vision.layout_register(img, {True: self.layout_points(True), False: self.layout_points(False)}, (pr[0], pr[1] * 1.05), ah)
@@ -1015,16 +1023,47 @@ class Program:
                     if len(got) >= 3:  # any 2 dots fit a similarity; 3+ in the exact layout triangle is real proof
                         res = max(math.dist(vision.apply(Mf, [g[0]])[0], (g[1]["px"], g[1]["py"])) for g in got) / vision.px_per_mm(Mf)
                         tri = 0.35 if res < 0.15 and look >= 0.85 else 0.15 if res < 0.3 else 0.07 if res < 0.6 else 0.0
+            lay_src = np.float64([vision.mm_src(q["x"], q["y"], y) for q in self.data["components"]])
+            if bmask is not None and vision.on_board_fraction(bmask, M2, lay_src) < 0.95:
+                if M2 is not Mh and vision.on_board_fraction(bmask, Mh, lay_src) >= 0.95:
+                    M2, look, tri, got = Mh, 0.0, 0.0, []  # the dots pulled it off the board: keep the candidate itself
+                else:
+                    continue  # parts would be off the board - impossible
             ev = vision.layout_evidence(E, M2, np.float64(self.layout_points(y))) or 0
             score = ev + 0.3 * max(0.0, look) + 0.02 * len(got) + (tri if look >= 0.4 else 0.0)
             if best is None or score > best[0]:
                 marks = {f["ref"]: {**c, "source": "auto"} for f, c in zip(fids, chosen) if c and M2 is not Mh}
                 best = (score, M2, y, marks, {"evidence": round(float(ev), 3), "look": round(float(look), 3), "how": how})
+        if (best is None or best[4]["evidence"] < 1.0) and br is not None:
+            # failsafe: nothing confirmed - at least put the layout square on the board, then the user clicks fiducials
+            fb = self._board_fit(br, E)
+            if fb is not None and (best is None or fb[0] > best[0]):
+                best = fb
         if best is None:
             return None
         _, M, y, marks, info = best
         info["n"] = len(cands)
         return M, y, marks, info
+
+    def _board_fit(self, br, E):
+        """Layout box fitted inside the detected board rectangle (4 turns x Y sense), best pad evidence wins."""
+        (c, (bw, bh), ang) = br[0]
+        out = None
+        for yu in (True, False):
+            src = np.float64([vision.mm_src(q["x"], q["y"], yu) for q in self.data["components"]])
+            lo, hi = src.min(0), src.max(0)
+            mid = (lo + hi) / 2
+            for k in range(4):
+                a = math.radians(ang + 90 * k)
+                R = np.float64([[math.cos(a), -math.sin(a)], [math.sin(a), math.cos(a)]])
+                ext = np.abs((src - mid) @ R.T).max(0) * 2
+                s_ = 0.97 * min(bw / max(ext[0], 1e-3), bh / max(ext[1], 1e-3))
+                A = R * s_
+                M = np.hstack([A, (np.float64(c) - A @ mid)[:, None]])
+                ev = vision.layout_evidence(E, M, np.float64(self.layout_points(yu))) or 0
+                if out is None or ev > out[0]:
+                    out = (ev, M, yu, {}, {"evidence": round(float(ev), 3), "look": 0.0, "how": "board-fit"})
+        return out
 
     TEACH_DEFAULTS = {"polarity": "auto", "threshold": None, "blur": 3, "rmin_px": None, "rmax_px": None,
                       "roundness": 0.55, "search_mm": 2.5, "min_match": 0.5, "min_score": 0.4, "channel": "auto"}
@@ -1186,13 +1225,35 @@ class Program:
                 d, shape = self._fid_geom(f, par)
                 M = self.M
                 r_px = d / 2 * vision.px_per_mm(M) if M is not None else 8
-                r = vision.find_fiducial(vision.fid_channels(self.golden()), (px, py), r_px, max(3 * r_px, 12), par["polarity"], par["threshold"], shape)
-                if r and math.dist((r["px"], r["py"]), (px, py)) < max(3 * r_px, 12):
+                chans = vision.fid_channels(self.golden())
+                win = max(3 * r_px, 14)
+                r = vision.find_fiducial(chans, (px, py), r_px, win, par["polarity"], par["threshold"], shape)
+                if not r or math.dist((r["px"], r["py"]), (px, py)) > win:
+                    # scale may still be wrong: measure the dot under the click and snap to that
+                    best = None
+                    for ch, im in chans.items():
+                        sg = vision.suggest_fid(im, (px, py), r_px)
+                        if sg:
+                            h = vision.find_fiducial(im, (px, py), sg["r_px"], max(3 * sg["r_px"], 14), sg["polarity"], None, shape,
+                                                     rmin=sg["rmin_px"], rmax=sg["rmax_px"])
+                            if h and (best is None or h["score"] > best["score"]):
+                                best = h
+                    r = best
+                if r and math.dist((r["px"], r["py"]), (px, py)) < max(win, 20):
                     m.update(px=r["px"], py=r["py"], score=r["score"], r=r["r"], snapped=True)
             marks[ref] = m
         self.save()
         have = [f for f in self.fid_list() if f["ref"] in marks]
-        return self.fit_fiducials() if len(have) >= 2 else None
+        if len(have) < 2:
+            return None
+        fit = self.fit_fiducials()
+        if not remove and len(have) < len(self.fid_list()):
+            try:  # two clicked: the rest are found where they must be
+                r = self.find_fiducials(overwrite=False)
+                fit = r.get("fit") or fit
+            except ValueError:
+                pass
+        return fit
 
     def fit_fiducials(self):
         marks = self.data.get("fid_marks") or {}
@@ -1202,7 +1263,17 @@ class Program:
         yu = self.data["y_up"]
         src = [vision.mm_src(f["x"], f["y"], yu) for f in fids]
         dst = [(marks[f["ref"]]["px"], marks[f["ref"]]["py"]) for f in fids]
-        M, res, used = vision.fit_marks(src, dst, reject_mm=0.5 if len(fids) >= 3 else None)
+        M, res, used = vision.fit_marks(src, dst, reject_mm=2.0 if len(fids) >= 3 else None)
+        model = "similarity"
+        if len(used) >= 3 and max(res[i] for i in used) > 0.3:
+            # camera not square to the board / stretched image: an affine fit uses every fiducial instead of dropping one
+            A, _ = cv2.estimateAffine2D(np.float32([src[i] for i in used]), np.float32([dst[i] for i in used]), method=cv2.LMEDS)
+            if A is not None:
+                sv = np.linalg.svd(A[:, :2], compute_uv=False)
+                if sv.min() / sv.max() > 0.9:  # only mild stretch / shear is believable
+                    M, model = A.astype(np.float64), "affine"
+                    ppm_ = vision.px_per_mm(M)
+                    res = [math.dist(vision.apply(M, [src[i]])[0], dst[i]) / ppm_ for i in range(len(src))]
         self.data["transform"] = M.tolist()
         self.data["adjust"] = {"dx": 0.0, "dy": 0.0, "rot": 0.0, "scale": 1.0}
         self.data["fiducials"] = [fids[i]["ref"] for i in used]
@@ -1211,7 +1282,7 @@ class Program:
         info = {"confidence": conf, "residual_mm": {fids[i]["ref"]: round(res[i], 3) for i in range(len(fids))},
                 "used": [fids[i]["ref"] for i in used], "ppm": round(vision.px_per_mm(M), 3),
                 "rotation": round(math.degrees(math.atan2(M[1, 0], M[0, 0])), 3),
-                "max_mm": round(max(res[i] for i in used), 3)}
+                "max_mm": round(max(res[i] for i in used), 3), "model": model}
         self.data["fid_fit"] = info
         self.save()
         return info

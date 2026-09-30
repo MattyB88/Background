@@ -137,6 +137,17 @@ function side(){
     $("#bDemo").onclick=demo;return;}
   (PANELS[S.step]||(()=>{}))(el,d);
 }
+function fidMap(d,cur){ // where the fiducials are on the layout, so the operator knows which dot is which
+  const comps=d.components;if(!comps.length)return"";
+  const xs=comps.map(c=>c.x),ys=comps.map(c=>c.y),x0=Math.min(...xs),x1=Math.max(...xs),y0=Math.min(...ys),y1=Math.max(...ys);
+  const W=320,H=Math.max(60,Math.min(220,W*(y1-y0)/Math.max(1,x1-x0))),pad=14,sx=(W-2*pad)/Math.max(1,x1-x0),sy=(H-2*pad)/Math.max(1,y1-y0);
+  const P=c=>[pad+(c.x-x0)*sx,H-pad-(c.y-y0)*sy];
+  return `<div class="card" style="padding:6px"><div style="font-size:11px;color:var(--dim);margin-bottom:4px">Layout map (as drawn in the .gen — the board may be turned in the photo)</div>
+   <svg viewBox="0 0 ${W} ${H}" style="width:100%;background:#0d2a17;border:1px solid var(--line);border-radius:3px">
+   ${comps.filter(c=>!c.fiducial).map(c=>{const[x,y]=P(c);return`<circle cx="${x}" cy="${y}" r="1.4" fill="#5a8f6a"/>`}).join("")}
+   ${comps.filter(c=>c.fiducial).map(c=>{const[x,y]=P(c),on=c.ref==cur,m=(d.fid_marks||{})[c.ref];
+     return`<circle cx="${x}" cy="${y}" r="${on?7:5}" fill="${on?"#d6a232":m?"#3fb950":"#8792a0"}" stroke="#fff" stroke-width="${on?2:0.5}"/><text x="${x+(x>W/2?-9:9)}" y="${y+(y>H/2?-8:14)}" fill="#fff" font-size="11" font-weight="700" text-anchor="${x>W/2?"end":"start"}">${esc(c.ref)}</text>`}).join("")}
+   </svg></div>`;}
 function verifyHtml(v){return `<div class="card" style="border-color:${v.ok?"var(--ok)":"var(--bad)"};font-size:12px">
   <b style="color:${v.ok?"var(--ok)":"var(--bad)"}">${v.ok?"✓ Fiducials verified":"✕ Fiducials NOT verified"}</b> on ${v.source}
   ${v.registration?` · ${esc(v.registration.method||"")} · match ${v.registration.match??"—"} · residual ${v.registration.fid_residual_px??"—"} px${v.registration.msg?"<br>"+esc(v.registration.msg):""}`:""}
@@ -296,6 +307,8 @@ align(el,d){
    <div class="row"><button id="aR90m" title="Rotate layout 90° anticlockwise">⟲ 90°</button><button id="aR90p" title="Rotate 90° clockwise">⟳ 90°</button><button id="bFlip" title="Mirror Y">↕ ${d.y_up?"Y up":"Y down"}</button></div>
    <label style="display:flex;gap:6px;align-items:center;margin:4px 0"><input type="checkbox" id="aDrag" ${S.dragLayout?"checked":""}> Drag layout with mouse (wheel = scale, Shift+wheel = rotate)</label>
    <b style="display:block;margin-top:8px">2 · Fiducials</b>
+   <button class="big ${S.quickFid?"ok":""}" id="aQuick">${S.quickFid?"Clicking fiducials… (Esc to stop)":"Click fiducials in order (FID1 → FID2 …)"}</button>
+   ${S.quickFid||!d.transform||(fit&&fit.low_confidence)?fidMap(d,S.fidPick):""}
    <div class="row"><button id="aSnap" class="pri">Snap near overlay</button><button id="aAuto">Search whole image</button></div>
    <table style="width:100%;font-size:12px;border-collapse:collapse">${fids.map(f=>`<tr style="border-top:1px solid var(--line);${S.fidSel==f.ref?"background:var(--panel2)":""}">
      <td><b>${f.ref}</b><br><small style="color:var(--dim)">${f.x.toFixed(2)}, ${f.y.toFixed(2)}</small></td><td>${st(f)}</td>
@@ -341,6 +354,8 @@ align(el,d){
   $("#fT").oninput=e=>$("#fTv").textContent=e.target.value;$("#fSr").oninput=e=>$("#fSrv").textContent=e.target.value;$("#fMs").oninput=e=>$("#fMsv").textContent=e.target.value;
   el.querySelectorAll("[data-fp]").forEach(b=>b.onclick=()=>{S.fidPick=S.fidPick==b.dataset.fp?null:b.dataset.fp;S.fidSel=b.dataset.fp;side();});
   el.querySelectorAll("[data-fs]").forEach(b=>b.onclick=()=>{S.fidSel=b.dataset.fs;side();draw();});
+  $("#aQuick").onclick=()=>{S.quickFid=!S.quickFid;S.fidPick=S.quickFid?(fids[0]||{}).ref:null;
+    if(S.quickFid)toast(`Click the centre of ${S.fidPick} on the photo — it snaps to the dot`,4000);side();};
   el.querySelectorAll("[data-ft]").forEach(b=>b.onclick=()=>{const r=b.dataset.ft,m=marks[r];
     if(m)fidTeach(r,m.px,m.py);else{S.fidPick=r;side();toast("Click "+r+" on the image first");}});
   $("#vGold").onclick=async()=>{S.verify=await api(P()+"/fiducials/verify",{method:"POST"});side();};
@@ -803,6 +818,14 @@ window.onmouseup=async e=>{const d=drag;drag=null;
   if(d&&d.geo&&d.moved){await geoCommit(d.geo);return;}
   if(d&&d.lay&&d.moved&&S.layDrag){const k=ppmNow(),o=S.layDrag;await S.adj({ddx:o.x/k,ddy:o.y/k});S.layDrag=null;draw();return;}
   if(!d||d.moved||e.target!==cv||!S.data)return;const[x,y]=toImg(e);
+  if(S.step=="align"&&S.quickFid&&S.fidPick){const ref=S.fidPick;
+    const r=await api(P()+"/fiducials/mark",{json:{ref,px:x,py:y,snap:!e.altKey}});
+    const fl=S.data.components.filter(c=>c.fiducial).map(c=>c.ref),i=fl.indexOf(ref),marks=r.marks||{};
+    const next=fl.slice(i+1).find(f=>!marks[f]||marks[f].source=="auto")||null;
+    if(r.fit&&(next==null||fl.filter(f=>marks[f]).length>=2&&fl.every(f=>marks[f]))){S.quickFid=false;S.fidPick=null;
+      toast(`Aligned on ${fl.filter(f=>marks[f]).length} fiducials · max error ${r.fit.max_mm??"—"} mm`,4000);}
+    else{S.fidPick=next;if(!next){S.quickFid=false;}toast(next?`${ref} set — now click ${next}`:`${ref} set`,3000);}
+    await refresh();side();draw();return;}
   if(S.step=="align"&&S.fidPick&&!e.altKey){const ref=S.fidPick;S.fidPick=null;S.fidSel=ref;side();fidTeach(ref,x,y);return;}
   if(S.step=="align"&&S.fidPick){const ref=S.fidPick;S.fidPick=null;S.fidSel=ref;const r=await api(P()+"/fiducials/mark",{json:{ref,px:x,py:y,snap:false}});
     const n=Object.keys(r.marks||{}).length;toast(r.fit?`✓ ${ref} set · max error ${r.fit.max_mm} mm`:`✓ ${ref} set — pick ${Math.max(0,2-n)} more`,3000);
@@ -818,6 +841,7 @@ window.onmouseup=async e=>{const d=drag;drag=null;
     S.sel=best.ref;S.hlPkg=best.package;if(S.step!="rois")go("rois");else{side();draw();}}};
 cv.ondblclick=()=>{fit();draw();};
 document.addEventListener("keydown",e=>{
+  if(e.key=="Escape"&&S.quickFid){S.quickFid=false;S.fidPick=null;side();return;}
   if((S.step=="align"||(S.step=="rois"&&!S.sel))&&S.data&&S.data.transform&&S.adj&&!/INPUT|SELECT/.test(document.activeElement.tagName)){
     const m={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]}[e.key];const k=e.shiftKey?5:1;
     if(m){e.preventDefault();S.adj({ddx:m[0]*S.step_mm*k,ddy:m[1]*S.step_mm*k});return;}
