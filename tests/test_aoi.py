@@ -470,3 +470,22 @@ def test_fid_teach_verify_and_tilted_board(prog):
     junk = np.random.default_rng(0).integers(0, 255, g.shape, dtype=np.uint8)
     r = prog.inspect(junk, log=False)
     assert r.get("fails") == ["ALIGN"]
+
+
+def test_place_from_board_edge(tmp_path, monkeypatch):
+    import cv2
+    monkeypatch.setattr("aoi.program.ROOT", tmp_path)
+    from aoi.program import Program
+    g = synth.render()
+    h, w = g.shape[:2]
+    img = cv2.copyMakeBorder(g, 120, 120, 160, 160, cv2.BORDER_CONSTANT, value=(150, 60, 20))  # blue table
+    img = cv2.rotate(img, cv2.ROTATE_180)
+    p = Program("edge")
+    p.import_placements(pnp_import.parse(synth.csv_text()))
+    p.set_golden(img)
+    from aoi import vision
+    (_, (bw, bh), _) = vision.board_rect(g)[0]  # the green board inside the render
+    r = p.place_from_board(max(bw, bh) / synth.PPM, min(bw, bh) / synth.PPM)
+    assert r["fit"] and r["fit"]["max_mm"] < 0.1
+    assert abs(r["fit"]["ppm"] - synth.PPM) < 0.3
+    assert abs(abs(r["fit"]["rotation"]) - 180) < 1

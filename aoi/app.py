@@ -240,6 +240,24 @@ def fid_verify(name):
     return jsonify(p.fid_verify(img))
 
 
+@app.post("/api/programs/<name>/board/detect")
+def board_detect(name):
+    p = _prog(name)
+    j = request.json or {}
+    if j.get("length") or j.get("width"):
+        bm = p.data.setdefault("board_mm", {})
+        bm.update({k: float(j[k]) for k in ("length", "width") if j.get(k)})
+    return jsonify(p.detect_board())
+
+
+@app.post("/api/programs/<name>/board/place")
+def board_place(name):
+    p = _prog(name)
+    j = request.json or {}
+    r = p.place_from_board(j.get("length"), j.get("width"), j.get("file_origin"))
+    return jsonify(**r, overlay=p.overlay())
+
+
 @app.put("/api/programs/<name>/adjust")
 def adjust(name):
     p = _prog(name)

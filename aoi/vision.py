@@ -772,6 +772,32 @@ def register(golden, test, anchors_px, patch=60, prefer=None, fids=None, min_sco
     return warped, {**info, "ok": True}
 
 
+def board_rect(img):
+    """Board rectangle by its solder-mask colour (the colour at the middle of the photo), so tape, fixtures or a
+    same-brightness background don't join it. Returns ((cx, cy), (w, h), angle), mask or None."""
+    h, w = img.shape[:2]
+    hsv = cv2.cvtColor(cv2.GaussianBlur(img, (5, 5), 0), cv2.COLOR_BGR2HSV)
+    c = hsv[int(h * .3):int(h * .7), int(w * .3):int(w * .7)].reshape(-1, 3)
+    H0, S0 = np.median(c[:, 0]), np.median(c[:, 1])
+    dh = np.abs(hsv[..., 0].astype(np.int16) - int(H0))
+    dh = np.minimum(dh, 180 - dh)
+    m = ((dh < 14) & (hsv[..., 1] > max(40, 0.45 * S0)) & (hsv[..., 2] > 25)).astype(np.uint8)
+    k = max(5, int(min(h, w) / 100)) | 1
+    m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, np.ones((k * 3, k * 3), np.uint8))
+    m = cv2.morphologyEx(m, cv2.MORPH_OPEN, np.ones((k, k), np.uint8))
+    n, lbl, st, _ = cv2.connectedComponentsWithStats(m)
+    if n < 2:
+        return None
+    i = 1 + int(np.argmax(st[1:, 4]))
+    if st[i, 4] < 0.05 * h * w:
+        return None
+    cnts, _ = cv2.findContours((lbl == i).astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    cnt = max(cnts, key=cv2.contourArea)
+    full = np.zeros((h, w), np.uint8)
+    cv2.drawContours(full, [cnt], -1, 1, -1)
+    return cv2.minAreaRect(cnt), full
+
+
 def board_outline(img):
     """Board rectangle ((cx, cy), (w, h), angle) + mask, found against a plain background. None if unclear."""
     lab = cv2.GaussianBlur(cv2.cvtColor(img, cv2.COLOR_BGR2LAB), (7, 7), 0).astype(np.float32)

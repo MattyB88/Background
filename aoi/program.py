@@ -835,6 +835,138 @@ class Program:
             self.save()
         return {"marks": out, "fit": fit, "params": par}
 
+    def detect_board(self, img=None):
+        """Board rectangle in the golden photo + px/mm from the entered board size. Returns info dict."""
+        img = self.golden() if img is None else img
+        if img is None:
+            raise ValueError("Load the golden board image first")
+        br = vision.board_rect(img)
+        if br is None:
+            raise ValueError("Board edge not found - use a plain background that contrasts with the board")
+        (c, (w, h), ang) = br[0]
+        long_px, short_px = max(w, h), min(w, h)
+        bm = self.data.get("board_mm") or {}
+        info = {"center": [float(c[0]), float(c[1])], "size_px": [float(long_px), float(short_px)], "angle": float(ang),
+                "corners": cv2.boxPoints(br[0]).round(1).tolist()}
+        if bm.get("length") and bm.get("width"):
+            L, W = max(bm["length"], bm["width"]), min(bm["length"], bm["width"])
+            info.update(ppm_long=round(long_px / L, 3), ppm_short=round(short_px / W, 3),
+                        size_error_pct=round(100 * abs(long_px / L - short_px / W) / (long_px / L), 1))
+        self.data["board_rect"] = info
+        self.save()
+        return info
+
+    def place_from_board(self, length=None, width=None, file_origin=None):
+        """Board-first alignment: the board edge gives scale and rotation, the origin snaps to a board corner,
+        and the fiducials are only looked for inside the board where the layout can actually sit."""
+        img = self.golden()
+        if img is None:
+            raise ValueError("Load the golden board image first")
+        bm = self.data.setdefault("board_mm", {})
+        if length:
+            bm["length"] = float(length)
+        if width:
+            bm["width"] = float(width)
+        if file_origin is not None:
+            bm["file_origin"] = bool(file_origin)
+        if not (bm.get("length") and bm.get("width")):
+            raise ValueError("Enter the board length and width (mm)")
+        L, W = max(bm["length"], bm["width"]), min(bm["length"], bm["width"])
+        br = vision.board_rect(img)
+        if br is None:
+            raise ValueError("Board edge not found - use a plain background that contrasts with the board")
+        (c, (rw, rh), ang) = br[0]
+        a = math.radians(ang if rw >= rh else ang + 90)
+        u0 = np.float64([math.cos(a), math.sin(a)])            # long side direction in the image
+        v0 = np.float64([u0[1], -u0[0]])                         # perpendicular
+        ppm = (max(rw, rh) / L + min(rw, rh) / W) / 2
+        c = np.float64(c)
+        comps = self.data["components"]
+        fids = self.fid_list()
+        par = self.fid_params()
+        chans = vision.fid_channels(img)
+        d0 = self._fid_geom(fids[0], par)[0] if fids else 1.0
+        # fiducial-like dots inside the board (both channels)
+        cands = []
+        if fids:
+            inside = cv2.erode(br[1], np.ones((5, 5), np.uint8))
+            for ch, im in chans.items():
+                for x, y, r, q in vision.blob_candidates(im, max_r=max(4, d0 * ppm * 1.5), polarity="bright" if ch == "copper" else "auto"):
+                    if inside[min(int(y), inside.shape[0] - 1), min(int(x), inside.shape[1] - 1)] and 0.4 < 2 * r / (d0 * ppm) < 2.5:
+                        if all(math.dist((x, y), k[:2]) > 3 for k in cands):
+                            cands.append((x, y, r, q))
+        cxy = np.float64([k[:2] for k in cands]) if cands else np.zeros((0, 2))
+        E = vision.evidence_map(vision.prep(img))
+        best = None
+        for su in (1, -1):
+            for sv in (1, -1):
+                u, v = u0 * su, v0 * sv
+                origin = c - u * L * ppm / 2 - v * W * ppm / 2   # board corner (0, 0)
+                A = np.column_stack([u * ppm, v * ppm])          # board mm (X, Y up) -> image px
+
+                def to_px(bxy):
+                    return np.float64(bxy) @ A.T + origin
+                for yu in (True, False):
+                    lay = np.float64([vision.mm_src(q["x"], q["y"], yu) for q in comps])
+                    for q90 in (False, True):  # the layout's long axis may run along its X or its Y
+                        def tob(src, q90=q90):
+                            b = np.column_stack([src[:, 0], -src[:, 1]])
+                            return np.column_stack([-b[:, 1], b[:, 0]]) if q90 else b
+                        b0 = tob(lay)
+                        lo, hi = b0.min(0), b0.max(0)
+                        if (hi - lo)[0] > L + 2 or (hi - lo)[1] > W + 2:
+                            continue  # layout does not fit the board this way round
+                        fb = tob(np.float64([vision.mm_src(f["x"], f["y"], yu) for f in fids])) if fids else None
+                        offs = []
+                        if bm.get("file_origin"):
+                            sh = self.data.get("origin_shift") or [0, 0]
+                            offs.append(np.float64(sh) - tob(np.float64([[0.0, 0.0]]))[0])
+                        elif fids and len(cxy):
+                            Ai = np.linalg.inv(A)
+                            for k in range(len(cxy)):
+                                off = Ai @ (cxy[k] - origin) - fb[0]
+                                if (lo + off >= -1).all() and (hi + off <= [L + 1, W + 1]).all():
+                                    offs.append(off)
+                        else:
+                            offs.append(np.float64([(L - (hi[0] - lo[0])) / 2 - lo[0], (W - (hi[1] - lo[1])) / 2 - lo[1]]))
+                        for off in offs:
+                            if fids and len(cxy) and not bm.get("file_origin"):
+                                pf = to_px(fb + off)
+                                dd = np.linalg.norm(pf[:, None, :] - cxy[None, :, :], axis=2)
+                                j_ = dd.argmin(1)
+                                ok = dd[np.arange(len(fb)), j_] < max(3.0, 1.0 * ppm)
+                                n = int(ok.sum())
+                                if best is not None and n < best[0][0]:
+                                    continue
+                                look = vision.fid_look_alike(chans, [tuple(cxy[j_[i]]) for i in range(len(fb)) if ok[i]],
+                                                             max(2.5, d0 * ppm * 0.6)) if n >= 2 else 0.0
+                            else:
+                                n, look = 0, 0.0
+                            src = lay[:3] if len(lay) >= 3 else lay
+                            Mfit = vision.similarity_from_pairs(src, to_px(tob(src) + off))
+                            if np.abs(vision.apply(Mfit, lay) - to_px(b0 + off)).max() > 2:
+                                continue  # this combination would need a mirror image
+                            ev = vision.layout_evidence(E, Mfit, np.float64(self.layout_points(yu))) or 0
+                            key = (n, look + ev)
+                            if best is None or key > best[0]:
+                                best = (key, Mfit, yu, off, origin, u, v)
+        if best is None:
+            raise ValueError("Could not place the layout on the board - check the board size / orientation")
+        (n, sc), M, yu, off, origin, u, v = best
+        self.data["y_up"] = bool(yu)
+        self.data["transform"] = M.tolist()
+        self.data["adjust"] = {"dx": 0.0, "dy": 0.0, "rot": 0.0, "scale": 1.0}
+        corners = cv2.boxPoints(br[0])
+        lo0 = vision.apply(M, [vision.mm_src(0, 0, bool(yu))])[0]  # layout 0,0 -> snap the origin marker to its board corner
+        origin = np.float64(corners[int(np.argmin(np.linalg.norm(corners - lo0, axis=1)))])
+        self.data["board_place"] = {"origin_px": origin.round(1).tolist(), "x_dir": u.round(4).tolist(), "y_dir": v.round(4).tolist(),
+                                    "ppm": round(ppm, 3), "offset_mm": [round(float(off[0]), 3), round(float(off[1]), 3)],
+                                    "fids_matched": n, "corners": cv2.boxPoints(br[0]).round(1).tolist()}
+        self.data["fid_marks"] = {k: m for k, m in (self.data.get("fid_marks") or {}).items() if m.get("source") in ("manual", "taught")}
+        self.save()
+        r = self.find_fiducials(overwrite=True) if fids else {"fit": None, "marks": []}
+        return {"board": self.data["board_place"], **r}
+
     def _auto_align(self, img, par, chans, fids):
         """Find the board with no prior: gather candidate alignments (fiducial-geometry hypotheses and the
         whole-layout pad match, both Y senses), lock each onto nearby fiducials, then keep the one whose parts
