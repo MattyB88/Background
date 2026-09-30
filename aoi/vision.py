@@ -1290,6 +1290,14 @@ def diff_defects(golden, test, tol=None, base=28.0, min_area_px=40, slack_px=2, 
 
 
 # ---------------------------------------------------------------- teach: snap a box onto a part
+def _centred(big, core, frac=0.45):
+    """The grown outline must stay centred on the core in both image directions (two stacked neighbours are not one part)."""
+    a = math.radians(big["angle"])
+    ex = abs(big["l"] * math.cos(a)) + abs(big["w"] * math.sin(a))
+    ey = abs(big["l"] * math.sin(a)) + abs(big["w"] * math.cos(a))
+    return abs(big["cx"] - core["cx"]) < frac * ex and abs(big["cy"] - core["cy"]) < frac * ey
+
+
 def snap_part(img, x, y, ppm, sizes_mm=(3, 4.5, 7, 10, 15, 22)):
     """Find the part under (x, y). In growing windows: board colour = window border, part = pixels far from it
     (Otsu), keep the blob at the click once it sits fully inside the window. Returns dict(cx, cy, l, w, angle) px."""
@@ -1344,8 +1352,7 @@ def snap_part(img, x, y, ppm, sizes_mm=(3, 4.5, 7, 10, 15, 22)):
             g = max(good, key=lambda c: c[5])
             if core is None:
                 core = g  # smallest clean, fully-seen blob: at least part of the body
-            elif g[5] <= 8 * core[5] and abs(g[3]["cx"] - core[3]["cx"]) < g[3]["l"] / 2 and abs(g[3]["cy"] - core[3]["cy"]) < g[3]["l"] / 2 \
-                    and g[2] >= 0.8 * core[2]:
+            elif g[5] <= 8 * core[5] and _centred(g[3], core[3]) and g[2] >= 0.8 * core[2]:
                 core = g  # grew to a bigger clean outline around the core with an edge as strong: the full body
             else:
                 return core[3]
@@ -1354,6 +1361,10 @@ def snap_part(img, x, y, ppm, sizes_mm=(3, 4.5, 7, 10, 15, 22)):
         per_win_all.append(cands)
     if core is not None:
         return core[3]
+    for cands in per_win_all:  # no clean outline: first window that sees a whole blob (marking can drop its fill)
+        inside = [c for c in cands if c[0] and c[5] >= (1.0 * ppm) ** 2]
+        if inside:
+            return max(inside, key=lambda c: c[2])[3]
     for cands in per_win_all:  # nothing fully inside any window: best guess from the smallest window that saw something
         if cands:
             return max(cands, key=lambda c: (c[1], c[5]))[3]

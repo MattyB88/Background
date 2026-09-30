@@ -258,6 +258,66 @@ def board_place(name):
     return jsonify(**r, overlay=p.overlay())
 
 
+@app.post("/api/programs/<name>/parts/<ref>/resolve")
+def resolve_part(name, ref):
+    p = _prog(name)
+    j = request.json or {}
+    r = p.resolve_unsure(ref, j.get("package"), bool(j.get("teach")), j.get("ref"))
+    return jsonify(ref=r, overlay=p.overlay())
+
+
+# ---------------------------------------------------------------- live / inline mode
+LIVE = {}
+
+
+def _live_frame(src, folder):
+    if src == "folder":
+        files = sorted(f for f in Path(folder).glob("*") if f.suffix.lower() in (".jpg", ".jpeg", ".png", ".bmp"))
+        if not files:
+            abort(400, "No images in the live folder")
+        st = LIVE.setdefault(("folder", folder), {"i": 0})
+        f = files[st["i"] % len(files)]
+        st["i"] += 1
+        return cv2.imread(str(f))
+    return _capture()
+
+
+@app.post("/api/programs/<name>/live")
+def live_step(name):
+    """One tick of inline mode: grab a frame, track board present / moving / settled, inspect once per new board."""
+    p = _prog(name)
+    j = request.json or {}
+    img = _live_frame(j.get("source", "camera"), j.get("dir", ""))
+    st = LIVE.setdefault(name, {"prev": None, "stable": 0, "done": False, "result": None})
+    th = cv2.resize(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), (160, int(160 * img.shape[0] / img.shape[1]))).astype(np.float32)
+    motion = float(np.abs(th - st["prev"]).mean()) if st["prev"] is not None and st["prev"].shape == th.shape else 99.0
+    st["prev"] = th
+    from . import vision
+    br = vision.board_rect(img)
+    present = br is not None and br[0][1][0] * br[0][1][1] > 0.12 * img.shape[0] * img.shape[1]
+    if not present:
+        st.update(stable=0, done=False)
+        state = "waiting"
+    elif motion > float(j.get("motion", 3.0)):
+        st["stable"] = 0
+        state = "moving"
+    else:
+        st["stable"] += 1
+        state = "settling" if st["stable"] < int(j.get("settle", 2)) else "ready"
+    result = None
+    if state == "ready" and not st["done"]:
+        result = p.inspect(img, board_id=j.get("board_id", ""))
+        st.update(done=True, result=result)
+        state = "inspected"
+    elif st["done"] and present:
+        state = "inspected"
+    small = cv2.resize(img, None, fx=min(1.0, 1100 / max(img.shape[:2])), fy=min(1.0, 1100 / max(img.shape[:2])))
+    import base64
+    frame = "data:image/jpeg;base64," + base64.b64encode(cv2.imencode(".jpg", small, [cv2.IMWRITE_JPEG_QUALITY, 80])[1]).decode()
+    return jsonify(state=state, motion=round(motion, 2), frame=frame, result=result,
+                   last=st["result"] and {k: st["result"].get(k) for k in ("ok", "n_fail", "run", "board")})
+
+
 @app.put("/api/programs/<name>/adjust")
 def adjust(name):
     p = _prog(name)
@@ -277,7 +337,8 @@ def from_photo(name):
     p = Program(name)
     img = _capture(request.args.get("cam", 0)) if request.args.get("camera") else _img_from_request()
     bm = request.args.get("board_mm")
-    info = autodetect.program_from_image(p, img, board_mm=float(bm) if bm else None)
+    samples = json.loads(request.form.get("samples") or "[]") if request.form else []
+    info = autodetect.program_from_image(p, img, board_mm=float(bm) if bm else None, samples=samples or None)
     return jsonify(**info, overlay=p.overlay())
 
 

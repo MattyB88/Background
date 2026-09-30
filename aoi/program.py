@@ -542,7 +542,15 @@ class Program:
         if img is None or M is None:
             raise ValueError("Add a board image first")
         ppm = vision.px_per_mm(M)
-        r = vision.snap_part(img, px, py, ppm) or {"cx": px, "cy": py, "l": 2.0 * ppm, "w": 1.2 * ppm, "angle": 0.0}
+        # snap from a few nearby seeds and keep the tightest body that still covers the click,
+        # so a click a couple of pixels off does not merge the part with a stacked neighbour
+        cands = []
+        for ox, oy in ((0, 0), (-4, 0), (4, 0), (0, -4), (0, 4), (-8, 0), (8, 0), (0, -8), (0, 8)):
+            q = vision.snap_part(img, px + ox, py + oy, ppm)
+            if q and abs(q["cx"] - px) <= q["l"] / 2 + 2 and abs(q["cy"] - py) <= q["l"] / 2 + 2:
+                cands.append(q)
+        r = min(cands, key=lambda q: np.hypot(q["cx"] - px, q["cy"] - py) + 0.1 * np.sqrt(q["l"] * q["w"])) if cands else None
+        r = r or {"cx": px, "cy": py, "l": 2.0 * ppm, "w": 1.2 * ppm, "angle": 0.0}
         L, W = r["l"] / ppm, r["w"] / ppm
         name = f"TAUGHT_{L:.1f}x{W:.1f}"
         if name not in self.data["packages"]:
@@ -557,10 +565,36 @@ class Program:
             ref = f"T{n}"
         self.data["components"].append({"ref": ref, "x": float(x), "y": float(-y if yu else y), "rot": (-r["angle"]) % 360,
                                         "part": name, "package": name, "side": "top", "fiducial": False, "enabled": True,
-                                        "dnf": False, "dx": 0, "dy": 0, "checks": None, "th": {}, "mode": "presence",
+                                        "dnf": False, "dx": 0, "dy": 0, "checks": None, "th": {},
+                                        **({"mode": "presence"} if self.bare() is not None else {}),  # bare-board teach: on-pad check
                                         "ipn": self.data.get("bom", {}).get(ref, {}).get("ipn", "")})
         self.save()
         return ref
+
+    def resolve_unsure(self, ref, package=None, teach=False, new_ref=None):
+        """Operator decision on an 'unsure' dot: give it a package (program or library), or teach it from the image."""
+        c = next(x for x in self.data["components"] if x["ref"] == ref)
+        if teach:
+            M = self.M
+            px, py = vision.apply(M, [vision.mm_src(c["x"], c["y"], self.data["y_up"])])[0]
+            self.data["components"].remove(c)
+            r = self.add_part_at(float(px), float(py), ref=new_ref)
+            nc = next(x for x in self.data["components"] if x["ref"] == r)
+            nc.pop("mode", None)  # full inspection, like the auto-found parts
+            self.save()
+            return r
+        if package:
+            if package not in self.data["packages"]:
+                lib = self.library()
+                if package not in lib:
+                    raise ValueError(f"Package {package} not in program or library")
+                self.data["packages"][package] = {**lib[package], "name": package}
+            c.update(package=package, part=package, enabled=True, unsure=False)
+            if new_ref and not any(x["ref"] == new_ref for x in self.data["components"]):
+                c["ref"] = new_ref
+            self.save()
+            return c["ref"]
+        raise ValueError("Choose a package or Teach")
 
     # ------------------------------------------------ BOM without XY (IPN + designators)
     def set_bom(self, bom):
@@ -1299,7 +1333,7 @@ class Program:
             ctr, ang = vision.comp_pose(M, c, self.data["y_up"])
             out.append({"ocv_roi": pkg.ocv_roi, "pol_roi": pkg.pol_roi, "levels": self.geom(c0)[1], "ipn": c0.get("ipn", ""), "ref": c["ref"], "cx": ctr[0], "cy": ctr[1], "angle": ang, "ppm": ppm,
                         "body": [pkg.body_l, pkg.body_w], "pads": pkg.pads, "package": c["package"],
-                        "enabled": c["enabled"], "fiducial": c["fiducial"], "part": c["part"]})
+                        "enabled": c["enabled"], "fiducial": c["fiducial"], "part": c["part"], "unsure": bool(c0.get("unsure"))})
         return out
 
     def anchors(self):
