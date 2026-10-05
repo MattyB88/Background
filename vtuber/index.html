@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VTuber Room</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #15121c; font-family: system-ui, sans-serif; }
+  body.obs { background: transparent; }
+  #stage { position: fixed; inset: 0; }
+  #bubble {
+    position: fixed; transform: translate(-50%, -100%); max-width: 46vw;
+    background: #fff; color: #1d1530; border: 3px solid #1d1530; border-radius: 14px;
+    padding: 8px 12px; font-weight: 700; font-size: clamp(12px, 2.4vw, 22px); line-height: 1.25;
+    pointer-events: none; display: none;
+  }
+  #bubble::after {
+    content: ""; position: absolute; left: 50%; bottom: -12px; transform: translateX(-50%);
+    border: 9px solid transparent; border-top-color: #1d1530;
+  }
+  #panel {
+    position: fixed; left: 8px; bottom: 8px; padding: 8px; border-radius: 10px;
+    background: rgba(20, 16, 30, 0.85); color: #eee; font-size: 13px;
+    display: flex; flex-direction: column; gap: 6px; max-width: calc(100vw - 32px);
+  }
+  body.obs #panel { display: none; }
+  #panel .row { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+  #panel button, #panel select, #panel input {
+    font: inherit; background: #2e2742; color: #eee; border: 1px solid #4b3f6b; border-radius: 6px; padding: 4px 8px;
+  }
+  #panel button:hover { background: #4b3f6b; cursor: pointer; }
+  #panel input[type=text] { flex: 1; min-width: 140px; }
+  #queue { opacity: 0.7; }
+</style>
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js" } }
+</script>
+</head>
+<body>
+<div id="stage"></div>
+<div id="bubble"></div>
+<div id="panel">
+  <div class="row" id="actions"></div>
+  <div class="row">
+    <label>Emotion <select id="emotion"></select></label>
+    <label><input type="checkbox" id="demo"> Auto demo</label>
+    <span id="queue"></span>
+  </div>
+  <div class="row">
+    <input type="text" id="say" placeholder="Say something... (Enter)">
+  </div>
+</div>
+<script type="module" src="./main.js"></script>
+</body>
+</html>

@@ -5,6 +5,7 @@ This repository includes Windows desktop experiments and camera AR tools:
 - `desktop_saver_game.py`: a simple game attached to desktop background layering.
 - `desktop_buddy.py`: a staged virtual desktop buddy prototype with transparent overlay rendering, state machine behavior, and local SQLite memory.
 - `ps4_robot_eyes.py`: AR robot-vision overlay for PS4 camera (or any webcam).
+- `vtuber/`: autonomous AI VTuber in a 3D room, built in stages. See `vtuber/ROADMAP.md`.
 
 ## Desktop Buddy stages implemented
 
