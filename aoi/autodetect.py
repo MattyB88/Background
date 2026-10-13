@@ -109,6 +109,24 @@ def detect(img, min_mm=0.6, ppm=20.0, samples=None):
             hole = abs(float(ctr[:, 0].mean()) - float(ann[:, 0].mean())) > 25  # drilled centre differs
             if gold and hole:
                 holes.append((float(x), float(y), float(r)))
+    # what is under / around the board (seen through empty holes): only usable when it is a distinct colour
+    from .vision import board_rect
+    br = board_rect(img)
+    see_through = None
+    if br is not None and 0.05 < 1 - br[1].mean() and br[1].mean() > 0.2:
+        out = labf[br[1] == 0][::7]
+        bo = np.median(out, 0)
+        bv, gv = bo[1:] - 128, bg[1:].astype(np.float32) - 128
+        nb = float(np.linalg.norm(bv))
+        if (nb > 15 and float(bv @ gv) < 0.5 * nb * max(float(np.linalg.norm(gv)), 1e-3)
+                and np.mean(np.linalg.norm(out - bo, axis=1) < 25) > 0.5):
+            # same hue as the background at any brightness: seen through a hole it is in shadow
+            cv_ = labf[..., 1:] - 128
+            cn = np.linalg.norm(cv_, axis=2)
+            see_through = (cn > 0.3 * nb) & ((cv_ @ bv) > 0.9 * cn * nb)
+            # shiny bodies reflect it too, but paler: big blobs need it strongly coloured and no brighter
+            see_strict = see_through & (cn > 0.45 * nb) & (labf[..., 0] < bo[0] + 10)
+    metal = (dL > max(45.0, l_hi * 0.6)) & (neutral < 22)  # leads, terminations, pads: bright and colourless
     # every blob, including those sitting inside a background frame (not just outermost contours)
     n, lbl, st, _ = cv2.connectedComponentsWithStats(mask)
     cnts = []
@@ -142,9 +160,15 @@ def detect(img, min_mm=0.6, ppm=20.0, samples=None):
             continue
         m = np.zeros(mask.shape, np.uint8)
         cv2.drawContours(m, [cn], -1, 1, -1)
+        if see_through is not None and (see_through if a < 3.5 * ppm else see_strict)[m > 0].mean() > 0.06:
+            continue  # background shows through it: empty through-hole or unfitted pad, not a part
         dark = cv2.mean(gray, m)[0] < 80
         # confidence: a clean filled rectangle of a plausible size is a part; ragged / tiny blobs are "maybe"
         conf = min(1.0, max(0.0, (fill - 0.35) / 0.4)) * (1.0 if min(a, b) >= 0.9 * ppm else 0.6)
+        # no metal on or around it (no leads / terminations / pads): ink, label, dirt - ask, don't assume
+        ring = cv2.dilate(m, np.ones((int(ppm * 0.8) | 1,) * 2, np.uint8))
+        if metal[ring > 0].mean() < 0.015:
+            conf *= 0.4
         parts.append({"cx": float(cx), "cy": float(cy), "angle": float(ang), "l": float(a), "w": float(b), "dark": dark,
                       "conf": round(float(conf), 2)})
     return parts, holes
@@ -155,15 +179,12 @@ def program_from_image(prog, img, ppm=None, board_mm=None, samples=None, min_con
 
     Scale: board_mm (board length) measured against the board outline, else ppm, else 20 px/mm.
     """
-    if board_mm:
-        from .vision import board_outline
-        bo = board_outline(img)
-        if bo is not None:
-            ppm = max(bo[0][1]) / float(board_mm)
+    from .vision import board_outline, board_rect
+    bo = board_rect(img) or board_outline(img)  # solder-mask colour first: tape / fixtures are not the board
+    if board_mm and bo is not None:
+        ppm = max(bo[0][1]) / float(board_mm)
     ppm = float(ppm or 20.0)
     parts, holes = detect(img, ppm=ppm, samples=samples)
-    from .vision import board_outline
-    bo = board_outline(img)
     if bo is not None:  # ignore anything off the board (fixture, overlay text from camera software)
         inside = cv2.erode(bo[1], np.ones((int(ppm * 1.0) | 1,) * 2, np.uint8))
         parts = [p for p in parts if inside[int(p["cy"]), int(p["cx"])]]
