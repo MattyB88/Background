@@ -1,0 +1,80 @@
+{
+  "family": [
+    { "name": "Dad", "age": 40 },
+    { "name": "Mum", "age": 38 },
+    { "name": "Sam", "age": 11 },
+    { "name": "Ella", "age": 7 }
+  ],
+
+  "schedule": {
+    "events_per_day": 3,
+    "min_gap_minutes": 45,
+    "weekday": { "start": "16:30", "end": "19:30" },
+    "weekend": { "start": "09:30", "end": "19:00" }
+  },
+
+  "timing": {
+    "announce_seconds": 8,
+    "result_seconds": 20
+  },
+
+  "hardware": {
+    "button_pin": 17,
+    "led_pin": 27,
+    "bounce_ms": 50
+  },
+
+  "display": {
+    "allow_screen_press": false
+  },
+
+  "admin_token": "change-me-to-something-long",
+
+  "webhook": {
+    "url": "",
+    "token": ""
+  },
+
+  "challenges": [
+    { "text": "Do 15 star jumps", "seconds": 60, "points": 1 },
+    { "text": "Run to the front door and back 3 times", "seconds": 60, "points": 1 },
+    { "text": "Hold a plank for 30 seconds", "seconds": 75, "points": 2 },
+    { "text": "Do 10 squats while singing Happy Birthday", "seconds": 60, "points": 1 },
+    { "text": "Hop on one foot 20 times", "seconds": 45, "points": 1 },
+    { "text": "Find something red and put it on the kitchen bench", "seconds": 60, "points": 1 },
+    { "text": "Give everyone in the house a high five", "seconds": 90, "points": 1 },
+    { "text": "Make your bed - properly!", "seconds": 120, "points": 2 },
+    { "text": "Put 10 things away where they belong", "seconds": 120, "points": 2 },
+    { "text": "Do a 30 second dance party (music optional)", "seconds": 60, "points": 1 },
+    { "text": "Touch your toes 10 times, then reach for the ceiling 10 times", "seconds": 60, "points": 1 },
+    { "text": "Crab walk from the fridge to the couch and back", "seconds": 60, "points": 2 },
+    { "text": "Bring a pair of socks to the fridge", "seconds": 60, "points": 1 },
+    { "text": "Do 5 push-ups (knees allowed!)", "seconds": 45, "points": 1 },
+    { "text": "Balance a book on your head and walk around the kitchen", "seconds": 60, "points": 1 },
+    { "text": "Get someone else to do 5 jumping jacks with you", "seconds": 90, "points": 2 },
+    { "text": "Fill a glass of water and drink it", "seconds": 60, "points": 1 },
+    { "text": "Wipe down the kitchen bench", "seconds": 120, "points": 2 },
+    { "text": "Do 20 bicycle kicks lying on the floor", "seconds": 60, "points": 1 },
+    { "text": "Run up and down the stairs twice", "seconds": 60, "points": 2, "min_age": 6 },
+    { "text": "Do 20 burpees", "seconds": 120, "points": 3, "min_age": 12 },
+    { "text": "Take the rubbish bin out", "seconds": 120, "points": 2, "min_age": 9 },
+    { "text": "Tell a joke that makes someone laugh", "seconds": 90, "points": 2 },
+    { "text": "Wall sit for 45 seconds", "seconds": 90, "points": 2, "min_age": 8 },
+    { "text": "Walk like a penguin around the whole house", "seconds": 90, "points": 1, "max_age": 12 }
+  ],
+
+  "punishments": [
+    "Everyone unloads the dishwasher together",
+    "Everyone does a 5 minute tidy-up blitz of the lounge room",
+    "Everyone does 20 star jumps - together, right now!",
+    "Everyone folds a basket of washing",
+    "Everyone picks up 10 things off the floor",
+    "Family walk around the block after dinner",
+    "Everyone wipes a surface in the kitchen",
+    "Everyone does a 2 minute plank challenge (breaks allowed)",
+    "No screens for 30 minutes - board game instead",
+    "Everyone helps set and clear the dinner table",
+    "Everyone does a 10 minute garden / yard tidy",
+    "Everyone sorts the shoes at the front door"
+  ]
+}

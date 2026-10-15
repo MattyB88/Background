@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fridge Challenge Admin</title>
+  <style>
+    :root { --bg:#f5f6fa; --fg:#1b1f2a; --card:#fff; --muted:#6b7280; --accent:#2563eb; --good:#15803d; --bad:#b91c1c; }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg:#10131c; --fg:#eef0f5; --card:#1c2130; --muted:#9aa3b5; --accent:#60a5fa; --good:#4ade80; --bad:#f87171; }
+    }
+    body { margin:0; padding:16px; background:var(--bg); color:var(--fg); font-family:system-ui, sans-serif; }
+    main { max-width:720px; margin:0 auto; }
+    h1 { font-size:1.4rem; margin:0 0 12px; }
+    h2 { font-size:1.05rem; margin:0 0 8px; }
+    .card { background:var(--card); border-radius:12px; padding:14px 16px; margin-bottom:14px; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+    .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+    button, select { font:inherit; padding:8px 14px; border-radius:8px; border:1px solid var(--muted); background:var(--card); color:var(--fg); }
+    button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+    .muted { color:var(--muted); }
+    ul { list-style:none; padding:0; margin:0; }
+    li { padding:8px 0; border-top:1px solid rgba(127,127,127,.2); display:flex; justify-content:space-between; gap:8px; align-items:center; }
+    li:first-child { border-top:none; }
+    .ok { color:var(--good); } .no { color:var(--bad); }
+    #err { color:var(--bad); }
+  </style>
+</head>
+<body>
+<main>
+  <h1>🧊 Fridge Challenge</h1>
+  <p id="err"></p>
+
+  <div class="card">
+    <h2>Now</h2>
+    <p id="now" class="muted">Loading…</p>
+    <div class="row">
+      <select id="member"><option value="">Random person</option></select>
+      <button class="primary" id="trigger">Start challenge now</button>
+      <button id="cancel">Cancel current</button>
+      <button id="press">Press buzzer</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Today's surprise times</h2>
+    <p id="plan" class="muted"></p>
+    <div class="row">
+      <button id="pause"></button>
+      <button id="replan">Re-roll today's times</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Chores owed</h2>
+    <ul id="owed"></ul>
+  </div>
+
+  <div class="card">
+    <h2>Recent challenges</h2>
+    <ul id="history"></ul>
+  </div>
+</main>
+
+<script>
+  // Token comes from ?token=... once, then is remembered on this device.
+  const params = new URLSearchParams(location.search);
+  let token = "";
+  try {
+    if (params.get("token")) localStorage.setItem("fc_token", params.get("token"));
+    token = localStorage.getItem("fc_token") || "";
+  } catch (e) { token = params.get("token") || ""; }
+
+  const $ = (id) => document.getElementById(id);
+  let data = null;
+
+  async function api(path, body) {
+    const res = await fetch(path, {
+      method: body === undefined ? "GET" : "POST",
+      headers: { "Content-Type": "application/json", "X-Admin-Token": token },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    if (res.status === 401) throw new Error("Wrong or missing admin token - open /admin?token=YOUR_TOKEN");
+    if (!res.ok) throw new Error(`Request failed (${res.status})`);
+    return res.json();
+  }
+
+  function li(text, cls) {
+    const el = document.createElement("li");
+    const span = document.createElement("span");
+    span.textContent = text;
+    if (cls) span.className = cls;
+    el.appendChild(span);
+    return el;
+  }
+
+  function render() {
+    const s = data.state;
+    $("now").textContent = s.phase === "idle"
+      ? "Waiting for the next surprise."
+      : `${s.phase.toUpperCase()}: ${s.member} - ${s.challenge}`;
+
+    const sel = $("member");
+    if (sel.options.length === 1) {
+      for (const name of data.family) sel.add(new Option(name, name));
+    }
+
+    $("plan").textContent = data.planned_today.length
+      ? `Still to come: ${data.planned_today.join(", ")} (shh - don't tell!)`
+      : "No more planned for today.";
+    $("pause").textContent = s.paused ? "▶ Resume challenges" : "⏸ Pause (holiday / sick day)";
+
+    $("owed").innerHTML = "";
+    if (!data.pending_punishments.length) $("owed").appendChild(li("All clear! 🎉", "muted"));
+    for (const p of data.pending_punishments) {
+      const el = li(`${p.text} (missed by ${p.missed_by}, ${p.when})`);
+      const btn = document.createElement("button");
+      btn.textContent = "Done ✓";
+      btn.onclick = () => act(`/api/admin/punishments/${p.id}/done`, {});
+      el.appendChild(btn);
+      $("owed").appendChild(el);
+    }
+
+    $("history").innerHTML = "";
+    if (!data.recent_events.length) $("history").appendChild(li("Nothing yet.", "muted"));
+    for (const e of data.recent_events) {
+      const res = e.success ? `✅ ${e.reaction_seconds}s, +${e.points}` : "❌ missed";
+      $("history").appendChild(li(`${e.when} · ${e.member}: ${e.challenge} - ${res}`, e.success ? "ok" : "no"));
+    }
+  }
+
+  async function refresh() {
+    try {
+      data = await api("/api/admin/summary");
+      $("err").textContent = "";
+      render();
+    } catch (e) {
+      $("err").textContent = e.message;
+    }
+  }
+
+  async function act(path, body) {
+    try { await api(path, body); } catch (e) { $("err").textContent = e.message; }
+    refresh();
+  }
+
+  $("trigger").onclick = () => act("/api/admin/trigger", { member: $("member").value });
+  $("cancel").onclick = () => act("/api/admin/cancel", {});
+  $("press").onclick = () => act("/api/press", {});
+  $("pause").onclick = () => act("/api/admin/pause", { paused: !data.state.paused });
+  $("replan").onclick = () => act("/api/admin/replan", {});
+
+  refresh();
+  setInterval(refresh, 3000);
+</script>
+</body>
+</html>
