@@ -1,0 +1,14 @@
+# Add to the cloudflared config.yml on the spare PC that already runs the
+# ourorganiser.com tunnel, ABOVE the final catch-all "service: http_status:404".
+# Replace 192.168.1.50 with the Pi's LAN IP (give it a DHCP reservation).
+#
+# Then: cloudflared tunnel route dns <your-tunnel-name> fridge.ourorganiser.com
+#       sudo systemctl restart cloudflared
+#
+# IMPORTANT: protect this hostname with a Cloudflare Access application
+# (Zero Trust > Access > Applications) that only allows the family's emails.
+ingress:
+  - hostname: fridge.ourorganiser.com
+    service: http://192.168.1.50:8080
+  # ...your existing ourorganiser.com rules stay here...
+  - service: http_status:404

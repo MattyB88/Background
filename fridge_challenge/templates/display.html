@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fridge Challenge</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='display.css') }}">
+</head>
+<body class="phase-idle">
+  <!-- IDLE: clock, leaderboard, chores owed -->
+  <section id="idle" class="screen">
+    <div class="clock" id="clock">--:--</div>
+    <div class="date" id="date"></div>
+    <div class="lurking" id="lurking"></div>
+    <div class="board-wrap">
+      <h2>This week</h2>
+      <ol class="board" id="board"></ol>
+    </div>
+    <div class="owed" id="owed"></div>
+  </section>
+
+  <!-- ANNOUNCE + ACTIVE: who and what -->
+  <section id="challenge" class="screen">
+    <div class="banner" id="banner">⚡ CHALLENGE TIME ⚡</div>
+    <div class="name" id="name"></div>
+    <div class="task" id="task"></div>
+    <div class="count" id="count"></div>
+    <div class="bar"><div class="fill" id="fill"></div></div>
+    <div class="hint" id="hint"></div>
+    <button class="screen-buzzer" id="screenBuzzer" hidden>BUZZ!</button>
+  </section>
+
+  <!-- SUCCESS / FAIL -->
+  <section id="result" class="screen">
+    <div class="big" id="resultTitle"></div>
+    <div class="detail" id="resultDetail"></div>
+    <div class="punishment" id="resultPunishment"></div>
+  </section>
+
+  <div class="paused-badge" id="paused" hidden>⏸ Challenges paused</div>
+  <div class="offline" id="offline" hidden>Reconnecting…</div>
+
+  <script src="{{ url_for('static', filename='display.js') }}"></script>
+</body>
+</html>

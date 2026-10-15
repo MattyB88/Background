@@ -1,0 +1,14 @@
+[Unit]
+Description=Fridge Challenge buzzer game
+After=network-online.target time-sync.target
+Wants=network-online.target
+
+[Service]
+User=__USER__
+WorkingDirectory=__DIR__
+ExecStart=__DIR__/.venv/bin/python app.py --config __DIR__/config.json
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

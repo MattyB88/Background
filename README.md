@@ -1,9 +1,10 @@
 # Background Desktop Saver + Desktop Buddy
 
-This repository now includes two Windows desktop experiments:
+This repository includes two Windows desktop experiments and a Raspberry Pi family game:
 
 - `desktop_saver_game.py`: a simple game attached to desktop background layering.
 - `desktop_buddy.py`: a staged virtual desktop buddy prototype with transparent overlay rendering, state machine behavior, and local SQLite memory.
+- [`fridge_challenge/`](fridge_challenge/README.md): a Raspberry Pi fridge-screen buzzer game — random family challenges, hit the buzzer in time or everyone gets a chore.
 
 ## Desktop Buddy stages implemented
 

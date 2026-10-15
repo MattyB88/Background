@@ -1,0 +1,118 @@
+/* Sized for small fridge screens (800x480 / 1024x600) but scales to anything. */
+:root {
+  --bg: #10131c;
+  --fg: #f4f6fb;
+  --muted: #8b93a7;
+  --accent: #ffcc33;
+  --good: #2ecc71;
+  --bad: #ff4d4d;
+  --card: #1c2130;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  cursor: none; /* kiosk: hide the mouse pointer */
+  user-select: none;
+  transition: background 0.4s;
+}
+
+.screen {
+  display: none;
+  height: 100vh;
+  padding: 3vh 4vw;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+body.phase-idle #idle,
+body.phase-announce #challenge,
+body.phase-active #challenge,
+body.phase-success #result,
+body.phase-fail #result { display: flex; }
+
+/* ---------- idle ---------- */
+.clock { font-size: 18vh; font-weight: 800; line-height: 1; letter-spacing: -0.02em; }
+.date { font-size: 5vh; color: var(--muted); margin-top: 1vh; }
+.lurking { font-size: 4vh; color: var(--accent); margin: 3vh 0 2vh; min-height: 5vh; }
+.board-wrap { width: min(90vw, 700px); }
+.board-wrap h2 { margin: 0 0 1vh; font-size: 3.5vh; color: var(--muted); font-weight: 600; }
+.board { list-style: none; margin: 0; padding: 0; }
+.board li {
+  display: flex;
+  justify-content: space-between;
+  background: var(--card);
+  border-radius: 1.5vh;
+  padding: 1.2vh 2.5vw;
+  margin-bottom: 1vh;
+  font-size: 4vh;
+}
+.board li:first-child { outline: 0.4vh solid var(--accent); }
+.board .pts { font-weight: 800; color: var(--accent); }
+.owed { font-size: 3.5vh; color: var(--bad); margin-top: 2vh; min-height: 4vh; }
+
+/* ---------- challenge ---------- */
+.banner { font-size: 6vh; font-weight: 800; color: var(--accent); letter-spacing: 0.05em; }
+.name { font-size: 16vh; font-weight: 900; line-height: 1.05; margin: 1vh 0; }
+.task { font-size: 6vh; max-width: 90vw; line-height: 1.2; }
+.count { font-size: 14vh; font-weight: 900; margin-top: 2vh; font-variant-numeric: tabular-nums; }
+.bar { width: 80vw; height: 2.5vh; background: var(--card); border-radius: 2vh; overflow: hidden; margin-top: 1vh; }
+.fill { height: 100%; width: 100%; background: var(--good); transition: background 0.3s; }
+.hint { font-size: 4vh; color: var(--muted); margin-top: 2vh; }
+
+body.phase-announce { animation: flash 0.5s steps(2) infinite; }
+body.phase-announce .bar { visibility: hidden; }
+body.phase-active.hurry .fill { background: var(--bad); }
+body.phase-active.hurry .count { color: var(--bad); animation: pulse 0.5s infinite; }
+
+@keyframes flash { 0% { background: #3a2a00; } 100% { background: var(--bg); } }
+@keyframes pulse { 50% { transform: scale(1.12); } }
+
+.screen-buzzer {
+  margin-top: 2vh;
+  font-size: 6vh;
+  font-weight: 900;
+  padding: 2vh 8vw;
+  border: none;
+  border-radius: 10vh;
+  background: var(--bad);
+  color: #fff;
+  box-shadow: 0 1vh 0 #a01f1f;
+}
+.screen-buzzer:active { transform: translateY(1vh); box-shadow: none; }
+
+/* ---------- result ---------- */
+body.phase-success { background: #0d3b22; }
+body.phase-fail { background: #4a0f0f; }
+.big { font-size: 13vh; font-weight: 900; line-height: 1.1; }
+.detail { font-size: 6vh; margin-top: 2vh; }
+.punishment {
+  font-size: 6vh;
+  font-weight: 700;
+  margin-top: 3vh;
+  padding: 2vh 4vw;
+  border-radius: 2vh;
+  background: rgba(0, 0, 0, 0.35);
+}
+.punishment:empty { display: none; }
+
+/* ---------- overlays ---------- */
+.paused-badge, .offline {
+  position: fixed;
+  top: 2vh;
+  right: 2vw;
+  font-size: 3vh;
+  padding: 0.8vh 2vw;
+  border-radius: 2vh;
+  background: var(--card);
+  color: var(--muted);
+}
+.offline { left: 2vw; right: auto; color: var(--bad); }
