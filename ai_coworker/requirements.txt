@@ -1,0 +1,4 @@
+openai>=1.40
+python-dotenv>=1.0
+discord.py>=2.3      # only for run_discord.py
+# pyodbc>=5.0        # only when connecting to the real Accentis SQL Server database

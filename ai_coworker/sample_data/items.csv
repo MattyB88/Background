@@ -1,0 +1,13 @@
+code,description,type,uom,lead_time_days,min_stock
+CAS321,Cabinet assembly 321,make,ea,0,0
+CAS123,Control assembly 123,make,ea,0,0
+CAS234,Sensor assembly 234,make,ea,0,0
+SUB10,Wiring loom sub-assembly,make,ea,0,0
+CCA53,Circuit card A53,buy,ea,42,20
+CCA60,Circuit card A60,buy,ea,42,10
+ENC200,Enclosure 200,buy,ea,28,5
+SCR-M4,Screw M4 x 10,buy,ea,7,200
+CAB2M,Cable assembly 2m,buy,ea,14,20
+PSU24,Power supply 24V,buy,ea,21,4
+TERM5,Terminal block 5-way,buy,ea,14,50
+WIRE1,Hook-up wire,buy,m,7,100
