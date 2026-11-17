@@ -32,3 +32,7 @@ Press `Esc` to quit.
 
 - Target platform: **Windows 10/11** (uses Win32 via `ctypes`).
 - Current environment here may not display GUI unless running on a Windows desktop session.
+
+## AI plays GTA VI (Remote Play harness)
+
+`gta_ai/` is a harness that lets Claude play a PS5 game live. It screen-captures the PS Remote Play / chiaki-ng window, sends the frame to Claude, and plays the result through a virtual gamepad. No capture card is needed. See **[GTA_AI_README.md](GTA_AI_README.md)** for setup and the stream-night checklist.

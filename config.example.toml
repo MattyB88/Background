@@ -1,0 +1,47 @@
+# Copy to config.toml and edit. Every key is optional (defaults live in gta_ai/config.py).
+
+[capture]
+# chiaki-ng window: "window:chiaki"   Official app: "window:PS Remote Play"
+# Fallbacks: "monitor:1" (whole primary screen) or "region:x,y,width,height"
+source = "window:chiaki"
+max_width = 1280          # frames are downscaled to this before being sent to Claude
+jpeg_quality = 70
+
+[gamepad]
+type = "x360"             # x360 for chiaki-ng, ds4 for the official PS Remote Play app, dry = no pad
+# invert_y = true         # uncomment/flip if preflight shows stick up/down reversed
+sustain_timeout_s = 8.0   # pad goes neutral if no new decision arrives for this long
+blocked_buttons = ["share"]   # stops the AI opening the PS5 create/share menu
+
+[brain]
+type = "claude"           # "local" = model on your PC (see [local]), "mock" = no model (pipeline testing)
+model = "claude-opus-5-5"
+effort = "low"            # low reacts fastest. medium is smarter but slower.
+fast_mode = false         # true = Opus 5.5 fast mode: quicker replies at 2x token price
+# controls_file = "my_gta6_controls.md"   # your corrected controls cheat sheet
+
+[local]
+# Any OpenAI-compatible local server. The model MUST be a vision ("VL") model.
+url = "http://localhost:11434/v1"     # Ollama. LM Studio: "http://localhost:1234/v1"
+model = "qwen2.5vl:7b"                # Ollama tag, or the model id LM Studio shows
+max_tokens = 1200
+timeout_s = 90.0
+json_mode = "schema"                  # steps down to "object"/"none" automatically if unsupported
+# extra_body = { think = false }      # Qwen3 thinking models on Ollama: turn thinking off for speed
+
+[loop]
+mission = "Explore the city, steal a nice car, drive around and cause harmless chaos. If a story mission is active, follow its on-screen objectives."
+think_lead_ms = 400       # start the next screenshot this long before the current inputs end
+max_cost_usd = 25.0       # hard spend cap per run; the AI pauses itself when reached
+save_frames = true
+start_paused = true       # start paused; press F8 (or the /control page) to go live
+
+[overlay]
+enabled = true
+host = "127.0.0.1"        # "0.0.0.0" lets your phone open /control over LAN (no password!)
+port = 8765
+
+[hotkeys]
+pause = "f8"
+panic = "f9"
+quit = "f10"
