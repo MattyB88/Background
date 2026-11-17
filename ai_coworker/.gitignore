@@ -1,0 +1,5 @@
+.env
+*.sqlite3
+accentis_queries.toml
+__pycache__/
+.pytest_cache/

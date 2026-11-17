@@ -1,5 +1,7 @@
 # Background Desktop Saver + Desktop Buddy
 
+> Also here: [`ai_coworker/`](ai_coworker/README.md), a proof-of-concept AI coworker for the team chat (ERP stock questions, meeting notes, production issues/actions, morning digest).
+
 This repository now includes two Windows desktop experiments:
 
 - `desktop_saver_game.py`: a simple game attached to desktop background layering.

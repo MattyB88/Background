@@ -1,0 +1,43 @@
+# Copy to accentis_queries.toml and replace EVERY query with the real Accentis tables/views.
+# The table and column names below are PLACEHOLDERS, not the real Accentis schema.
+# Each query must return the column names shown (use AS aliases). "?" = parameter.
+# Ask your Accentis admin/partner for: a read-only SQL login, and the tables for
+# items, stock levels, BOMs and stock movements (issues to jobs/sales).
+
+[queries]
+get_item = """
+SELECT ItemCode AS code, Description AS description,
+       CASE WHEN IsManufactured = 1 THEN 'make' ELSE 'buy' END AS type,
+       UOM AS uom, LeadTimeDays AS lead_time_days, MinStock AS min_stock
+FROM   dbo.PLACEHOLDER_Items WHERE ItemCode = ?
+"""
+
+search_items = """
+SELECT TOP 20 ItemCode AS code, Description AS description,
+       CASE WHEN IsManufactured = 1 THEN 'make' ELSE 'buy' END AS type,
+       UOM AS uom, LeadTimeDays AS lead_time_days, MinStock AS min_stock
+FROM   dbo.PLACEHOLDER_Items WHERE ItemCode LIKE ? OR Description LIKE ?
+"""
+
+list_items = """
+SELECT ItemCode AS code, Description AS description,
+       CASE WHEN IsManufactured = 1 THEN 'make' ELSE 'buy' END AS type,
+       UOM AS uom, LeadTimeDays AS lead_time_days, MinStock AS min_stock
+FROM   dbo.PLACEHOLDER_Items WHERE Active = 1
+"""
+
+get_stock = """
+SELECT SUM(QtyOnHand) AS on_hand, SUM(QtyAllocated) AS allocated, SUM(QtyOnOrder) AS on_order
+FROM   dbo.PLACEHOLDER_StockLevels WHERE ItemCode = ?
+"""
+
+get_bom = """
+SELECT ComponentCode AS component, QtyPer AS qty_per
+FROM   dbo.PLACEHOLDER_BOMLines WHERE ParentCode = ?
+"""
+
+get_usage = """
+SELECT SUM(Qty) AS qty
+FROM   dbo.PLACEHOLDER_StockMovements
+WHERE  ItemCode = ? AND MovementType = 'ISSUE' AND MovementDate > DATEADD(day, -?, GETDATE())
+"""
