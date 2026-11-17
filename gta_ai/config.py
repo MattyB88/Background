@@ -20,7 +20,7 @@ DEFAULTS: dict = {
         "blocked_buttons": [],   # e.g. ["options", "share"] to stop the AI opening menus
     },
     "brain": {
-        "type": "claude",        # claude | mock
+        "type": "claude",        # claude | local | mock
         "model": "claude-opus-5-5",
         "effort": "low",         # low = fastest reactions; medium/high = smarter but slower
         "max_tokens": 6000,
@@ -30,6 +30,15 @@ DEFAULTS: dict = {
         "price_out_per_mtok": 20.0,
         "controls_file": "",     # custom controls cheat sheet (defaults to prompts/controls.md)
         "timeout_s": 30.0,
+    },
+    "local": {                   # used when brain.type = "local" (Ollama / LM Studio / llama.cpp)
+        "url": "http://localhost:11434/v1",   # LM Studio: http://localhost:1234/v1
+        "model": "qwen2.5vl:7b", # must be a VISION model
+        "temperature": 0.3,
+        "max_tokens": 1200,
+        "timeout_s": 90.0,
+        "json_mode": "schema",   # schema | object | none (auto-steps down if the server rejects it)
+        "extra_body": {},        # extra request fields, e.g. {"think": false} for Qwen3 thinking models
     },
     "loop": {
         "mission": "Explore the city, get a car, drive around and cause harmless chaos. "

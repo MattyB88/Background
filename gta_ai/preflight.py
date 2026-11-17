@@ -2,7 +2,7 @@
 
   python -m gta_ai.preflight -c config.toml --capture
   python -m gta_ai.preflight -c config.toml --pad          # or --pad ds4 / --pad x360
-  python -m gta_ai.preflight -c config.toml --api          # one real Claude call (~1-3 cents)
+  python -m gta_ai.preflight -c config.toml --api          # one model call (Claude ~1-3 cents, local free)
 """
 from __future__ import annotations
 
@@ -57,13 +57,13 @@ def check_pad(kind: str, invert_y: bool | None) -> None:
     print("[pad] If NOTHING happened, the Remote Play client is not seeing the virtual pad. See README.")
 
 
-def check_api(source: str, model: str) -> None:
+def check_api(source: str, cfg: dict) -> None:
     from .actions import Limits
-    from .brain import ClaudeBrain
+    from .app import make_brain
     from .capture import Capturer
 
     frame = Capturer(source).grab()
-    brain = ClaudeBrain(model=model, limits=Limits())
+    brain = make_brain(cfg, Limits())
     d = brain.decide(frame, "Preflight test turn. Describe what you see and propose your first inputs.")
     print(f"[api] OK  model={d.model} latency={d.latency_s:.1f}s cost=${d.cost_usd:.4f} {d.note}")
     print(f"[api] observation: {d.plan.observation}")
@@ -78,13 +78,20 @@ def main() -> None:
     ap.add_argument("--pad", nargs="?", const="config", choices=["config", "x360", "ds4", "dry"],
                     help="drive the virtual pad through a test pattern")
     ap.add_argument("--invert-y", choices=["true", "false"])
-    ap.add_argument("--api", action="store_true", help="one real Claude call on a captured frame")
+    ap.add_argument("--api", action="store_true", help="one real model call (Claude or local) on a captured frame")
+    ap.add_argument("--brain", choices=["claude", "local", "mock"])
+    ap.add_argument("--local-url", help="OpenAI-compatible base URL, e.g. http://localhost:1234/v1")
     ap.add_argument("--source")
     ap.add_argument("--model")
     a = ap.parse_args()
     cfg = load_config(a.config)
     source = a.source or cfg["capture"]["source"]
-    model = a.model or cfg["brain"]["model"]
+    if a.brain:
+        cfg["brain"]["type"] = a.brain
+    if a.local_url:
+        cfg["local"]["url"] = a.local_url
+    if a.model:
+        cfg["local" if cfg["brain"]["type"] == "local" else "brain"]["model"] = a.model
     pad_kind = cfg["gamepad"]["type"] if a.pad == "config" else a.pad
     invert = cfg["gamepad"]["invert_y"] if a.invert_y is None else a.invert_y == "true"
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
@@ -96,7 +103,7 @@ def main() -> None:
     if pad_kind:
         check_pad(pad_kind, invert)
     if a.api:
-        check_api(source, model)
+        check_api(source, cfg)
 
 
 if __name__ == "__main__":

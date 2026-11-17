@@ -125,3 +125,80 @@ def test_overlay_server(tmp_path):
         assert (tmp_path / "c.txt").read_text() == "hello"
     finally:
         srv.shutdown()
+
+
+# ---- local model brain (OpenAI-compatible: Ollama / LM Studio) ----
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer  # noqa: E402
+
+from gta_ai.local_brain import LocalBrain, extract_json  # noqa: E402
+
+_PLAN = {"observation": "beach", "goal": "car", "commentary": "vroom",
+         "steps": [_step(tap=["triangle"], duration_ms=300)],
+         "sustain": {"hold": [], "left_stick": {"x": 0, "y": 0}, "right_stick": {"x": 0, "y": 0},
+                     "l2": 0, "r2": 0}}
+
+
+def _fake_openai(reject_schema: bool, reply: str):
+    seen = []
+
+    class H(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_POST(self):
+            body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            seen.append(body)
+            fmt = (body.get("response_format") or {}).get("type")
+            if reject_schema and fmt == "json_schema":
+                raw, code = b'{"error":"response_format json_schema not supported"}', 400
+            else:
+                raw, code = json.dumps({"choices": [{"message": {"role": "assistant", "content": reply}}]}).encode(), 200
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv, seen
+
+
+def _frame(tmp_path):
+    p = tmp_path / "f.png"
+    Image.new("RGB", (640, 360), (10, 200, 10)).save(p)
+    return Capturer(f"file:{p}").grab()
+
+
+def test_extract_json_variants():
+    assert extract_json(json.dumps(_PLAN))["goal"] == "car"
+    messy = "<think>hmm {not json}</think>Sure!\n```json\n" + json.dumps(_PLAN) + "\n```"
+    assert extract_json(messy)["commentary"] == "vroom"
+    chatty = 'Here you go: ' + json.dumps(_PLAN) + ' hope that helps {'
+    assert extract_json(chatty)["observation"] == "beach"
+
+
+def test_local_brain_happy_path(tmp_path):
+    srv, seen = _fake_openai(False, json.dumps(_PLAN))
+    try:
+        b = LocalBrain(url=f"http://127.0.0.1:{srv.server_address[1]}/v1", model="qwen2.5vl:7b",
+                       extra_body={"think": False})
+        d = b.decide(_frame(tmp_path), "ctx")
+    finally:
+        srv.shutdown()
+    assert d.plan.steps[0].tap == {"triangle"} and d.cost_usd == 0.0
+    req = seen[0]
+    assert req["model"] == "qwen2.5vl:7b" and req["think"] is False
+    assert req["response_format"]["type"] == "json_schema"
+    assert req["messages"][1]["content"][0]["image_url"]["url"].startswith("data:image/jpeg;base64,")
+
+
+def test_local_brain_steps_down_json_mode(tmp_path):
+    srv, seen = _fake_openai(True, "<think>x</think>" + json.dumps(_PLAN))
+    try:
+        b = LocalBrain(url=f"http://127.0.0.1:{srv.server_address[1]}/v1")
+        d = b.decide(_frame(tmp_path), "ctx")
+    finally:
+        srv.shutdown()
+    assert b.json_mode == "object" and len(seen) == 2
+    assert d.plan.commentary == "vroom"

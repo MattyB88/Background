@@ -37,22 +37,35 @@ def build_context(mission: str, history: deque, notes: list[str], turn: int, pau
     return "\n".join(lines)
 
 
+def make_brain(cfg: dict, limits: Limits):
+    bc = cfg["brain"]
+    if bc["type"] == "mock":
+        return MockBrain(limits)
+    if bc["type"] == "local":
+        from .local_brain import LocalBrain
+
+        lo = cfg["local"]
+        return LocalBrain(
+            url=lo["url"], model=lo["model"], temperature=lo["temperature"], max_tokens=lo["max_tokens"],
+            timeout_s=lo["timeout_s"], json_mode=lo["json_mode"], extra_body=lo["extra_body"],
+            limits=limits, controls_path=bc["controls_file"] or None,
+        )
+    return ClaudeBrain(
+        model=bc["model"], effort=bc["effort"], max_tokens=bc["max_tokens"], fast_mode=bc["fast_mode"],
+        use_fallbacks=bc["use_fallbacks"], price_in_per_mtok=bc["price_in_per_mtok"],
+        price_out_per_mtok=bc["price_out_per_mtok"], limits=limits,
+        controls_path=bc["controls_file"] or None, timeout_s=bc["timeout_s"],
+    )
+
+
 def run(cfg: dict) -> None:
-    lc, bc, gc = cfg["loop"], cfg["brain"], cfg["gamepad"]
+    lc, gc = cfg["loop"], cfg["gamepad"]
     limits = Limits(
         max_steps=lc["max_steps"], max_step_ms=lc["max_step_ms"], max_plan_ms=lc["max_plan_ms"],
         tap_ms=gc["tap_ms"], blocked_buttons=frozenset(gc["blocked_buttons"]),
     )
     capturer = Capturer(cfg["capture"]["source"], cfg["capture"]["max_width"], cfg["capture"]["jpeg_quality"])
-    if bc["type"] == "mock":
-        brain = MockBrain(limits)
-    else:
-        brain = ClaudeBrain(
-            model=bc["model"], effort=bc["effort"], max_tokens=bc["max_tokens"], fast_mode=bc["fast_mode"],
-            use_fallbacks=bc["use_fallbacks"], price_in_per_mtok=bc["price_in_per_mtok"],
-            price_out_per_mtok=bc["price_out_per_mtok"], limits=limits,
-            controls_path=bc["controls_file"] or None, timeout_s=bc["timeout_s"],
-        )
+    brain = make_brain(cfg, limits)
     pad = make_pad(gc["type"], gc["invert_y"])
     executor = Executor(pad, gc["tick_hz"], gc["tap_ms"], gc["sustain_timeout_s"])
     state = LiveState(cfg["overlay"]["text_file"] if cfg["overlay"]["enabled"] else None)
@@ -178,8 +191,9 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("-c", "--config", help="TOML config file (see config.example.toml)")
     ap.add_argument("--source", help="capture source, e.g. 'window:chiaki' or 'monitor:1'")
     ap.add_argument("--pad", choices=["x360", "ds4", "dry"], help="virtual gamepad type")
-    ap.add_argument("--brain", choices=["claude", "mock"])
-    ap.add_argument("--model")
+    ap.add_argument("--brain", choices=["claude", "local", "mock"])
+    ap.add_argument("--model", help="Claude model, or the local model name when --brain local")
+    ap.add_argument("--local-url", help="OpenAI-compatible base URL, e.g. http://localhost:1234/v1")
     ap.add_argument("--effort", choices=["low", "medium", "high", "xhigh", "max"])
     ap.add_argument("--mission")
     ap.add_argument("--live", action="store_true", help="start unpaused")
@@ -200,7 +214,9 @@ def main(argv: list[str] | None = None) -> None:
     if a.brain:
         cfg["brain"]["type"] = a.brain
     if a.model:
-        cfg["brain"]["model"] = a.model
+        cfg["local" if cfg["brain"]["type"] == "local" else "brain"]["model"] = a.model
+    if a.local_url:
+        cfg["local"]["url"] = a.local_url
     if a.effort:
         cfg["brain"]["effort"] = a.effort
     if a.mission:

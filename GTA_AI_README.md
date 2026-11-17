@@ -77,6 +77,35 @@ It starts **paused**. Get into story mode, focus the Remote Play window, then:
 - **Control panel**: `http://127.0.0.1:8765/control` has a big pause button and **director notes** (e.g. "steal the red sports car", "go to the beach"). Claude acts on a note on its next turn.
 - Every frame and decision is saved under `runs/<timestamp>/`. You can use these for highlight clips and debugging.
 
+## Using a local model instead of Claude (free, runs on your PC)
+
+Set `brain.type = "local"` in `config.toml`, or run `run_gta_ai.bat local`. Any OpenAI-compatible server works: Ollama, LM Studio, llama.cpp or vLLM.
+
+**The model must accept images.** The AI decides only from screenshots, so a text-only model cannot play. Plain Qwen 14B models (`qwen2.5:14b`, `qwen3:14b`) are text-only as far as I know. Check that whatever you load accepts images.
+
+Vision models that fit on one gaming GPU:
+
+| Model | Ollama | Approx. VRAM (Q4) |
+|---|---|---|
+| Qwen2.5-VL 7B | `ollama pull qwen2.5vl:7b` | ~6-8 GB |
+| Qwen3-VL 8B | `ollama pull qwen3-vl:8b` (check your Ollama version) | ~7-9 GB |
+| Gemma 3 12B | `ollama pull gemma3:12b` | ~9-11 GB |
+
+In LM Studio, pick a "VL" GGUF that includes its **mmproj** (vision) file. Start the server (Developer tab, port 1234) and set `local.url = "http://localhost:1234/v1"` and `local.model` to the model id it shows.
+
+Test it:
+```bat
+.venv\Scripts\python -m gta_ai.preflight -c config.toml --api --brain local
+```
+This prints latency plus what the model saw and planned. If it says it can't see an image, the model or its mmproj isn't vision-capable.
+
+Things to know:
+- **GPU sharing.** The game stream decode, OBS encoding and the model all compete for the same GPU. Use OBS hardware encoding (NVENC/AMF), and stream Remote Play at 720p or 1080p rather than 4K.
+- **Speed.** Set `capture.max_width = 768` or `896`. Smaller images are much faster for local VL models.
+- **Thinking models.** Qwen3 "thinking" models can spend a long time reasoning. Set `local.extra_body = { think = false }` (Ollama) or pick an "instruct" variant. Any `<think>` text in the output is stripped automatically.
+- **JSON.** Small models sometimes produce broken JSON. The harness tries schema mode, then falls back to `json_object`, then to extracting JSON from plain text. A turn it still can't parse just goes neutral.
+- **Quality.** A 7-12B model is much weaker than Claude at reading the screen and planning. Expect more walking into walls; keep missions simple ("walk around, steal a car, drive").
+
 ## Tuning: speed vs smarts vs cost
 
 - `brain.effort = "low"` (default) is fastest. `"medium"` plans better but thinks longer.
@@ -106,6 +135,7 @@ Use **story mode only**. Automated input in GTA Online can get your account bann
 gta_ai/
   app.py        main loop (python -m gta_ai)
   brain.py      Claude call (structured JSON output, prompt caching, refusal fallback) + MockBrain
+  local_brain.py  local vision model via any OpenAI-compatible server (Ollama / LM Studio)
   actions.py    plan schema, validation and clamping
   executor.py   120 Hz real-time input player with sustain + dead-man timeout
   gamepad.py    x360 / ds4 (vgamepad) and dry-run backends
