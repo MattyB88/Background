@@ -1,0 +1,3 @@
+# Never commit the database or real export files
+data/
+__pycache__/
