@@ -1,0 +1,415 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ERP Demo</title>
+<style>
+:root{
+  --bg:#f3f5f8;--panel:#fff;--ink:#1c2430;--muted:#637083;--line:#dfe4eb;--side:#1f2d3d;--side-ink:#c9d3df;
+  --side-active:#2d72d9;--accent:#2d72d9;--accent-soft:#e7f0fc;--good:#1f8a4c;--warn:#b7791f;--bad:#c0392b;--row:#f8fafc;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#121821;--panel:#1a222d;--ink:#e3e8ef;--muted:#93a1b3;--line:#2a3542;--side:#0d131a;--side-ink:#aab6c4;
+  --accent:#5b9bf0;--accent-soft:#1d2d44;--row:#1e2732;--good:#4cc283;--warn:#e0a84a;--bad:#ef6b5d}}
+*{box-sizing:border-box}
+body{margin:0;font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+.app{display:grid;grid-template-columns:220px 1fr;min-height:100vh}
+nav{background:var(--side);color:var(--side-ink);padding:14px 0;position:sticky;top:0;height:100vh;overflow:auto}
+.brand{font-weight:700;color:#fff;padding:4px 18px 14px;font-size:16px;letter-spacing:.3px}
+.brand small{display:block;font-weight:400;color:var(--side-ink);font-size:11px;opacity:.8}
+nav h6{margin:14px 18px 4px;font-size:10px;letter-spacing:1px;text-transform:uppercase;opacity:.6}
+nav a{display:block;padding:7px 18px;color:var(--side-ink);text-decoration:none;cursor:pointer;border-left:3px solid transparent}
+nav a:hover{background:rgba(255,255,255,.05)}
+nav a.active{background:rgba(45,114,217,.18);border-left-color:var(--side-active);color:#fff}
+main{padding:18px 22px;min-width:0}
+header.top{display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap}
+header.top h1{font-size:20px;margin:0;flex:1}
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+input,select,textarea,button{font:inherit;color:inherit}
+input,select,textarea{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:7px 10px}
+button{background:var(--accent);color:#fff;border:0;border-radius:6px;padding:7px 14px;cursor:pointer}
+button.ghost{background:transparent;color:var(--accent);border:1px solid var(--line)}
+button:disabled{opacity:.5;cursor:default}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px;margin-bottom:14px}
+.card h3{margin:0 0 10px;font-size:13px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;margin-bottom:14px}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 14px}
+.kpi .l{font-size:12px;color:var(--muted)} .kpi .v{font-size:22px;font-weight:600;margin-top:2px;font-variant-numeric:tabular-nums}
+.kpi .v.bad{color:var(--bad)}
+.grid2{display:grid;grid-template-columns:2fr 1fr;gap:14px}
+.tablewrap{overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:8px}
+table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
+th,td{padding:7px 10px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
+th{background:var(--row);font-size:12px;color:var(--muted);position:sticky;top:0;cursor:pointer;user-select:none}
+td.n,th.n{text-align:right}
+tbody tr:hover{background:var(--accent-soft);cursor:pointer}
+.pill{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;background:var(--row);border:1px solid var(--line)}
+.pill.Open,.pill.Active,.pill.Released{color:var(--accent)} .pill.Paid,.pill.Invoiced,.pill.Received,.pill.Completed{color:var(--good)}
+.pill.Backorder,.pill.On.Hold,.pill.Overdue{color:var(--bad)} .pill.Picking,.pill.In.Progress,.pill.Part{color:var(--warn)}
+.pager{display:flex;gap:8px;align-items:center;justify-content:flex-end;padding:8px;color:var(--muted);font-size:13px}
+.drawer{position:fixed;top:0;right:0;width:min(640px,100%);height:100vh;background:var(--panel);border-left:1px solid var(--line);
+  transform:translateX(100%);visibility:hidden;transition:transform .2s,visibility .2s;z-index:10;display:flex;flex-direction:column}
+.drawer.open{transform:none;visibility:visible;box-shadow:-8px 0 24px rgba(0,0,0,.15)}
+.drawer .hd{display:flex;align-items:center;padding:14px 16px;border-bottom:1px solid var(--line);gap:8px}
+.drawer .hd h2{margin:0;font-size:17px;flex:1}
+.drawer .bd{padding:16px;overflow:auto}
+dl.fields{display:grid;grid-template-columns:150px 1fr;gap:4px 12px;margin:0 0 16px}
+dl.fields dt{color:var(--muted)} dl.fields dd{margin:0;word-break:break-word}
+.drawer h4{margin:16px 0 6px;font-size:12px;text-transform:uppercase;color:var(--muted);letter-spacing:.6px}
+a.link{color:var(--accent);cursor:pointer;text-decoration:none}
+.chart svg{width:100%;height:200px;display:block}
+.chart text{fill:var(--muted);font-size:10px}
+.chat{display:grid;grid-template-columns:1fr 320px;gap:14px;height:calc(100vh - 90px)}
+.msgs{overflow:auto;padding:4px 4px 12px;flex:1;min-height:200px}
+.msg{margin:0 0 14px;max-width:900px}
+.msg.user .b{background:var(--accent);color:#fff;display:inline-block;border-radius:12px 12px 2px 12px;padding:8px 12px;margin-left:auto}
+.msg.user{display:flex;justify-content:flex-end}
+.msg.ai .b{background:var(--panel);border:1px solid var(--line);border-radius:12px 12px 12px 2px;padding:10px 14px;overflow:auto}
+.msg.ai .b table{margin:6px 0;font-size:13px} .msg.ai .b p{margin:6px 0}
+.calls{font:12px ui-monospace,Menlo,Consolas,monospace;color:var(--muted);margin:0 0 6px}
+.calls div{padding:2px 0} .calls .e{color:var(--bad)}
+.chatbox{display:flex;gap:8px;border-top:1px solid var(--line);padding-top:10px}
+.chatbox textarea{flex:1;resize:none;height:46px}
+.chatcol{display:flex;flex-direction:column;min-height:0;margin:0}
+.suggest button{display:block;width:100%;text-align:left;margin:0 0 6px;background:var(--panel);color:var(--ink);border:1px solid var(--line)}
+.suggest button:hover{border-color:var(--accent)}
+pre.code{background:var(--row);border:1px solid var(--line);border-radius:6px;padding:10px;overflow:auto;font:12px ui-monospace,Menlo,Consolas,monospace;max-height:420px}
+.muted{color:var(--muted)} .small{font-size:12px}
+.typing{color:var(--muted);font-style:italic}
+footer{color:var(--muted);font-size:11px;margin-top:20px}
+@media (max-width:820px){
+  .app{grid-template-columns:1fr} nav{position:static;height:auto;display:flex;flex-wrap:wrap;padding:6px}
+  nav h6,.brand small{display:none} .brand{padding:6px 10px;width:100%} nav a{padding:6px 10px;border-left:0}
+  main{padding:12px 16px} .grid2,.chat{grid-template-columns:1fr} .chat{height:auto} dl.fields{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+<div class="app">
+<nav id="nav">
+  <div class="brand">ERP Demo<small>API + AI showcase</small></div>
+  <h6>Overview</h6>
+  <a data-view="dashboard">Dashboard</a>
+  <a data-view="ai">AI Assistant</a>
+  <h6>Sales</h6>
+  <a data-view="customers">Customers</a>
+  <a data-view="sales-orders">Sales Orders</a>
+  <a data-view="invoices">Invoices</a>
+  <a data-view="ar-aging">AR Aging</a>
+  <h6>Inventory &amp; Purchasing</h6>
+  <a data-view="items">Inventory</a>
+  <a data-view="low-stock">Reorder Report</a>
+  <a data-view="suppliers">Suppliers</a>
+  <a data-view="purchase-orders">Purchase Orders</a>
+  <h6>Production</h6>
+  <a data-view="work-orders">Work Orders</a>
+  <h6>Developer</h6>
+  <a data-view="api">API Explorer</a>
+  <a data-view="import">Import Data</a>
+</nav>
+<main id="main"></main>
+</div>
+<div class="drawer" id="drawer"><div class="hd"><h2 id="dTitle"></h2><button class="ghost" onclick="closeDrawer()">Close</button></div><div class="bd" id="dBody"></div></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const money = v => v == null ? '' : Number(v).toLocaleString('en-AU', {style:'currency', currency:'AUD', maximumFractionDigits: Math.abs(v) >= 10000 ? 0 : 2});
+const num = v => v == null ? '' : Number(v).toLocaleString('en-AU', {maximumFractionDigits: 2});
+const dt = v => v ? new Date(v + 'T00:00').toLocaleDateString('en-AU') : '';
+const pill = v => v ? `<span class="pill ${esc(v)}">${esc(v)}</span>` : '';
+let apiKey = ''; try { apiKey = localStorage.getItem('erpApiKey') || ''; } catch (e) {}
+
+async function api(path, opts = {}) {
+  const r = await fetch('/api/v1' + path, {...opts, headers: {'X-Api-Key': apiKey, ...(opts.body && !(opts.body instanceof FormData) ? {'Content-Type': 'application/json'} : {}), ...(opts.headers || {})}});
+  if (r.status === 401) {
+    apiKey = prompt('This server requires an API key (X-Api-Key):') || '';
+    try { localStorage.setItem('erpApiKey', apiKey); } catch (e) {}
+    if (apiKey) return api(path, opts);
+  }
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(body.detail ? (typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail)) : r.statusText);
+  return body;
+}
+
+// ---------------------------------------------------------------- resource grids
+const RES = {
+  customers: {title:'Customers', key:'code', cols:[['code','Code'],['name','Name'],['contact','Contact'],['city','City'],['state','State'],['terms_days','Terms','n'],['credit_limit','Credit Limit','money'],['sales_rep','Rep'],['status','Status','pill']]},
+  suppliers: {title:'Suppliers', key:'code', cols:[['code','Code'],['name','Name'],['contact','Contact'],['email','Email'],['city','City'],['terms_days','Terms','n'],['status','Status','pill']]},
+  items: {title:'Inventory', key:'code', cols:[['code','Item Code'],['description','Description'],['category','Category'],['uom','UOM'],['on_hand','On Hand','n'],['allocated','Allocated','n'],['on_order','On Order','n'],['reorder_level','Reorder','n'],['cost_price','Cost','money'],['sell_price','Sell','money'],['warehouse','Whse']]},
+  'sales-orders': {title:'Sales Orders', key:'order_no', cols:[['order_no','Order No'],['customer_code','Customer','cust'],['order_date','Date','date'],['required_date','Required','date'],['customer_ref','Cust Ref'],['sales_rep','Rep'],['total_ex','Total Ex','money'],['status','Status','pill']], filters:{status:['Open','Picking','Backorder','Invoiced','Cancelled']}},
+  invoices: {title:'Invoices', key:'invoice_no', cols:[['invoice_no','Invoice'],['customer_code','Customer','cust'],['order_no','Order','so'],['invoice_date','Date','date'],['due_date','Due','date'],['total_inc','Total Inc','money'],['balance','Balance','money'],['status','Status','pill']], filters:{status:['Open','Paid']}},
+  'purchase-orders': {title:'Purchase Orders', key:'po_no', cols:[['po_no','PO No'],['supplier_code','Supplier','sup'],['order_date','Date','date'],['due_date','Due','date'],['total_ex','Total Ex','money'],['status','Status','pill']]},
+  'work-orders': {title:'Work Orders', key:'wo_no', cols:[['wo_no','WO No'],['item_code','Item','item'],['qty','Qty','n'],['qty_completed','Done','n'],['start_date','Start','date'],['due_date','Due','date'],['order_no','Sales Order','so'],['status','Status','pill']]},
+};
+const LINKS = {cust:'customers', so:'sales-orders', sup:'suppliers', item:'items'};
+function cell(v, kind) {
+  if (kind === 'money') return money(v);
+  if (kind === 'n') return num(v);
+  if (kind === 'date') return dt(v);
+  if (kind === 'pill') return pill(v);
+  if (LINKS[kind] && v) return `<a class="link" onclick="event.stopPropagation();openRecord('${LINKS[kind]}','${esc(v)}')">${esc(v)}</a>`;
+  return esc(v);
+}
+function table(cols, rows, onRow) {
+  const id = 't' + Math.random().toString(36).slice(2);
+  window[id] = onRow;
+  return `<table><thead><tr>${cols.map(c => `<th class="${['n','money'].includes(c[2]) ? 'n' : ''}" data-f="${c[0]}">${c[1]}</th>`).join('')}</tr></thead><tbody>${
+    rows.map((r, i) => `<tr ${onRow ? `onclick="${id}(${i})"` : ''}>${cols.map(c => `<td class="${['n','money'].includes(c[2]) ? 'n' : ''}">${cell(r[c[0]], c[2])}</td>`).join('')}</tr>`).join('')
+    || `<tr><td colspan="${cols.length}" class="muted">No records</td></tr>`}</tbody></table>`;
+}
+
+const state = {q:'', sort:'', offset:0, filters:{}};
+async function showList(res) {
+  const cfg = RES[res];
+  const f = cfg.filters || {};
+  $('#main').innerHTML = `<header class="top"><h1>${cfg.title}</h1><div class="toolbar">
+    <input id="q" placeholder="Search…" value="${esc(state.q)}">
+    ${Object.entries(f).map(([k, opts]) => `<select data-filter="${k}"><option value="">All ${k}</option>${opts.map(o => `<option ${state.filters[k] === o ? 'selected' : ''}>${o}</option>`).join('')}</select>`).join('')}
+    ${res === 'sales-orders' ? '<button onclick="newOrder()">New Order</button>' : ''}
+    </div></header><div class="tablewrap" id="grid">Loading…</div><div class="pager" id="pager"></div>`;
+  let t; $('#q').oninput = e => { clearTimeout(t); t = setTimeout(() => { state.q = e.target.value; state.offset = 0; load(); }, 250); };
+  document.querySelectorAll('[data-filter]').forEach(s => s.onchange = () => { state.filters[s.dataset.filter] = s.value; state.offset = 0; load(); });
+  async function load() {
+    const p = new URLSearchParams({limit: 50, offset: state.offset});
+    if (state.q) p.set('q', state.q);
+    if (state.sort) p.set('sort', state.sort);
+    for (const [k, v] of Object.entries(state.filters)) if (v) p.set(k, v);
+    try {
+      const r = await api(`/${res}?${p}`);
+      $('#grid').innerHTML = table(cfg.cols, r.data, i => openRecord(res, r.data[i][cfg.key]));
+      $('#grid').querySelectorAll('th').forEach(th => th.onclick = () => { const f = th.dataset.f; state.sort = state.sort === f ? '-' + f : f; load(); });
+      $('#pager').innerHTML = `${r.total ? state.offset + 1 : 0}–${Math.min(state.offset + 50, r.total)} of ${r.total.toLocaleString()}
+        <button class="ghost" ${state.offset ? '' : 'disabled'} id="prev">Prev</button><button class="ghost" ${state.offset + 50 < r.total ? '' : 'disabled'} id="next">Next</button>`;
+      $('#prev').onclick = () => { state.offset -= 50; load(); };
+      $('#next').onclick = () => { state.offset += 50; load(); };
+    } catch (e) { $('#grid').innerHTML = `<p class="muted" style="padding:12px">${esc(e.message)}</p>`; }
+  }
+  load();
+}
+
+// ---------------------------------------------------------------- record drawer
+function fields(o, skip = []) {
+  const flat = Object.entries(o).filter(([k, v]) => !skip.includes(k) && (v == null || typeof v !== 'object'));
+  const extra = o.extra ? Object.entries(o.extra) : [];
+  return `<dl class="fields">${flat.map(([k, v]) => `<dt>${esc(k.replace(/_/g, ' '))}</dt><dd>${/price|total|limit|balance|paid|overdue|sales|credit/.test(k) && typeof v === 'number' ? money(v) : esc(v)}</dd>`).join('')}
+    ${extra.map(([k, v]) => `<dt>${esc(k)} <span class="small muted">(export)</span></dt><dd>${esc(v)}</dd>`).join('')}</dl>`;
+}
+function sub(title, cols, rows, res, key) {
+  if (!rows || !rows.length) return '';
+  return `<h4>${title}</h4><div class="tablewrap">${table(cols, rows, res ? i => openRecord(res, rows[i][key]) : null)}</div>`;
+}
+async function openRecord(res, key) {
+  $('#drawer').classList.add('open');
+  $('#dTitle').textContent = key; $('#dBody').innerHTML = 'Loading…';
+  try {
+    const r = await api(`/${res}/${encodeURIComponent(key)}`);
+    let html = '';
+    if (res === 'customers') {
+      $('#dTitle').textContent = `${r.name} (${r.code})`;
+      html = `<div class="kpis"><div class="kpi"><div class="l">Balance</div><div class="v">${money(r.balance)}</div></div>
+        <div class="kpi"><div class="l">Overdue</div><div class="v ${r.overdue > 0 ? 'bad' : ''}">${money(r.overdue)}</div></div>
+        <div class="kpi"><div class="l">Sales YTD (inc)</div><div class="v">${money(r.sales_ytd_inc)}</div></div></div>`
+        + `<button class="ghost" onclick="askAI('Give me an account summary for customer ${esc(r.code)} and draft a friendly payment reminder email if anything is overdue.')">Ask AI about this customer</button>`
+        + fields(r, ['recent_orders', 'open_invoices'])
+        + sub('Open invoices', [['invoice_no','Invoice'],['invoice_date','Date','date'],['due_date','Due','date'],['total_inc','Total','money'],['balance','Balance','money']], r.open_invoices, 'invoices', 'invoice_no')
+        + sub('Recent orders', [['order_no','Order'],['order_date','Date','date'],['status','Status','pill'],['total_inc','Total Inc','money']], r.recent_orders, 'sales-orders', 'order_no');
+    } else if (res === 'items') {
+      $('#dTitle').textContent = `${r.code} — ${r.description}`;
+      html = `<div class="kpis"><div class="kpi"><div class="l">Available</div><div class="v ${r.available < 0 ? 'bad' : ''}">${num(r.available)}</div></div>
+        <div class="kpi"><div class="l">On order</div><div class="v">${num(r.on_order)}</div></div>
+        <div class="kpi"><div class="l">Margin</div><div class="v">${r.margin_pct ?? '–'}%</div></div></div>`
+        + fields(r, ['recent_sales', 'work_orders'])
+        + sub('Recent sales', [['order_no','Order'],['order_date','Date','date'],['customer_code','Customer','cust'],['qty','Qty','n'],['unit_price','Price','money']], r.recent_sales, 'sales-orders', 'order_no')
+        + sub('Open work orders', [['wo_no','WO'],['qty','Qty','n'],['due_date','Due','date'],['status','Status','pill']], r.work_orders, 'work-orders', 'wo_no');
+    } else if (res === 'sales-orders') {
+      $('#dTitle').textContent = `Sales Order ${r.order_no}`;
+      html = fields(r, ['lines', 'customer', 'invoices'])
+        + (r.customer ? `<p>Customer: <a class="link" onclick="openRecord('customers','${esc(r.customer.code)}')">${esc(r.customer.name)}</a></p>` : '')
+        + sub('Lines', [['line_no','#','n'],['item_code','Item','item'],['description','Description'],['qty','Qty','n'],['qty_shipped','Shipped','n'],['unit_price','Price','money'],['line_total','Total','money']], r.lines)
+        + sub('Invoices', [['invoice_no','Invoice'],['invoice_date','Date','date'],['total_inc','Total','money'],['balance','Balance','money']], r.invoices, 'invoices', 'invoice_no');
+    } else if (res === 'suppliers') {
+      $('#dTitle').textContent = `${r.name} (${r.code})`;
+      html = fields(r, ['open_purchase_orders', 'items_supplied'])
+        + sub('Open purchase orders', [['po_no','PO'],['order_date','Date','date'],['due_date','Due','date'],['total_ex','Total','money'],['status','Status','pill']], r.open_purchase_orders, 'purchase-orders', 'po_no')
+        + sub('Items supplied', [['code','Item'],['description','Description'],['on_hand','On Hand','n'],['reorder_level','Reorder','n']], r.items_supplied, 'items', 'code');
+    } else {
+      html = fields(r);
+    }
+    html += `<h4>Raw API response</h4><p class="small muted">GET /api/v1/${res}/${esc(key)}</p><pre class="code">${esc(JSON.stringify(r, null, 2))}</pre>`;
+    $('#dBody').innerHTML = html;
+  } catch (e) { $('#dBody').innerHTML = `<p class="muted">${esc(e.message)}</p>`; }
+}
+function closeDrawer() { $('#drawer').classList.remove('open'); }
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
+
+// ---------------------------------------------------------------- dashboard
+function barChart(data) {
+  if (!data.length) return '<p class="muted">No sales data</p>';
+  const w = 600, h = 200, pad = 28, max = Math.max(...data.map(d => d.sales)) || 1, bw = (w - pad) / data.length;
+  return `<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Monthly sales">${data.map((d, i) => {
+    const bh = (h - 40) * d.sales / max;
+    return `<rect x="${pad + i * bw + 3}" y="${h - 22 - bh}" width="${bw - 6}" height="${bh}" rx="2" fill="var(--accent)"><title>${d.key}: ${money(d.sales)}</title></rect>
+      <text x="${pad + i * bw + bw / 2}" y="${h - 8}" text-anchor="middle">${d.key.slice(2)}</text>`; }).join('')}
+    <text x="0" y="12">${money(max)}</text></svg>`;
+}
+async function showDashboard() {
+  $('#main').innerHTML = '<header class="top"><h1>Dashboard</h1></header><div id="dash">Loading…</div>';
+  const d = await api('/dashboard'), k = d.kpis;
+  const tile = (l, v, bad) => `<div class="kpi"><div class="l">${l}</div><div class="v ${bad ? 'bad' : ''}">${v}</div></div>`;
+  $('#dash').innerHTML = `<p class="muted small">Business date ${dt(d.as_of)} · latest order in data ${dt(d.latest_order_date)}</p>
+    <div class="kpis">${tile('Sales MTD (ex)', money(k.sales_mtd_ex))}${tile('Sales YTD (ex)', money(k.sales_ytd_ex))}
+    ${tile('Open orders', `${k.open_orders} · ${money(k.open_orders_value_ex)}`)}${tile('AR outstanding', money(k.ar_outstanding))}
+    ${tile('AR overdue', money(k.ar_overdue), k.ar_overdue > 0)}${tile('Items below reorder', k.low_stock_items, k.low_stock_items > 0)}
+    ${tile('Open work orders', k.open_work_orders)}${tile('Open purchase orders', k.open_purchase_orders)}</div>
+    <div class="grid2"><div class="card chart"><h3>Sales by month (ex GST)</h3>${barChart(d.monthly_sales)}</div>
+    <div class="card"><h3>Top customers YTD</h3>${table([['name','Customer'],['sales','Sales','money']], d.top_customers_ytd, i => openRecord('customers', d.top_customers_ytd[i].code))}</div></div>
+    <div class="card"><h3>Records loaded</h3><p class="small">${Object.entries(k.counts).map(([t, n]) => `${t.replace(/_/g, ' ')}: <b>${n.toLocaleString()}</b>`).join(' · ')}</p></div>`;
+}
+
+// ---------------------------------------------------------------- reports
+async function showAging() {
+  $('#main').innerHTML = '<header class="top"><h1>AR Aging</h1><button class="ghost" onclick="askAI(\'Review the AR aging. Who should accounts chase first and why? Draft a reminder email for the worst account.\')">Ask AI to prioritise</button></header><div id="r">Loading…</div>';
+  const r = await api('/reports/ar-aging');
+  const cols = [['customer_code','Code','cust'],['name','Customer'],['current','Current','money'],['1-30','1–30','money'],['31-60','31–60','money'],['61-90','61–90','money'],['90+','90+','money'],['total','Total','money']];
+  $('#r').innerHTML = `<p class="muted small">As at ${dt(r.as_of)}</p><div class="tablewrap">${table(cols, [...r.data, {name: 'TOTAL', ...r.totals}], i => r.data[i] && openRecord('customers', r.data[i].customer_code))}</div>`;
+}
+async function showLowStock() {
+  $('#main').innerHTML = '<header class="top"><h1>Reorder Report</h1><button class="ghost" onclick="askAI(\'Using the reorder report, draft purchase order suggestions grouped by supplier with estimated cost.\')">Ask AI to draft POs</button></header><div id="r">Loading…</div>';
+  const r = await api('/reports/low-stock');
+  $('#r').innerHTML = `<div class="tablewrap">${table([['code','Item','item'],['description','Description'],['on_hand','On Hand','n'],['allocated','Alloc','n'],['on_order','On Order','n'],['projected','Projected','n'],['reorder_level','Reorder','n'],['suggested_order_qty','Suggest','n'],['supplier_code','Supplier','sup']], r.data, i => openRecord('items', r.data[i].code))}</div>`;
+}
+
+// ---------------------------------------------------------------- new order
+async function newOrder() {
+  $('#drawer').classList.add('open'); $('#dTitle').textContent = 'New Sales Order';
+  $('#dBody').innerHTML = `<p class="small muted">Posts to <code>POST /api/v1/sales-orders</code></p>
+    <p><input id="noCust" placeholder="Customer code" style="width:100%"></p>
+    <p><input id="noRef" placeholder="Customer PO / reference" style="width:100%"></p>
+    <p><textarea id="noLines" rows="5" style="width:100%" placeholder="One line per item:  ITEM-CODE, qty"></textarea></p>
+    <button onclick="submitOrder()">Create order</button> <span id="noMsg" class="muted"></span>`;
+}
+async function submitOrder() {
+  const lines = $('#noLines').value.split('\n').map(l => l.split(',').map(s => s.trim())).filter(l => l[0]).map(([item_code, qty]) => ({item_code, qty: Number(qty || 1)}));
+  try {
+    const r = await api('/sales-orders', {method: 'POST', body: JSON.stringify({customer_code: $('#noCust').value.trim(), customer_ref: $('#noRef').value.trim() || null, lines})});
+    openRecord('sales-orders', r.order_no);
+  } catch (e) { $('#noMsg').textContent = e.message; }
+}
+
+// ---------------------------------------------------------------- AI assistant
+let chatSession = null;
+const chatLog = [];
+const SUGGEST = [
+  'Give me a snapshot of how the business is going this year.',
+  'Which customers are most overdue, and how much do they owe?',
+  'What items are we about to run out of, and who do we buy them from?',
+  'Who are our top 5 customers by sales in the last 90 days, and is anyone trending down?',
+  'Which open sales orders are past their required date?',
+  'Compare sales by sales rep this year.',
+  'Which items have the lowest margin among our best sellers?',
+  'Draft a polite payment reminder email to our most overdue customer.',
+];
+function md(s) {
+  s = esc(s);
+  s = s.replace(/```([\s\S]*?)```/g, (_, c) => `<pre class="code">${c.trim()}</pre>`);
+  s = s.replace(/((?:^\|.*\|\s*$\n?)+)/gm, blk => {
+    const rows = blk.trim().split('\n').filter(r => !/^\|\s*:?-+/.test(r));
+    const cells = r => r.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim());
+    return `<div class="tablewrap"><table><thead><tr>${cells(rows[0]).map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>${rows.slice(1).map(r => `<tr>${cells(r).map(c => `<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+  });
+  s = s.replace(/^### (.*)$/gm, '<h4>$1</h4>').replace(/^## (.*)$/gm, '<h3>$1</h3>').replace(/^# (.*)$/gm, '<h3>$1</h3>')
+       .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/`([^`]+)`/g, '<code>$1</code>')
+       .replace(/((?:^[-*] .*$\n?)+)/gm, b => `<ul>${b.trim().split('\n').map(l => `<li>${l.slice(2)}</li>`).join('')}</ul>`)
+       .replace(/((?:^\d+\. .*$\n?)+)/gm, b => `<ol>${b.trim().split('\n').map(l => `<li>${l.replace(/^\d+\.\s/, '')}</li>`).join('')}</ol>`);
+  return s.split(/\n{2,}/).map(p => /^\s*<(div|ul|ol|h\d|pre)/.test(p) ? p : `<p>${p.replace(/\n/g, '<br>')}</p>`).join('');
+}
+function renderChat() {
+  $('#msgs').innerHTML = chatLog.map(m => m.role === 'user' ? `<div class="msg user"><div class="b">${esc(m.text)}</div></div>` :
+    `<div class="msg ai">${m.trace && m.trace.length ? `<div class="calls">${m.trace.map(t => `<div class="${t.error ? 'e' : ''}">→ ${esc(t.api)}${t.tool === 'run_sql' ? ' <span title="' + esc(t.input.sql) + '">[SQL]</span>' : ''}${t.rows != null ? ` · ${t.rows} rows` : ''}${t.error ? ' · ' + esc(t.error) : ''}</div>`).join('')}</div>` : ''}<div class="b">${m.pending ? '<span class="typing">Thinking and querying the API…</span>' : md(m.text)}</div></div>`).join('');
+  $('#msgs').scrollTop = 1e9;
+}
+function showAI() {
+  $('#main').innerHTML = `<header class="top"><h1>AI Assistant</h1><button class="ghost" onclick="resetChat()">New conversation</button></header>
+    <div class="chat"><div class="card chatcol"><div class="msgs" id="msgs"></div>
+      <div class="chatbox"><textarea id="chatIn" placeholder="Ask anything about customers, orders, stock, invoices…"></textarea><button id="send">Send</button></div></div>
+    <div><div class="card suggest"><h3>Try asking</h3>${SUGGEST.map(s => `<button onclick="sendChat(this.textContent)">${esc(s)}</button>`).join('')}</div>
+    <div class="card small muted"><h3>How it works</h3>Each question goes to <code>POST /api/v1/ai/chat</code>. Claude answers by calling the same REST endpoints listed in the API Explorer; the calls it made are shown above each answer.</div></div></div>`;
+  $('#send').onclick = () => sendChat($('#chatIn').value);
+  $('#chatIn').onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat($('#chatIn').value); } };
+  renderChat();
+}
+async function sendChat(text) {
+  text = (text || '').trim(); if (!text) return;
+  if ($('#chatIn')) $('#chatIn').value = '';
+  chatLog.push({role: 'user', text});
+  const reply = {role: 'ai', pending: true}; chatLog.push(reply); renderChat();
+  try {
+    const r = await api('/ai/chat', {method: 'POST', body: JSON.stringify({message: text, session_id: chatSession})});
+    chatSession = r.session_id; Object.assign(reply, {pending: false, text: r.answer, trace: r.trace});
+  } catch (e) { Object.assign(reply, {pending: false, text: '⚠ ' + e.message}); }
+  if ($('#msgs')) renderChat();
+}
+function askAI(q) { closeDrawer(); go('ai'); sendChat(q); }
+function resetChat() { if (chatSession) api('/ai/chat/' + chatSession, {method: 'DELETE'}).catch(() => {}); chatSession = null; chatLog.length = 0; renderChat(); }
+
+// ---------------------------------------------------------------- API explorer
+const ENDPOINTS = [
+  ['GET', '/dashboard'], ['GET', '/customers?q=apex&limit=5'], ['GET', '/customers/{code}'],
+  ['GET', '/items?category=Hydraulics&sort=-on_hand'], ['GET', '/sales-orders?status=Backorder'],
+  ['GET', '/invoices?status=Open&sort=due_date'], ['GET', '/reports/ar-aging'], ['GET', '/reports/low-stock'],
+  ['GET', '/reports/sales-summary?group_by=customer&limit=10'],
+  ['POST', '/query', {sql: 'SELECT state, COUNT(*) AS customers FROM customers GROUP BY state ORDER BY 2 DESC'}],
+  ['POST', '/ai/chat', {message: 'Which 3 customers owe us the most?'}],
+];
+function showApi() {
+  $('#main').innerHTML = `<header class="top"><h1>API Explorer</h1><a class="link" href="/docs" target="_blank">Full OpenAPI docs ↗</a></header>
+    <div class="card"><div class="toolbar"><select id="em"><option>GET</option><option>POST</option></select>
+    <input id="ep" style="flex:1;min-width:240px" value="/dashboard"><button id="ego">Send</button></div>
+    <textarea id="eb" rows="4" style="width:100%;margin-top:8px;font-family:ui-monospace,monospace" placeholder="JSON body (POST)"></textarea>
+    <p class="small muted">Examples: ${ENDPOINTS.map((e, i) => `<a class="link" data-i="${i}">${e[0]} ${esc(e[1])}</a>`).join(' · ')}</p></div>
+    <div class="card"><h3>curl</h3><pre class="code" id="ecurl"></pre><h3>Response <span id="etime" class="muted"></span></h3><pre class="code" id="eout"></pre></div>`;
+  document.querySelectorAll('[data-i]').forEach(a => a.onclick = () => { const e = ENDPOINTS[a.dataset.i]; $('#em').value = e[0]; $('#ep').value = e[1]; $('#eb').value = e[2] ? JSON.stringify(e[2], null, 2) : ''; });
+  $('#ego').onclick = async () => {
+    const m = $('#em').value; let p = $('#ep').value;
+    if (p.includes('{code}')) { const c = await api('/customers?limit=1'); p = p.replace('{code}', c.data[0]?.code || ''); $('#ep').value = p; }
+    const body = m === 'POST' ? $('#eb').value : null;
+    $('#ecurl').textContent = `curl -X ${m} "${location.origin}/api/v1${p}"${apiKey ? ` \\\n  -H "X-Api-Key: $ERP_API_KEY"` : ''}${body ? ` \\\n  -H "Content-Type: application/json" \\\n  -d '${body.replace(/\s+/g, ' ')}'` : ''}`;
+    $('#eout').textContent = 'Loading…'; const t0 = performance.now();
+    try { const r = await api(p, {method: m, body: body || undefined}); $('#eout').textContent = JSON.stringify(r, null, 2); }
+    catch (e) { $('#eout').textContent = 'Error: ' + e.message; }
+    $('#etime').textContent = `${Math.round(performance.now() - t0)} ms`;
+  };
+}
+
+// ---------------------------------------------------------------- import
+function showImport() {
+  $('#main').innerHTML = `<header class="top"><h1>Import Data</h1></header><div class="card">
+    <p>Upload CSV or Excel files from the ERP export (customers, suppliers, inventory, sales orders, invoices, purchase orders, work orders).
+    Files are matched by name and column headers; unrecognised columns are kept and shown on each record.</p>
+    <p><input type="file" id="files" multiple accept=".csv,.xlsx,.xls,.txt"></p>
+    <p><label><input type="checkbox" id="reset"> Replace all existing data (removes the sample data)</label></p>
+    <button id="up">Import</button></div><div class="card"><h3>Import log</h3><pre class="code" id="log">—</pre></div>`;
+  $('#up').onclick = async () => {
+    const fd = new FormData(); for (const f of $('#files').files) fd.append('files', f);
+    if (!$('#files').files.length) return;
+    $('#log').textContent = 'Importing…';
+    try { const r = await api('/import?reset=' + $('#reset').checked, {method: 'POST', body: fd}); $('#log').textContent = r.log.join('\n\n'); }
+    catch (e) { $('#log').textContent = 'Error: ' + e.message; }
+  };
+}
+
+// ---------------------------------------------------------------- routing
+const VIEWS = {dashboard: showDashboard, ai: showAI, 'ar-aging': showAging, 'low-stock': showLowStock, api: showApi, import: showImport};
+function go(view) {
+  document.querySelectorAll('nav a').forEach(a => a.classList.toggle('active', a.dataset.view === view));
+  Object.assign(state, {q: '', sort: '', offset: 0, filters: {}});
+  if (location.hash !== '#' + view) history.replaceState(null, '', '#' + view);
+  (VIEWS[view] || (() => showList(view)))();
+}
+document.querySelectorAll('nav a').forEach(a => a.onclick = () => go(a.dataset.view));
+go(location.hash.slice(1) in VIEWS || location.hash.slice(1) in RES ? location.hash.slice(1) : 'dashboard');
+</script>
+</body>
+</html>
